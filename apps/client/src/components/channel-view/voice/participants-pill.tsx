@@ -8,8 +8,7 @@ type TParticipantsPillProps = {
   onToggle: () => void;
 };
 
-// The pill hangs over the top edge of the participant strip, the way the
-// Discord control does. It never covers the demo above the strip.
+// the disclosure stays above the thumbnails, or above the toolbar when hidden
 const ParticipantsPill = memo(
   ({ hidden, onToggle }: TParticipantsPillProps) => {
     const { t } = useTranslation('common');
@@ -21,16 +20,15 @@ const ParticipantsPill = memo(
         aria-label={hidden ? t('showParticipants') : t('hideParticipants')}
         aria-pressed={hidden}
         className={cn(
-          'absolute left-1/2 z-20 flex h-9 w-16 -translate-x-1/2 items-center justify-center gap-1.5',
-          'rounded-[18px] border border-line bg-nav/85 text-foreground backdrop-blur',
-          'transition-colors hover:bg-nav',
-          'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring',
-          // over the strip the pill hangs above its top edge, hidden it takes
-          // the place where the strip would be
-          hidden ? 'top-0' : '-top-4'
+          'absolute left-1/2 bottom-full z-20 flex h-9 w-16 -translate-x-1/2 items-center justify-center gap-1.5',
+          'rounded-full bg-black/80 text-white',
+          'transition-colors hover:bg-black',
+          'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring'
         )}
       >
-        <ChevronDownIcon className="size-[14px]" />
+        <ChevronDownIcon
+          className={cn('size-[14px]', hidden && 'rotate-180')}
+        />
         <UsersIcon className="size-[18px]" />
       </button>
     );

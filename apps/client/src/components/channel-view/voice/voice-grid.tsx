@@ -14,13 +14,7 @@ type TVoiceGridProps = {
 
 const OPTIMAL_CELL_ASPECT_RATIO = 1.5;
 
-// the focused tile shows a bigger avatar than the tiles of the grid, the
-// value is read by the participant card
-const FOCUSED_AVATAR_CLASS = '[--voice-avatar-size:160px]';
-
-// the focused tile keeps a margin around it, so it never touches the edges
-// of the stage
-const FOCUSED_TILE_MARGIN = 32;
+const FOCUSED_AVATAR_CLASS = '[--voice-avatar-size:96px]';
 
 const VoiceGrid = memo(
   ({
@@ -100,9 +94,7 @@ const VoiceGrid = memo(
       return { pinnedCard: null, regularCards: childArray };
     }, [children, pinnedCardId]);
 
-    // a pinned card and a lone participant share the focused stage: the tile
-    // keeps its shape in the middle of the stage and the other participants
-    // stay below it
+    // focused media fills the stage; videos preserve their own aspect ratio
     let focusedCard = pinnedCard;
     const stripCards = pinnedCard ? regularCards : [];
     if (!focusedCard && regularCards.length === 1) {
@@ -110,68 +102,48 @@ const VoiceGrid = memo(
     }
 
     if (focusedCard) {
-      const ratio = tileAspectRatio ?? 16 / 9;
-      const focusedWidth = containerSize
-        ? Math.max(
-            0,
-            Math.min(
-              containerSize.width - FOCUSED_TILE_MARGIN * 2,
-              (containerSize.height - FOCUSED_TILE_MARGIN * 2) * ratio
-            )
-          )
-        : undefined;
-      const focusedHeight =
-        focusedWidth !== undefined ? focusedWidth / ratio : undefined;
+      const hasStrip = stripCards.length > 0;
 
       return (
-        <div
-          className={cn(
-            // the top band keeps the stage actions clear of the focused tile
-            'flex h-full flex-col gap-3 bg-rail px-7 pt-14 pb-3',
-            className
-          )}
-        >
+        <div className={cn('relative size-full min-h-0 bg-rail', className)}>
           <div
-            ref={containerRef}
-            className="relative flex min-h-0 flex-1 items-center justify-center"
+            className={cn(
+              'relative size-full [--voice-card-radius:0px] [--voice-card-border:0px] [--voice-caption-bottom:52px] [--voice-profile-tint:100%]',
+              FOCUSED_AVATAR_CLASS
+            )}
           >
-            <div
-              className={cn('relative shrink-0', FOCUSED_AVATAR_CLASS)}
-              style={{ width: focusedWidth, height: focusedHeight }}
-            >
-              {focusedCard}
-            </div>
+            {focusedCard}
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-[104px] bg-linear-to-b from-black/35 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[164px] bg-linear-to-t from-black/75 to-transparent" />
           </div>
-          {stripCards.length > 0 && (
-            <div className="relative shrink-0">
+          <div className="absolute inset-x-0 bottom-[82px] z-10 px-3">
+            {hasStrip && (
               <div
                 inert={participantsHidden}
                 aria-hidden={participantsHidden}
                 className={cn(
                   'flex h-[104px] shrink-0 justify-center-safe gap-2 overflow-x-auto',
-                  'transition-[max-height,opacity] duration-300 ease-in-out',
+                  'transition-[max-height,opacity] duration-200 ease-in-out motion-reduce:transition-none',
                   participantsHidden
                     ? 'max-h-0 opacity-0'
                     : 'max-h-[104px] opacity-100'
                 )}
               >
                 {stripCards.map((card, index) => (
-                  // the participant thumbnails keep the size of the Discord
-                  // overlay container, so a pinned view does not change the
-                  // frame of a user
+                  // compact thumbnails remain separate from the focused shell
                   <div key={index} className="h-[104px] w-[187px] shrink-0">
                     {card}
                   </div>
                 ))}
               </div>
-              {onToggleParticipants && (
-                <ParticipantsPill
-                  hidden={participantsHidden}
-                  onToggle={onToggleParticipants}
-                />
-              )}
-            </div>
-          )}
+            )}
+            {hasStrip && onToggleParticipants && (
+              <ParticipantsPill
+                hidden={participantsHidden}
+                onToggle={onToggleParticipants}
+              />
+            )}
+          </div>
         </div>
       );
     }
@@ -189,7 +161,7 @@ const VoiceGrid = memo(
             Math.min(
               (containerSize.width - 56 - (gridCols - 1) * 12) / gridCols,
               // the vertical padding of the grid below
-              ((containerSize.height - 72 - (rows - 1) * 12) / rows) *
+              ((containerSize.height - 112 - (rows - 1) * 12) / rows) *
                 tileAspectRatio
             )
           )
@@ -203,7 +175,7 @@ const VoiceGrid = memo(
       <div
         ref={containerRef}
         className={cn(
-          'grid size-full gap-3 bg-rail px-7 pt-14 pb-6',
+          'grid size-full min-h-0 gap-3 bg-rail px-7 pt-4 pb-24',
           className
         )}
         style={{

@@ -142,7 +142,7 @@ const ExternalStreamCard = memo(
             'size-full',
             isFullscreen
               ? 'rounded-none border-none'
-              : 'rounded overflow-hidden border border-border',
+              : 'rounded-[var(--voice-card-radius,12px)] overflow-hidden border-[length:var(--voice-card-border,1px)] border-border',
             (!isFullscreen || isOverlayVisible) && 'group/external-stream-card',
             className
           )}
@@ -217,7 +217,10 @@ const ExternalStreamCard = memo(
 
           <div
             className={cn(
-              'pointer-events-none absolute bottom-0 left-0 right-0 z-10',
+              'pointer-events-none absolute left-0 right-0 z-10',
+              isFullscreen
+                ? 'bottom-0'
+                : 'bottom-[var(--voice-caption-bottom,0px)]',
               density.inset,
               'hidden group-hover/external-stream-card:flex'
             )}
