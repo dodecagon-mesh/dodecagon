@@ -22,6 +22,7 @@ type TTestTrpcClient = {
     onLeave: TSubscription;
     onRemoveExternalStream: TSubscription;
     onDirectMediaSignal: TSubscription;
+    onRelayDemand: TSubscription;
   };
 };
 type TInitOutcome =
@@ -105,7 +106,8 @@ const makeClient = (mutate: TUpdateState) => {
       onScreenConsumerStarted: noOpSubscription(),
       onLeave: noOpSubscription(),
       onRemoveExternalStream: noOpSubscription(),
-      onDirectMediaSignal: noOpSubscription()
+      onDirectMediaSignal: noOpSubscription(),
+      onRelayDemand: noOpSubscription()
     }
   } as TTestTrpcClient;
   return { client, updateState };

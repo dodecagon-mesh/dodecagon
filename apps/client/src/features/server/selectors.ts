@@ -70,26 +70,6 @@ export const pluginsEnabledSelector = (state: IRootState) =>
 export const webRtcSimulcastEnabledSelector = (state: IRootState) =>
   !!state.server.publicSettings?.webRtcSimulcastEnabled;
 
-export const directMediaPolicySelector = createSelector(
-  [
-    (state: IRootState) => {
-      const channelId = currentVoiceChannelIdSelector(state);
-      return channelId === undefined
-        ? undefined
-        : voiceChannelStateSelector(state, channelId);
-    }
-  ],
-  (channel): 'relay' | 'audio' | 'all' => {
-    const members = Object.values(channel?.users ?? {});
-    if (
-      members.length !== 2 ||
-      !members.every((state) => state.directMediaEnabled === true)
-    )
-      return 'relay';
-    return members.some((state) => state.voiceOnlyMode) ? 'audio' : 'all';
-  }
-);
-
 export const infoSelector = (state: IRootState) => state.server.info;
 
 export const activeFullscreenPluginIdSelector = (state: IRootState) =>

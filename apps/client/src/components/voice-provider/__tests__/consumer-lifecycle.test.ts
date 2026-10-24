@@ -102,6 +102,13 @@ class Stream {
 class Handler extends EventEmitter {
   stopped: string[] = [];
   receiveGate?: Promise<void>;
+  pausedSending = new Set<string>();
+  async pauseSending(id: string) {
+    this.pausedSending.add(id);
+  }
+  async resumeSending(id: string) {
+    this.pausedSending.delete(id);
+  }
   close() {}
   async send() {
     return { localId: 'send', rtpParameters: structuredClone(rtpParameters) };
@@ -193,6 +200,32 @@ const originalMediaStream = globalThis.MediaStream;
 afterEach(() => {
   hook.cleanupTransports();
   globalThis.MediaStream = originalMediaStream;
+});
+
+test('relay standby deactivates RTP without disabling or stopping the shared native capture', async () => {
+  const send = makeTransport('send');
+  await hook.createProducerTransport({
+    createSendTransport: () => send.transport
+  } as unknown as Device);
+  const track = new Track();
+  const publication = await send.transport.produce({
+    track: track as unknown as MediaStreamTrack,
+    stopTracks: false,
+    zeroRtpOnPause: true,
+    disableTrackOnPause: false,
+    appData: { kind: StreamKind.AUDIO }
+  });
+  publication.pause();
+  await flush();
+  expect(send.handler.pausedSending.has('send')).toBe(true);
+  expect(track.enabled).toBe(true);
+  expect(track.readyState).toBe('live');
+  publication.resume();
+  await flush();
+  expect(send.handler.pausedSending.has('send')).toBe(false);
+  expect(track.enabled).toBe(true);
+  publication.close();
+  expect(track.readyState).toBe('live');
 });
 
 for (const cancellation of ['close', 'replacement', 'session'] as const) {
@@ -833,4 +866,19 @@ test('late old producer closure during replacement receive cannot cancel the new
   } finally {
     if (cleanup) cleanup();
   }
+});
+
+test('a relay closed during native handoff is never resumed after attachment', async () => {
+  hook.cleanupTransports();
+  hook = useTransports({
+    ...callbacks(),
+    addRemoteUserStream: () => hook.closeConsumer(42, StreamKind.VIDEO)
+  });
+  const created = makeTransport();
+  hook.consumerTransport.current = created.transport;
+  await hook.consume(42, StreamKind.VIDEO, {});
+  await flush();
+  expect(hook.getConsumer(42, StreamKind.VIDEO)).toBeUndefined();
+  expect(created.handler.stopped.length).toBe(1);
+  expect(resumeRpc).not.toHaveBeenCalled();
 });

@@ -258,8 +258,8 @@ describe('VoiceRuntime screen viewers', () => {
   });
 
   test('a ready direct session counts once and cannot outlive its producer', async () => {
-    const previous = config.webRtc.directScreenSharing;
-    config.webRtc.directScreenSharing = true;
+    const previous = config.webRtc.holepunchMediaEnabled;
+    config.webRtc.holepunchMediaEnabled = true;
     const runtime = createRuntime();
     runtime.addUser(1, { micMuted: false, soundMuted: false });
     runtime.addUser(2, { micMuted: false, soundMuted: false });
@@ -273,20 +273,16 @@ describe('VoiceRuntime screen viewers', () => {
       expect(session).not.toBeNull();
       runtime.signalDirectMedia(session!.sessionId, 2, {
         type: 'offer',
+        publicKey: 'a'.repeat(64),
         sdp: 'v=0\r\n'
       });
       runtime.signalDirectMedia(session!.sessionId, 1, {
         type: 'answer',
+        publicKey: 'b'.repeat(64),
         sdp: 'v=0\r\n'
       });
       runtime.signalDirectMedia(session!.sessionId, 1, { type: 'ready' });
 
-      runtime.addConsumer(
-        1,
-        2,
-        StreamKind.SCREEN,
-        createConsumerStub(screen.id) as unknown as Consumer
-      );
       expect(runtime.getScreenViewers().demos[2]!.viewerIds).toEqual([1]);
 
       const replacement = createProducerStub();
@@ -295,6 +291,9 @@ describe('VoiceRuntime screen viewers', () => {
         StreamKind.SCREEN,
         replacement as unknown as Producer
       );
+      expect(
+        runtime.getDirectMediaSession(session!.sessionId, 1)
+      ).toBeUndefined();
       runtime.addConsumer(
         1,
         2,
@@ -306,7 +305,7 @@ describe('VoiceRuntime screen viewers', () => {
         viewerIds: [1]
       });
     } finally {
-      config.webRtc.directScreenSharing = previous;
+      config.webRtc.holepunchMediaEnabled = previous;
       runtime.removeUser(1);
       runtime.removeUser(2);
       await runtime.destroy();
@@ -734,12 +733,12 @@ describe('VoiceRuntime voice-only mode', () => {
 });
 
 describe('VoiceRuntime direct media fallback', () => {
-  test('keeps relay producers visible while both participants require direct media', async () => {
+  test('keeps relay producers visible while both participants support direct media', async () => {
     const runtime = createRuntime();
     runtime.addUser(1, { micMuted: false, soundMuted: false });
     runtime.addUser(2, { micMuted: false, soundMuted: false });
-    const previous = config.webRtc.directScreenSharing;
-    config.webRtc.directScreenSharing = true;
+    const previous = config.webRtc.holepunchMediaEnabled;
+    config.webRtc.holepunchMediaEnabled = true;
     try {
       runtime.registerDirectMediaSubscriber(1, true);
       runtime.registerDirectMediaSubscriber(2, true);
@@ -750,21 +749,21 @@ describe('VoiceRuntime direct media fallback', () => {
         relayProducer as unknown as Producer
       );
 
-      expect(runtime.isDirectMediaRequired(2, StreamKind.AUDIO)).toBe(true);
+      expect(runtime.hasDirectMediaCapability(2, StreamKind.AUDIO)).toBe(true);
       expect(runtime.getRemoteIds(1).remoteAudioIds).toEqual([2]);
       expect(relayProducer.closed).toBe(false);
     } finally {
-      config.webRtc.directScreenSharing = previous;
+      config.webRtc.holepunchMediaEnabled = previous;
       await runtime.destroy();
     }
   });
 
-  test('a failed attempt disables direct for both and allows relay immediately', async () => {
+  test('a failed attempt latches only its pair without disabling native capability', async () => {
     const runtime = createRuntime();
     runtime.addUser(1, { micMuted: false, soundMuted: false });
     runtime.addUser(2, { micMuted: false, soundMuted: false });
-    const previous = config.webRtc.directScreenSharing;
-    config.webRtc.directScreenSharing = true;
+    const previous = config.webRtc.holepunchMediaEnabled;
+    config.webRtc.holepunchMediaEnabled = true;
     const updates: number[] = [];
     const signals: { userId: number; relayAllowed: boolean }[] = [];
     const stateSubscription = pubsub
@@ -787,16 +786,22 @@ describe('VoiceRuntime direct media fallback', () => {
     try {
       runtime.registerDirectMediaSubscriber(1, true);
       runtime.registerDirectMediaSubscriber(2, true);
-      const session = runtime.startDirectMedia(1, StreamKind.AUDIO);
+      const session = runtime.startDirectMedia(1, StreamKind.AUDIO, 2);
       expect(session).not.toBeNull();
 
       runtime.signalDirectMedia(session!.sessionId, 1, { type: 'fallback' });
 
-      expect(runtime.getUserState(1).directMediaEnabled).toBe(false);
-      expect(runtime.getUserState(2).directMediaEnabled).toBe(false);
-      expect(runtime.isDirectMediaRequired(1, StreamKind.AUDIO)).toBe(false);
-      expect(runtime.hasDirectMediaCapability(1, StreamKind.AUDIO)).toBe(false);
-      expect(runtime.startDirectMedia(1, StreamKind.AUDIO)).toBeNull();
+      expect(runtime.getUserState(1).directMediaEnabled).toBe(true);
+      expect(runtime.getUserState(2).directMediaEnabled).toBe(true);
+      expect(runtime.hasDirectMediaCapability(1, StreamKind.AUDIO)).toBe(true);
+      expect(runtime.startDirectMedia(1, StreamKind.AUDIO, 2)).toBeNull();
+      const nextPublication = createProducerStub();
+      runtime.addProducer(
+        1,
+        StreamKind.AUDIO,
+        nextPublication as unknown as Producer
+      );
+      expect(runtime.startDirectMedia(1, StreamKind.AUDIO, 2)).not.toBeNull();
       expect(updates).toEqual(expect.arrayContaining([1, 2]));
       expect(signals).toHaveLength(2);
       signals.forEach((signal) => expect(signal.relayAllowed).toBe(true));
@@ -804,7 +809,7 @@ describe('VoiceRuntime direct media fallback', () => {
       stateSubscription.unsubscribe();
       senderSignal.unsubscribe();
       peerSignal.unsubscribe();
-      config.webRtc.directScreenSharing = previous;
+      config.webRtc.holepunchMediaEnabled = previous;
       await runtime.destroy();
     }
   });
@@ -813,8 +818,8 @@ describe('VoiceRuntime direct media fallback', () => {
     const runtime = createRuntime();
     runtime.addUser(1, { micMuted: false, soundMuted: false });
     runtime.addUser(2, { micMuted: false, soundMuted: false });
-    const previous = config.webRtc.directScreenSharing;
-    config.webRtc.directScreenSharing = false;
+    const previous = config.webRtc.holepunchMediaEnabled;
+    config.webRtc.holepunchMediaEnabled = false;
     try {
       runtime.registerDirectMediaSubscriber(1, true);
       runtime.registerDirectMediaSubscriber(2, true);
@@ -826,27 +831,26 @@ describe('VoiceRuntime direct media fallback', () => {
       );
 
       expect(runtime.getUserState(1).directMediaEnabled).toBe(false);
-      expect(runtime.isDirectMediaRequired(1, StreamKind.AUDIO)).toBe(false);
-      expect(runtime.startDirectMedia(1, StreamKind.AUDIO)).toBeNull();
+      expect(runtime.startDirectMedia(1, StreamKind.AUDIO, 2)).toBeNull();
       expect(runtime.getRemoteIds(1).remoteAudioIds).toEqual([2]);
     } finally {
-      config.webRtc.directScreenSharing = previous;
+      config.webRtc.holepunchMediaEnabled = previous;
       await runtime.destroy();
     }
   });
 });
 
 describe('VoiceRuntime relay during a direct attempt', () => {
-  test('a relay producer disables direct for both and stays published', async () => {
+  test('a standby relay producer preserves an in-flight direct session', async () => {
     const runtime = createRuntime();
     runtime.addUser(1, { micMuted: false, soundMuted: false });
     runtime.addUser(2, { micMuted: false, soundMuted: false });
-    const previous = config.webRtc.directScreenSharing;
-    config.webRtc.directScreenSharing = true;
+    const previous = config.webRtc.holepunchMediaEnabled;
+    config.webRtc.holepunchMediaEnabled = true;
     try {
       runtime.registerDirectMediaSubscriber(1, true);
       runtime.registerDirectMediaSubscriber(2, true);
-      const session = runtime.startDirectMedia(1, StreamKind.AUDIO);
+      const session = runtime.startDirectMedia(1, StreamKind.AUDIO, 2);
       expect(session).not.toBeNull();
 
       const relayProducer = createProducerStub();
@@ -857,15 +861,77 @@ describe('VoiceRuntime relay during a direct attempt', () => {
       );
 
       expect(relayProducer.closed).toBe(false);
-      expect(runtime.getUserState(1).directMediaEnabled).toBe(false);
-      expect(runtime.getUserState(2).directMediaEnabled).toBe(false);
+      expect(runtime.getUserState(1).directMediaEnabled).toBe(true);
+      expect(runtime.getUserState(2).directMediaEnabled).toBe(true);
       expect(
         runtime.getDirectMediaSession(session!.sessionId, 1)
-      ).toBeUndefined();
+      ).toBeDefined();
       expect(runtime.getRemoteIds(2).remoteAudioIds).toEqual([1]);
     } finally {
-      config.webRtc.directScreenSharing = previous;
+      config.webRtc.holepunchMediaEnabled = previous;
       await runtime.destroy();
     }
   });
 });
+
+test.each([StreamKind.AUDIO, StreamKind.VIDEO, StreamKind.SCREEN])(
+  'a ready %s path rejects late relay consumers and ends with its source',
+  async (kind) => {
+    const previous = config.webRtc.holepunchMediaEnabled;
+    config.webRtc.holepunchMediaEnabled = true;
+    const runtime = createRuntime();
+    runtime.addUser(1, { micMuted: false, soundMuted: false });
+    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.registerDirectMediaSubscriber(1, true);
+    runtime.registerDirectMediaSubscriber(2, true);
+    const producer = createProducerStub();
+    runtime.addProducer(1, kind, producer as unknown as Producer);
+    const screenAudio = createProducerStub();
+    const screenAudioConsumer = createConsumerStub(screenAudio.id);
+    if (kind === StreamKind.SCREEN) {
+      runtime.addProducer(
+        1,
+        StreamKind.SCREEN_AUDIO,
+        screenAudio as unknown as Producer
+      );
+      runtime.addConsumer(
+        2,
+        1,
+        StreamKind.SCREEN_AUDIO,
+        screenAudioConsumer as unknown as Consumer
+      );
+    }
+    try {
+      const session = runtime.startDirectMedia(1, kind, 2)!;
+      runtime.signalDirectMedia(session.sessionId, 1, {
+        type: 'offer',
+        sdp: 'v=0\r\n',
+        publicKey: 'a'.repeat(64)
+      });
+      runtime.signalDirectMedia(session.sessionId, 2, {
+        type: 'answer',
+        sdp: 'v=0\r\n',
+        publicKey: 'b'.repeat(64)
+      });
+      runtime.signalDirectMedia(session.sessionId, 2, { type: 'ready' });
+      if (kind === StreamKind.SCREEN) {
+        expect(screenAudioConsumer.closed).toBe(true);
+        expect(screenAudio.closed).toBe(false);
+        expect(runtime.getRemoteIds(2).remoteScreenAudioIds).toEqual([]);
+      }
+      const late = createConsumerStub(producer.id);
+      expect(() =>
+        runtime.addConsumer(2, 1, kind, late as unknown as Consumer)
+      ).toThrow('This media is already delivered directly');
+      expect(late.closed).toBe(true);
+      producer.close();
+      expect(
+        runtime.getDirectMediaSession(session.sessionId, 1)
+      ).toBeUndefined();
+      expect(runtime.hasDirectMediaCapability(1, kind)).toBe(true);
+    } finally {
+      config.webRtc.holepunchMediaEnabled = previous;
+      await runtime.destroy();
+    }
+  }
+);

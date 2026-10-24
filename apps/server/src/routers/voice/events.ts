@@ -3,6 +3,7 @@ import {
   ServerEvents,
   type StreamKind,
   type TDirectMediaEvent,
+  type TRelayDemandEvent,
   type TScreenViewersSnapshot
 } from '@dodecagon/shared';
 import { observable } from '@trpc/server/observable';
@@ -88,10 +89,39 @@ const onVoiceNewProducerRoute = protectedProcedure.subscription(
       return observable<TVoiceProducerEvent>(() => () => {});
     }
 
-    return ctx.pubsub.subscribeForChannel(
-      ctx.currentVoiceChannelId,
-      ServerEvents.VOICE_NEW_PRODUCER
-    );
+    const channelId = ctx.currentVoiceChannelId;
+    return observable<TVoiceProducerEvent>((observer) => {
+      const next = (event: TVoiceProducerEvent) => {
+        if (
+          event.channelId !== channelId ||
+          ctx.currentVoiceChannelId !== channelId
+        )
+          return;
+        const runtime = VoiceRuntime.findById(channelId);
+        if (
+          !runtime?.getUser(ctx.user.id) ||
+          runtime.hasReadyDirectMedia(event.remoteId, ctx.user.id, event.kind)
+        )
+          return;
+        observer.next(event);
+      };
+      const channel = ctx.pubsub
+        .subscribeForChannel(channelId, ServerEvents.VOICE_NEW_PRODUCER)
+        .subscribe({
+          next,
+          error: (error) => observer.error(error)
+        });
+      const targeted = ctx.pubsub
+        .subscribeFor(ctx.user.id, ServerEvents.VOICE_NEW_PRODUCER)
+        .subscribe({
+          next,
+          error: (error) => observer.error(error)
+        });
+      return () => {
+        channel.unsubscribe();
+        targeted.unsubscribe();
+      };
+    });
   }
 );
 
@@ -108,12 +138,45 @@ const onVoiceProducerClosedRoute = protectedProcedure.subscription(
   }
 );
 
+const onRelayDemandRoute = protectedProcedure.subscription(async ({ ctx }) => {
+  const { runtime, channelId } = await getDirectMediaRuntime(ctx);
+  const member = runtime.getUser(ctx.user.id);
+  return observable<TRelayDemandEvent>((observer) => {
+    if (
+      ctx.currentVoiceChannelId !== channelId ||
+      VoiceRuntime.findById(channelId) !== runtime ||
+      runtime.getUser(ctx.user.id) !== member
+    )
+      return () => {};
+    const subscription = ctx.pubsub
+      .subscribeFor(ctx.user.id, ServerEvents.VOICE_RELAY_DEMAND)
+      .subscribe({
+        next: (event) => {
+          if (
+            event.channelId !== channelId ||
+            ctx.currentVoiceChannelId !== channelId ||
+            VoiceRuntime.findById(channelId) !== runtime ||
+            runtime.getUser(ctx.user.id) !== member
+          )
+            return;
+          observer.next(event);
+        },
+        error: (error) => observer.error(error)
+      });
+    for (const event of runtime.getRelayDemand(ctx.user.id))
+      observer.next(event);
+    return () => subscription.unsubscribe();
+  });
+});
+
 const onDirectMediaSignalRoute = rateLimitedProcedure(protectedProcedure, {
   maxRequests: config.rateLimiters.voiceStream.maxRequests,
   windowMs: config.rateLimiters.voiceStream.windowMs,
   logLabel: 'onDirectMediaSignal'
 })
-  .input(z.strictObject({ enabled: z.boolean() }))
+  .input(
+    z.strictObject({ enabled: z.boolean(), transport: z.literal('holepunch') })
+  )
   .subscription(async ({ ctx, input }) => {
     const { runtime, channelId } = await getDirectMediaRuntime(ctx);
     const member = runtime.getUser(ctx.user.id);
@@ -215,6 +278,7 @@ const onScreenConsumerStartedRoute = rateLimitedProcedure(protectedProcedure, {
 
 export {
   onDirectMediaSignalRoute,
+  onRelayDemandRoute,
   onScreenConsumerStartedRoute,
   onScreenViewersRoute,
   onUserJoinVoiceRoute,
