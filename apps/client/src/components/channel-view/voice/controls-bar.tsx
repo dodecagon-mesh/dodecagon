@@ -72,7 +72,7 @@ const ControlsBar = memo(({ channelId, isActive }: TControlsBarProps) => {
       <div
         data-voice-controls
         className={cn(
-          'flex items-center gap-1.5 rounded-[12px] bg-nav p-[5px] focus-within:pointer-events-auto has-[[data-popup-open]]:pointer-events-auto has-[[aria-expanded=true]]:pointer-events-auto',
+          'flex items-center gap-1.5 rounded-[25px] bg-nav p-[5px] focus-within:pointer-events-auto has-[[data-popup-open]]:pointer-events-auto has-[[aria-expanded=true]]:pointer-events-auto',
           isActive ? 'pointer-events-auto' : 'pointer-events-none'
         )}
       >
@@ -132,7 +132,7 @@ const ControlsBar = memo(({ channelId, isActive }: TControlsBarProps) => {
         <Tooltip content="Disconnect">
           <Button
             variant="destructive"
-            className="size-10 rounded-[8px] p-0"
+            className="size-10 rounded-[20px] p-0"
             onClick={handleLeaveVoice}
             aria-label="Disconnect"
           >

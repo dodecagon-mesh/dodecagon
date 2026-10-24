@@ -1,12 +1,14 @@
 import { cn } from '@/lib/utils';
 import { isValidElement, memo, useMemo, type ReactNode } from 'react';
 import { useContainerSize } from './hooks/use-container-size';
+import { ParticipantsPill } from './participants-pill';
 
 type TVoiceGridProps = {
   children: ReactNode[];
   pinnedCardId?: string;
   tileAspectRatio?: number;
   participantsHidden?: boolean;
+  onToggleParticipants?: () => void;
   className?: string;
 };
 
@@ -26,6 +28,7 @@ const VoiceGrid = memo(
     pinnedCardId,
     tileAspectRatio,
     participantsHidden = false,
+    onToggleParticipants,
     className
   }: TVoiceGridProps) => {
     const { containerRef, containerSize } = useContainerSize();
@@ -124,7 +127,7 @@ const VoiceGrid = memo(
         <div
           className={cn(
             // the top band keeps the stage actions clear of the focused tile
-            'flex h-full flex-col gap-3 bg-rail px-7 pt-12 pb-3',
+            'flex h-full flex-col gap-3 bg-rail px-7 pt-14 pb-3',
             className
           )}
         >
@@ -140,24 +143,33 @@ const VoiceGrid = memo(
             </div>
           </div>
           {stripCards.length > 0 && (
-            <div
-              inert={participantsHidden}
-              aria-hidden={participantsHidden}
-              className={cn(
-                'flex h-[90px] shrink-0 justify-center-safe gap-3 overflow-x-auto',
-                'transition-[max-height,opacity] duration-300 ease-in-out',
-                participantsHidden
-                  ? 'max-h-0 opacity-0'
-                  : 'max-h-[90px] opacity-100'
+            <div className="relative shrink-0">
+              <div
+                inert={participantsHidden}
+                aria-hidden={participantsHidden}
+                className={cn(
+                  'flex h-[104px] shrink-0 justify-center-safe gap-2 overflow-x-auto',
+                  'transition-[max-height,opacity] duration-300 ease-in-out',
+                  participantsHidden
+                    ? 'max-h-0 opacity-0'
+                    : 'max-h-[104px] opacity-100'
+                )}
+              >
+                {stripCards.map((card, index) => (
+                  // the participant thumbnails keep the size of the Discord
+                  // overlay container, so a pinned view does not change the
+                  // frame of a user
+                  <div key={index} className="h-[104px] w-[187px] shrink-0">
+                    {card}
+                  </div>
+                ))}
+              </div>
+              {onToggleParticipants && (
+                <ParticipantsPill
+                  hidden={participantsHidden}
+                  onToggle={onToggleParticipants}
+                />
               )}
-            >
-              {stripCards.map((card, index) => (
-                // the participant thumbnails keep the 16:9 shape of the stage
-                // tiles, so a pinned view does not change the frame of a user
-                <div key={index} className="aspect-video w-40 shrink-0">
-                  {card}
-                </div>
-              ))}
             </div>
           )}
         </div>
@@ -191,7 +203,7 @@ const VoiceGrid = memo(
       <div
         ref={containerRef}
         className={cn(
-          'grid size-full gap-3 bg-rail px-7 pt-12 pb-6',
+          'grid size-full gap-3 bg-rail px-7 pt-14 pb-6',
           className
         )}
         style={{

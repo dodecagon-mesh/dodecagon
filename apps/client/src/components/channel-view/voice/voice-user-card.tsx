@@ -51,16 +51,6 @@ type TVoiceUserCardProps = {
   showSpeakingOutline?: boolean;
 };
 
-// The speaking outline follows the voice: a quiet speaker keeps a thin
-// outline, every louder step thickens it.
-const TILE_OUTLINE_CLASSES = [
-  'border',
-  'border-[2px]',
-  'border-[3px]',
-  'border-[4px]'
-];
-const AVATAR_OUTLINE_CLASSES = ['border-2', 'border-[3px]', 'border-[4px]'];
-
 // the focused tile doubles the avatar of the participant, the tiles of the
 // grid keep the paper size and the thumbnails of the strip stay compact
 const GRID_AVATAR_CLASS =
@@ -69,9 +59,6 @@ const PINNED_AVATAR_CLASS =
   'size-[var(--voice-avatar-size,128px)] [&_[data-slot=avatar-fallback]]:text-[length:calc(var(--voice-avatar-size,128px)_*_0.4)]';
 const COMPACT_AVATAR_CLASS =
   'size-[72px] [&_[data-slot=avatar-fallback]]:text-2xl';
-
-const getOutlineClass = (classes: string[], intensity: number) =>
-  classes[Math.min(Math.max(intensity, 1), classes.length) - 1];
 
 const VoiceUserCard = memo(
   ({
@@ -95,11 +82,10 @@ const VoiceUserCard = memo(
     const showUserBanners = useShowUserBannersInVoice();
     const webRtcSimulcastEnabled = useWebRtcSimulcastEnabled();
     const { isSimulcastConsumer } = useVoice();
-    const { isActivelySpeaking, speakingIntensity } = useSpeakingState(userId);
+    const { isActivelySpeaking } = useSpeakingState(userId);
     // The overlay drops the speaking highlight together with its auto-hidden
     // chrome, so no green outline is left behind on the stage.
     const isSpeaking = isActivelySpeaking && showSpeakingOutline;
-    const speakingIntensityLevel = isSpeaking ? speakingIntensity : 0;
     const { isWebcamHidden, toggleWebcamHidden } = useRemoteWebcamVisibility();
     const webcamHidden = isWebcamHidden(userId);
     const { isViewingDemo, stopViewingDemo } = useDemoVisibility();
@@ -172,10 +158,9 @@ const VoiceUserCard = memo(
             'relative overflow-hidden rounded-[12px] bg-panel group/voice-user-card',
             'flex items-center justify-center',
             'size-full',
-            'border',
-            isSpeaking ? 'border-success' : 'border-line',
-            isSpeaking &&
-              getOutlineClass(TILE_OUTLINE_CLASSES, speakingIntensityLevel),
+            // the tile carries no border, a speaking participant gets an
+            // external ring around the tile, like the Discord tile
+            isSpeaking && 'shadow-[0_0_0_2px_var(--color-success)]',
             className
           )}
         >
@@ -216,12 +201,6 @@ const VoiceUserCard = memo(
               userId={userId}
               className={cn(
                 'pointer-events-none [&_[data-slot=avatar-fallback]]:font-semibold',
-                isSpeaking && 'border-success',
-                isSpeaking &&
-                  getOutlineClass(
-                    AVATAR_OUTLINE_CLASSES,
-                    speakingIntensityLevel
-                  ),
                 avatarClass
               )}
               showStatusBadge={false}

@@ -9,7 +9,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import '../index.css';
 
 const SUCCESS_BORDER = 'rgb(87, 209, 138)';
-const LINE_BORDER = 'rgb(68, 70, 77)';
+const SUCCESS_SHADOW = 'rgb(87, 209, 138)';
 
 const speaking = vi.hoisted(() => ({ active: true, intensity: 4 }));
 
@@ -160,11 +160,6 @@ const avatarElement = () => {
   return element;
 };
 
-const greenBorders = () =>
-  Array.from(document.querySelectorAll<HTMLElement>('*')).filter(
-    (element) => getComputedStyle(element).borderTopColor === SUCCESS_BORDER
-  );
-
 const unmount = () => {
   root?.unmount();
   host?.remove();
@@ -179,52 +174,49 @@ afterEach(() => {
   localStorage.removeItem('vite-ui-theme');
 });
 
-test('the speaking highlight hugs the card and stays inside its bounds', async () => {
+test('the speaking highlight is an external ring around the card', async () => {
   await render(true);
 
-  const card = tileElement();
-  expect(getComputedStyle(card).borderTopColor).toBe(SUCCESS_BORDER);
+  const styles = getComputedStyle(tileElement());
 
-  const bounds = card.getBoundingClientRect();
-  const highlights = greenBorders();
-  expect(highlights.length).toBeGreaterThan(0);
-
-  for (const highlight of highlights) {
-    const rect = highlight.getBoundingClientRect();
-    expect(rect.top).toBeGreaterThanOrEqual(bounds.top - 0.5);
-    expect(rect.left).toBeGreaterThanOrEqual(bounds.left - 0.5);
-    expect(rect.bottom).toBeLessThanOrEqual(bounds.bottom + 0.5);
-    expect(rect.right).toBeLessThanOrEqual(bounds.right + 0.5);
-  }
+  // the tile carries no border, the ring sits outside of it
+  expect(styles.borderTopWidth).toBe('0px');
+  expect(styles.boxShadow).toContain(SUCCESS_SHADOW);
+  expect(styles.boxShadow).toContain('2px');
+  expect(styles.boxShadow).not.toContain('inset');
 });
 
-test('a silent participant keeps the neutral card border', async () => {
+test('a silent participant keeps the plain card', async () => {
   speaking.active = false;
   await render(true);
 
-  expect(getComputedStyle(tileElement()).borderTopColor).toBe(LINE_BORDER);
-  expect(greenBorders()).toHaveLength(0);
+  const styles = getComputedStyle(tileElement());
+
+  expect(styles.borderTopWidth).toBe('0px');
+  expect(styles.boxShadow).toBe('none');
 });
 
 test('the speaking highlight is dropped together with the hidden overlay chrome', async () => {
   await render(false);
 
-  expect(getComputedStyle(tileElement()).borderTopColor).toBe(LINE_BORDER);
-  expect(greenBorders()).toHaveLength(0);
+  expect(getComputedStyle(tileElement()).boxShadow).toBe('none');
 });
 
-test('the speaking outline grows with the voice level', async () => {
+test('the ring keeps one width for every voice level', async () => {
   speaking.intensity = 1;
   await render(true);
-
-  expect(getComputedStyle(tileElement()).borderTopWidth).toBe('1px');
-  expect(getComputedStyle(avatarElement()).borderTopWidth).toBe('2px');
+  const quiet = getComputedStyle(tileElement()).boxShadow;
 
   unmount();
 
   speaking.intensity = 4;
   await render(true);
+  const loud = getComputedStyle(tileElement()).boxShadow;
 
-  expect(getComputedStyle(tileElement()).borderTopWidth).toBe('4px');
-  expect(getComputedStyle(avatarElement()).borderTopWidth).toBe('4px');
+  expect(quiet).toBe(loud);
+  expect(loud).toContain('2px');
+  // the avatar does not carry a second ring
+  expect(getComputedStyle(avatarElement()).borderTopColor).not.toBe(
+    SUCCESS_BORDER
+  );
 });

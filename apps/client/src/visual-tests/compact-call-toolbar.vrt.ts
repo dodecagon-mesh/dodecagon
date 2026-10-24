@@ -158,7 +158,7 @@ test.each([1188, 375])(
     expect(getComputedStyle(toolbar).padding).toBe('5px');
     expect(getComputedStyle(toolbar).gap).toBe('6px');
     expect(getComputedStyle(toolbar).backgroundColor).toBe('rgb(43, 45, 49)');
-    expect(getComputedStyle(toolbar).borderRadius).toBe('12px');
+    expect(getComputedStyle(toolbar).borderRadius).toBe('25px');
     expect(footer.getBoundingClientRect().height).toBe(62);
     expect(hostRect.bottom - rect.bottom).toBe(12);
     expect(rect.top - participantRect.bottom).toBe(12);
@@ -168,9 +168,12 @@ test.each([1188, 375])(
     expect(buttons).toHaveLength(6);
     for (const button of buttons) {
       const buttonRect = button.getBoundingClientRect();
-      // every control of the toolbar is square, the disconnect too
+      // every control of the toolbar is a round button, the disconnect too
       expect(buttonRect.width).toBe(40);
       expect(buttonRect.height).toBe(40);
+      expect(
+        parseFloat(getComputedStyle(button).borderTopLeftRadius)
+      ).toBeGreaterThanOrEqual(20);
       const icon = button.querySelector('svg')!;
       expect(icon.getBoundingClientRect().width).toBe(20);
       expect(icon.getBoundingClientRect().height).toBe(20);
