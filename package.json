@@ -16,7 +16,8 @@
     "format:check": "bun run --filter '*' format:check",
     "check-types": "bun run --filter '*' check-types",
     "lint": "bun run --filter '*' lint",
-    "verify": "bun run format:check && bun run lint && bun run check-types && bun run test && bun run --filter '@dodecagon/server' build && bun run --filter '@dodecagon/server' test:bundle",
+    "check:fast": "bun run format:check && bun run lint && bun run check-types",
+    "verify": "bun run check:fast && bun run test && bun run --filter '@dodecagon/server' build && bun run --filter '@dodecagon/server' test:bundle",
     "signoff": "bunx bun@1.4.4 run signoff:local",
     "signoff:local": "bun install --frozen-lockfile && bun run verify && bun run --filter '@dodecagon/e2e' test:e2e:shards && gh signoff build e2e",
     "magic": "bun run format && bun run check-types && bun run lint"
