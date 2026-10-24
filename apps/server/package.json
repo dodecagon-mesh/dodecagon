@@ -1,6 +1,6 @@
 {
   "name": "@dodecagon/server",
-  "version": "0.0.60",
+  "version": "0.0.61",
   "module": "src/index.ts",
   "type": "module",
   "private": true,
