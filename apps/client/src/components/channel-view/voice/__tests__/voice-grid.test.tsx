@@ -29,23 +29,21 @@ const renderGrid = () =>
     </I18nextProvider>
   );
 
-test('the participant thumbnails keep the 16:9 shape of the stage tiles', () => {
+test('the participant thumbnails keep the size of the discord overlay', () => {
   const html = renderPinnedGrid();
 
-  // the thumbnail declares the video shape, so it stays 16:9 in every width
-  expect(html).toContain('aspect-video');
-  expect(html).toContain('w-40');
-
-  // the strip keeps the height of a 160x90 thumbnail
-  expect(html).toContain('h-[90px]');
+  // the thumbnail declares the size of the Discord overlay container
+  expect(html).toContain('w-[187px]');
+  expect(html).toContain('h-[104px]');
 
   // the old 4:3 thumbnail box is gone
   expect(html).not.toContain('w-38');
   expect(html).not.toContain('h-[114px]');
+  expect(html).not.toContain('aspect-video');
 });
 
 test('the stage keeps a top band for the chat button', () => {
   // the button floats at the top of the stage, so the tiles start below it
-  expect(renderPinnedGrid()).toContain('pt-12');
-  expect(renderGrid()).toContain('pt-12');
+  expect(renderPinnedGrid()).toContain('pt-14');
+  expect(renderGrid()).toContain('pt-14');
 });

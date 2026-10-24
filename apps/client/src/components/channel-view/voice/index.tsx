@@ -144,6 +144,10 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
     isChatButtonVisible
   ]);
 
+  // the strip of the participants only exists when a card is pinned and
+  // somebody else is left for it
+  const hasParticipantStrip = pinnedCard !== undefined && cards.length > 1;
+
   if (voiceUsers.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center bg-rail">
@@ -168,6 +172,7 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
         pinnedCardId={pinnedCard?.id}
         tileAspectRatio={16 / 9}
         participantsHidden={participantsHidden}
+        onToggleParticipants={handleToggleParticipants}
       >
         {cards}
       </VoiceGrid>
@@ -175,7 +180,11 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
         channelId={channelId}
         isActive={isChatButtonVisible}
         participantsHidden={participantsHidden}
-        onToggleParticipants={handleToggleParticipants}
+        // the participant strip carries the hide control as a pill over its
+        // top edge, the header keeps the square button for the grid layout
+        onToggleParticipants={
+          hasParticipantStrip ? undefined : handleToggleParticipants
+        }
       />
       <ControlsBar channelId={channelId} isActive={isChatButtonVisible} />
     </div>

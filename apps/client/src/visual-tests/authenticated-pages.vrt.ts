@@ -978,8 +978,8 @@ test('voice channel matches the Paper design', async () => {
     expect(disconnect.classList.contains('active:bg-danger-solid/80')).toBe(
       true
     );
-    // the controls are square with the Paper radius instead of circles
-    expect(parseFloat(getComputedStyle(mute).borderRadius)).toBe(8);
+    // the controls are round buttons with the Paper radius
+    expect(parseFloat(getComputedStyle(mute).borderTopLeftRadius)).toBe(20);
     const caption = page.elementLocator(
       document.querySelector('.group\\/voice-user-card p')!
     );

@@ -40,6 +40,7 @@ const render = async (pinnedCardId?: string, participantsHidden = false) => {
       pinnedCardId,
       tileAspectRatio: 16 / 9,
       participantsHidden,
+      onToggleParticipants: () => {},
       children: cards
     })
   );
@@ -71,15 +72,15 @@ test('grid continues measuring after pinning, resizing and unpinning', async () 
   await expect.poll(columns).toBe(2);
 });
 
-test('pinned participants keep the 16:9 thumbnail shape', async () => {
+test('pinned participants keep the discord tile size', async () => {
   await render('share');
   const thumbnail = host!.querySelector('[data-card="one"]')!.parentElement!;
   const rect = thumbnail.getBoundingClientRect();
-  expect(rect.width).toBe(160);
-  expect(rect.height).toBe(90);
-  expect(rect.width / rect.height).toBeCloseTo(16 / 9);
+  // the size of the Discord overlay container, measured in the browser
+  expect(rect.width).toBe(187);
+  expect(rect.height).toBe(104);
   // the top band holds the stage actions, so the demo starts below them
-  expect(getComputedStyle(host!.firstElementChild!).paddingTop).toBe('48px');
+  expect(getComputedStyle(host!.firstElementChild!).paddingTop).toBe('56px');
   expect(getComputedStyle(host!.firstElementChild!).paddingBottom).toBe('12px');
 });
 
@@ -131,4 +132,47 @@ test('hiding participants expands the demo and collapses the participant strip',
   await expect
     .poll(() => strip.getBoundingClientRect().height)
     .toBeGreaterThan(0);
+});
+
+test('the hide control hangs over the top edge of the participant strip', async () => {
+  await render('share');
+
+  const tile = host!.querySelector('[data-card="one"]')!.parentElement!;
+  const strip = tile.parentElement!;
+  const pill = host!.querySelector<HTMLElement>(
+    '[aria-label="hideParticipants"]'
+  );
+  expect(pill).not.toBeNull();
+
+  const pillRect = pill!.getBoundingClientRect();
+  const stripRect = strip.getBoundingClientRect();
+
+  expect(pillRect.width).toBe(64);
+  expect(pillRect.height).toBe(36);
+  expect(getComputedStyle(pill!).borderRadius).toBe('18px');
+  // the pill overlaps the tiles, it does not sit in a reserved gap
+  expect(pillRect.bottom - stripRect.top).toBeCloseTo(20, 0);
+  // and it is centred over the strip
+  expect((pillRect.left + pillRect.right) / 2).toBeCloseTo(
+    (stripRect.left + stripRect.right) / 2,
+    0
+  );
+});
+
+test('the hide control takes the place of the collapsed strip', async () => {
+  await render('share', true);
+
+  const tile = host!.querySelector('[data-card="one"]')!.parentElement!;
+  const strip = tile.parentElement!;
+  const pill = host!.querySelector<HTMLElement>(
+    '[aria-label="showParticipants"]'
+  );
+  expect(pill).not.toBeNull();
+
+  const pillRect = pill!.getBoundingClientRect();
+  const stripRect = strip.getBoundingClientRect();
+
+  expect(stripRect.height).toBe(0);
+  // the hidden strip leaves no gap, the pill sits where the strip was
+  expect(pillRect.top).toBeCloseTo(stripRect.top, 0);
 });
