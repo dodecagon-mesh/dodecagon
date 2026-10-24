@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { Window } from 'happy-dom';
 import i18next from 'i18next';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -10,40 +11,55 @@ const i18n = i18next.createInstance();
 await i18n.init({ lng: 'en', fallbackLng: 'en', resources: {} });
 
 const cards = ['share', 'one', 'two'].map((id) =>
-  createElement('div', { key: id, 'data-card': id }, id)
+  createElement('button', { key: id }, id)
 );
+const noop = () => {};
 
-const renderPinnedGrid = () =>
-  renderToStaticMarkup(
+const renderGrid = (hidden: boolean, pinnedCardId?: string) => {
+  const html = renderToStaticMarkup(
     <I18nextProvider i18n={i18n}>
-      <VoiceGrid pinnedCardId="share" tileAspectRatio={16 / 9}>
+      <VoiceGrid
+        pinnedCardId={pinnedCardId}
+        participantsHidden={hidden}
+        onToggleParticipants={noop}
+      >
         {cards}
       </VoiceGrid>
     </I18nextProvider>
   );
+  const window = new Window();
+  window.document.body.innerHTML = html;
+  return window.document;
+};
 
-const renderGrid = () =>
-  renderToStaticMarkup(
-    <I18nextProvider i18n={i18n}>
-      <VoiceGrid tileAspectRatio={16 / 9}>{cards}</VoiceGrid>
-    </I18nextProvider>
-  );
+test('hiding the participant strip removes thumbnails from interaction, not the focused media', () => {
+  const document = renderGrid(true, 'share');
+  const strip = document.querySelector('[aria-hidden="true"]');
 
-test('the participant thumbnails keep the size of the discord overlay', () => {
-  const html = renderPinnedGrid();
-
-  // the thumbnail declares the size of the Discord overlay container
-  expect(html).toContain('w-[187px]');
-  expect(html).toContain('h-[104px]');
-
-  // the old 4:3 thumbnail box is gone
-  expect(html).not.toContain('w-38');
-  expect(html).not.toContain('h-[114px]');
-  expect(html).not.toContain('aspect-video');
+  expect(strip?.hasAttribute('inert')).toBe(true);
+  expect(strip?.textContent).toBe('onetwo');
+  expect(strip?.textContent).not.toContain('share');
+  expect(
+    document.querySelector('button[aria-label="showParticipants"]')
+  ).not.toBeNull();
+  expect(document.querySelectorAll('button')).toHaveLength(4);
 });
 
-test('the stage keeps a top band for the chat button', () => {
-  // the button floats at the top of the stage, so the tiles start below it
-  expect(renderPinnedGrid()).toContain('pt-14');
-  expect(renderGrid()).toContain('pt-14');
+test('showing participants makes every thumbnail available and offers the hide action', () => {
+  const document = renderGrid(false, 'share');
+
+  expect(document.querySelector('[inert]')).toBeNull();
+  expect(document.querySelector('div[aria-hidden="true"]')).toBeNull();
+  expect(
+    document.querySelector('button[aria-label="hideParticipants"]')
+  ).not.toBeNull();
+  expect(document.querySelectorAll('button')).toHaveLength(4);
+});
+
+test('unfocused grid keeps all participants available without a redundant strip disclosure', () => {
+  const document = renderGrid(true);
+
+  expect(document.querySelector('[inert]')).toBeNull();
+  expect(document.querySelectorAll('button')).toHaveLength(3);
+  expect(document.body.textContent).toBe('shareonetwo');
 });

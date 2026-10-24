@@ -49,18 +49,12 @@ describe('VoiceStageActions', () => {
     expect(html).toContain('aria-label="Open Voice Chat"');
   });
 
-  test('should keep the participants toggle in the stage header', () => {
+  test('should identify the current channel without a redundant participants action', () => {
     const html = renderVoiceStageActions('expanded');
 
-    expect(html).toContain('aria-label="Hide participants"');
-    expect(html).toContain('aria-pressed="false"');
-  });
-
-  test('should reflect the hidden participants in the toggle', () => {
-    const html = renderVoiceStageActions('hidden');
-
-    expect(html).toContain('aria-label="Show participants"');
-    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('General');
+    expect(html).not.toContain('aria-label="Hide participants"');
+    expect(html).not.toContain('aria-label="Show participants"');
   });
 
   test('should remove the viewers list when no demo is expanded', () => {

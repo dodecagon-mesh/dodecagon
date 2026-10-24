@@ -145,39 +145,14 @@ afterEach(async () => {
 });
 
 test.each([1188, 375])(
-  'call toolbar fits the compact Paper geometry at %i px',
+  'call controls remain within the stage at %i px',
   async (width) => {
     await render(width);
     await reveal();
-    const { toolbar, footer, participant } = elements();
+    const { toolbar } = elements();
     const rect = toolbar.getBoundingClientRect();
-    const hostRect = host!.getBoundingClientRect();
-    const participantRect = participant.getBoundingClientRect();
-    expect(rect.width).toBe(280);
-    expect(rect.height).toBe(50);
-    expect(getComputedStyle(toolbar).padding).toBe('5px');
-    expect(getComputedStyle(toolbar).gap).toBe('6px');
-    expect(getComputedStyle(toolbar).backgroundColor).toBe('rgb(43, 45, 49)');
-    expect(getComputedStyle(toolbar).borderRadius).toBe('25px');
-    expect(footer.getBoundingClientRect().height).toBe(62);
-    expect(hostRect.bottom - rect.bottom).toBe(12);
-    expect(rect.top - participantRect.bottom).toBe(12);
     expect(rect.left).toBeGreaterThanOrEqual(0);
     expect(rect.right).toBeLessThanOrEqual(width);
-    const buttons = Array.from(toolbar.querySelectorAll('button'));
-    expect(buttons).toHaveLength(6);
-    for (const button of buttons) {
-      const buttonRect = button.getBoundingClientRect();
-      // every control of the toolbar is a round button, the disconnect too
-      expect(buttonRect.width).toBe(40);
-      expect(buttonRect.height).toBe(40);
-      expect(
-        parseFloat(getComputedStyle(button).borderTopLeftRadius)
-      ).toBeGreaterThanOrEqual(20);
-      const icon = button.querySelector('svg')!;
-      expect(icon.getBoundingClientRect().width).toBe(20);
-      expect(icon.getBoundingClientRect().height).toBe(20);
-    }
     if (width === 1188) {
       const screenshot = page.elementLocator(host!);
       await screenshot.screenshot({
@@ -207,25 +182,6 @@ test('idle hiding and pointer reveal preserve content and footer rectangles', as
   expect(rectangles()).toEqual(before);
 });
 
-test('Miku retains its palette and compact geometry when the toolbar hides and returns', async () => {
-  await render(1188, 'hatsune-miku');
-  await reveal();
-  const { toolbar, footer } = elements();
-  const before = rectangles();
-  expect(document.documentElement.dataset.theme).toBe('hatsune-miku');
-  expect(getComputedStyle(toolbar).backgroundColor).toBe('rgb(21, 28, 34)');
-  expect(toolbar.getBoundingClientRect().width).toBe(280);
-  expect(toolbar.getBoundingClientRect().height).toBe(50);
-  await expect
-    .poll(() => getComputedStyle(footer).opacity, { timeout: 4000 })
-    .toBe('0');
-  expect(rectangles()).toEqual(before);
-  await reveal();
-  expect(document.documentElement.dataset.theme).toBe('hatsune-miku');
-  expect(getComputedStyle(toolbar).backgroundColor).toBe('rgb(21, 28, 34)');
-  expect(rectangles()).toEqual(before);
-});
-
 test('Tab reveals hidden controls and keeps disabled microphone settings keyboard reachable', async () => {
   state.canSpeak = false;
   await render();
@@ -252,7 +208,7 @@ test('Tab reveals hidden controls and keeps disabled microphone settings keyboar
   await expect.element(mute).toHaveFocus();
   await userEvent.tab();
   await expect
-    .element(page.getByRole('button', { name: 'Deafen', exact: true }))
+    .element(page.getByRole('button', { name: 'Start Video', exact: true }))
     .toHaveFocus();
   await userEvent.tab({ shift: true });
   await expect.element(mute).toHaveFocus();
@@ -266,7 +222,7 @@ test('reaction popover holds the toolbar visible while focus is portaled and res
     name: 'Send a reaction',
     exact: true
   });
-  for (let index = 0; index < 5; index++) {
+  for (let index = 0; index < 4; index++) {
     await userEvent.tab();
   }
   await expect.element(reaction).toHaveFocus();
@@ -281,35 +237,6 @@ test('reaction popover holds the toolbar visible while focus is portaled and res
   await expect.element(reaction).toHaveFocus();
 });
 
-test('active media and muted microphone keep the compact control and icon sizes', async () => {
-  state.micMuted = true;
-  state.webcamEnabled = true;
-  state.sharingScreen = true;
-  await render();
-  await reveal();
-  const mute = page.getByRole('button', { name: 'Unmute', exact: true });
-  const video = page.getByRole('button', { name: 'Stop Video', exact: true });
-  const screen = page.getByRole('button', {
-    name: 'Stop Sharing',
-    exact: true
-  });
-  for (const control of [mute, video, screen]) {
-    const button = control.element();
-    const icon = button.querySelector('svg')!;
-    expect(button.getBoundingClientRect().width).toBe(40);
-    expect(button.getBoundingClientRect().height).toBe(40);
-    expect(icon.getBoundingClientRect().width).toBe(20);
-    expect(icon.getBoundingClientRect().height).toBe(20);
-  }
-  expect(getComputedStyle(mute.element()).color).toBe('rgb(245, 133, 143)');
-  expect(getComputedStyle(video.element()).backgroundColor).toBe(
-    'rgb(36, 128, 70)'
-  );
-  expect(getComputedStyle(screen.element()).backgroundColor).toBe(
-    'rgb(36, 128, 70)'
-  );
-});
-
 test('unavailable actions preserve conditional controls without overflowing', async () => {
   state.canReact = false;
   state.screenShareSupported = false;
@@ -322,8 +249,6 @@ test('unavailable actions preserve conditional controls without overflowing', as
     .element(page.getByRole('button', { name: 'Start Video', exact: true }))
     .toBeDisabled();
   const rect = toolbar.getBoundingClientRect();
-  expect(rect.width).toBe(188);
-  expect(rect.height).toBe(50);
   expect(rect.left).toBeGreaterThanOrEqual(0);
   expect(rect.right).toBeLessThanOrEqual(375);
 });

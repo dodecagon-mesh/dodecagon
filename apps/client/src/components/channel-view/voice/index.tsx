@@ -1,5 +1,6 @@
 import { useDevices } from '@/components/devices-provider/hooks/use-devices';
 import { useDemoVisibility } from '@/components/voice-provider/demo-visibility-context';
+import { useChannelById } from '@/features/server/channels/hooks';
 import { useVoiceUsersByChannelId } from '@/features/server/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import {
@@ -22,6 +23,7 @@ type TChannelProps = {
 };
 
 const VoiceChannel = memo(({ channelId }: TChannelProps) => {
+  const channel = useChannelById(channelId);
   const voiceUsers = useVoiceUsersByChannelId(channelId);
   const externalStreams = useVoiceChannelExternalStreamsList(channelId);
   const { pinnedCard, pinCard, unpinCard, isPinned } = usePinCardController();
@@ -144,10 +146,6 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
     isChatButtonVisible
   ]);
 
-  // the strip of the participants only exists when a card is pinned and
-  // somebody else is left for it
-  const hasParticipantStrip = pinnedCard !== undefined && cards.length > 1;
-
   if (voiceUsers.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center bg-rail">
@@ -168,24 +166,21 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
       ref={stageRef}
       className="group/voice-stage relative flex size-full flex-col overflow-hidden bg-rail"
     >
-      <VoiceGrid
-        pinnedCardId={pinnedCard?.id}
-        tileAspectRatio={16 / 9}
-        participantsHidden={participantsHidden}
-        onToggleParticipants={handleToggleParticipants}
-      >
-        {cards}
-      </VoiceGrid>
       <VoiceStageActions
         channelId={channelId}
+        channelName={channel?.name}
         isActive={isChatButtonVisible}
-        participantsHidden={participantsHidden}
-        // the participant strip carries the hide control as a pill over its
-        // top edge, the header keeps the square button for the grid layout
-        onToggleParticipants={
-          hasParticipantStrip ? undefined : handleToggleParticipants
-        }
       />
+      <div className="relative min-h-0 flex-1">
+        <VoiceGrid
+          pinnedCardId={pinnedCard?.id}
+          tileAspectRatio={16 / 9}
+          participantsHidden={participantsHidden}
+          onToggleParticipants={handleToggleParticipants}
+        >
+          {cards}
+        </VoiceGrid>
+      </div>
       <ControlsBar channelId={channelId} isActive={isChatButtonVisible} />
     </div>
   );

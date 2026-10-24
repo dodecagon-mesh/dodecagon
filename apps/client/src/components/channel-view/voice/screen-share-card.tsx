@@ -39,9 +39,9 @@ type TScreenShareCardProps = {
 };
 
 const SCREEN_SHARE_SHELL_CLASS =
-  'relative flex size-full items-center justify-center overflow-hidden rounded-[12px] border border-line';
+  'relative flex size-full items-center justify-center overflow-hidden rounded-[var(--voice-card-radius,12px)] border-[length:var(--voice-card-border,1px)] border-line';
 const SCREEN_SHARE_CAPTION_CLASS =
-  'pointer-events-none absolute bottom-2 left-2 flex h-6.5 max-w-[calc(100%-16px)] items-center gap-2 rounded-[6px] px-2';
+  'pointer-events-none absolute bottom-[max(8px,var(--voice-caption-bottom,0px))] left-2 z-[1] flex h-6.5 max-w-[calc(100%-16px)] items-center gap-2 rounded-[6px] px-2';
 
 const ScreenShareCard = memo(
   ({
@@ -368,7 +368,11 @@ const ScreenShareCard = memo(
           )}
 
           <div
-            className={cn(SCREEN_SHARE_CAPTION_CLASS, 'bg-black/65 text-white')}
+            className={cn(
+              SCREEN_SHARE_CAPTION_CLASS,
+              'bg-black/65 text-white',
+              isFullscreen && 'bottom-2'
+            )}
           >
             <ComputerDesktopIcon
               aria-hidden="true"

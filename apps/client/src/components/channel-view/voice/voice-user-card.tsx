@@ -51,8 +51,7 @@ type TVoiceUserCardProps = {
   showSpeakingOutline?: boolean;
 };
 
-// the focused tile doubles the avatar of the participant, the tiles of the
-// grid keep the paper size and the thumbnails of the strip stay compact
+// focused size is inherited from the stage; grid and strip stay compact
 const GRID_AVATAR_CLASS =
   'size-[var(--voice-avatar-size,80px)] [&_[data-slot=avatar-fallback]]:text-[length:calc(var(--voice-avatar-size,80px)_*_0.4)]';
 const PINNED_AVATAR_CLASS =
@@ -155,7 +154,7 @@ const VoiceUserCard = memo(
       >
         <div
           className={cn(
-            'relative overflow-hidden rounded-[12px] bg-panel group/voice-user-card',
+            'relative overflow-hidden rounded-[var(--voice-card-radius,12px)] bg-panel group/voice-user-card',
             'flex items-center justify-center',
             'size-full',
             // the tile carries no border, a speaking participant gets an
@@ -173,7 +172,7 @@ const VoiceUserCard = memo(
           )}
           {voiceUser.banner && showUserBanners ? (
             <div
-              className="absolute inset-0 h-full w-full rounded-[12px] bg-cover bg-center bg-no-repeat blur-sm brightness-50"
+              className="absolute inset-0 h-full w-full bg-cover bg-center bg-no-repeat blur-sm brightness-50"
               style={backgroundStyle}
             />
           ) : (
@@ -253,7 +252,7 @@ const VoiceUserCard = memo(
 
           <div
             className={cn(
-              'absolute bottom-0 left-0 right-0 flex',
+              'absolute bottom-[var(--voice-caption-bottom,0px)] left-0 right-0 z-[1] flex',
               density.inset
             )}
           >
