@@ -1,6 +1,6 @@
 {
   "name": "dodecagon",
-  "version": "0.0.61",
+  "version": "0.0.62",
   "private": true,
   "workspaces": [
     "apps/*",
@@ -18,7 +18,8 @@
     "lint": "bun run --filter '*' lint",
     "knip": "knip",
     "knip:production": "knip --production",
-    "verify": "bun run format:check && bun run lint && bun run check-types && bun run test && bun run --filter '@dodecagon/server' build && bun run --filter '@dodecagon/server' test:bundle",
+    "check:fast": "bun run format:check && bun run lint && bun run check-types",
+    "verify": "bun run check:fast && bun run test && bun run --filter '@dodecagon/server' build && bun run --filter '@dodecagon/server' test:bundle",
     "magic": "bun run format && bun run check-types && bun run lint"
   },
   "devDependencies": {
