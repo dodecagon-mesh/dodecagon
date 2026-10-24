@@ -5,12 +5,16 @@ import type {
 import {
   DIRECT_MEDIA_AUDIO_CONNECT_TIMEOUT_MS,
   DIRECT_MEDIA_CONNECT_TIMEOUT_MS,
-  DIRECT_MEDIA_ICE_GATHER_TIMEOUT_MS,
   StreamKind,
   type TDirectMediaEvent,
   type TDirectMediaSession,
   type TDirectMediaSignal
 } from '@dodecagon/shared';
+import {
+  getHolepunchMedia,
+  withHolepunchCandidate,
+  type THolepunchMedia
+} from './holepunch-media';
 
 type TScreenKind = TProducibleStreamKind;
 export type TDirectMediaResult = 'direct' | 'relay' | 'failed';
@@ -27,7 +31,7 @@ type TTimerHandle = number | NodeJS.Timeout;
 type TDirectMediaCallbacks = {
   kind: TDirectMediaKind;
   prepare: (
-    peerId: number | undefined,
+    peerId: number,
     signal: AbortSignal
   ) => Promise<TDirectMediaSession | null>;
   canReceive?: (userId: number) => boolean;
@@ -48,10 +52,7 @@ type TDirectMediaOptions = {
   maxBitrate: number;
   maxFramerate?: number;
   codec?: string;
-  onFailure: (
-    relayAllowed: boolean,
-    peerId: number | undefined
-  ) => Promise<void>;
+  onFailure: (relayAllowed: boolean, peerId: number) => Promise<void>;
 };
 
 type TOutgoingAttempt = {
@@ -60,11 +61,8 @@ type TOutgoingAttempt = {
   resolve: (result: TDirectMediaResult) => void;
   settled: boolean;
   established: boolean;
-  onFailure: (
-    relayAllowed: boolean,
-    peerId: number | undefined
-  ) => Promise<void>;
-  peerId?: number;
+  onFailure: (relayAllowed: boolean, peerId: number) => Promise<void>;
+  peerId: number;
   sessionId?: string;
   peer?: TDirectPeer;
 };
@@ -83,6 +81,9 @@ type TDirectPeer = {
   streams: Map<TScreenKind, MediaStream>;
   timer?: TTimerHandle;
   outgoing?: TOutgoingAttempt;
+  nativeMedia?: THolepunchMedia;
+  nativeEndpoint?: { publicKey: string; port: number };
+  unsubscribeNative?: () => void;
 };
 
 export class DirectMedia {
@@ -90,8 +91,8 @@ export class DirectMedia {
   private peers = new Map<string, TDirectPeer>();
   private pendingOffers = new Map<string, TDirectMediaEvent>();
   private retiredSessions = new Map<string, boolean>();
-  private outgoing = new Map<string, TOutgoingAttempt>();
-  private preparation?: Promise<void>;
+  private outgoing = new Map<number, TOutgoingAttempt>();
+  private preparations = new Map<number, Promise<void>>();
 
   constructor(callbacks: TDirectMediaCallbacks) {
     this.callbacks = callbacks;
@@ -101,8 +102,6 @@ export class DirectMedia {
     this.callbacks.kind === StreamKind.AUDIO
       ? DIRECT_MEDIA_AUDIO_CONNECT_TIMEOUT_MS
       : DIRECT_MEDIA_CONNECT_TIMEOUT_MS;
-
-  private getAttemptKey = (peerId?: number): string => String(peerId ?? 0);
 
   getConnections = (): TDirectMediaConnection[] => {
     const peers = Array.from(this.peers.values());
@@ -117,14 +116,6 @@ export class DirectMedia {
     }));
   };
 
-  start = (
-    stream: MediaStream,
-    options: TDirectMediaOptions
-  ): Promise<TDirectMediaResult> => {
-    this.stop();
-    return this.startAttempt(undefined, stream, options);
-  };
-
   startForPeer = (
     peerId: number,
     stream: MediaStream,
@@ -134,12 +125,21 @@ export class DirectMedia {
     return this.startAttempt(peerId, stream, options);
   };
 
+  stopForPeer = (peerId: number): void => {
+    this.stopAttempt(peerId);
+  };
+
   private startAttempt = (
-    peerId: number | undefined,
+    peerId: number,
     stream: MediaStream,
     options: TDirectMediaOptions
   ): Promise<TDirectMediaResult> => {
     return new Promise<TDirectMediaResult>((resolve) => {
+      if (!getHolepunchMedia()) {
+        this.callbacks.onStatus('relayed');
+        resolve('relay');
+        return;
+      }
       const attempt: TOutgoingAttempt = {
         controller: new AbortController(),
         timer: setTimeout(() => {
@@ -151,7 +151,7 @@ export class DirectMedia {
         onFailure: options.onFailure,
         peerId
       };
-      this.outgoing.set(this.getAttemptKey(peerId), attempt);
+      this.outgoing.set(peerId, attempt);
       this.callbacks.onStatus('connecting');
       this.prepareOutgoing(attempt, stream, options).catch((error: unknown) => {
         if (this.isCurrentAttempt(attempt)) this.failOutgoing(attempt, error);
@@ -160,7 +160,8 @@ export class DirectMedia {
   };
 
   handleSignal = async (event: TDirectMediaEvent): Promise<void> => {
-    if (event.kind !== this.callbacks.kind) return;
+    if (event.transport !== 'holepunch' || event.kind !== this.callbacks.kind)
+      return;
     if (this.retiredSessions.has(event.sessionId)) return;
     const peer = this.peers.get(event.sessionId);
     const pending = this.pendingOffers.get(event.sessionId);
@@ -213,9 +214,19 @@ export class DirectMedia {
       this.pinIdentity(peer, event);
       peer.phase = 'answering';
       try {
+        const endpoint = peer.nativeEndpoint;
+        const media = peer.nativeMedia;
+        if (!endpoint || !media)
+          throw new Error('Native media endpoint is missing');
+        await media.connect({
+          sessionId: peer.sessionId,
+          remotePublicKey: signal.publicKey,
+          initiator: true
+        });
+        if (!this.isActivePeer(peer)) return;
         await peer.connection.setRemoteDescription({
           type: 'answer',
-          sdp: signal.sdp
+          sdp: withHolepunchCandidate(signal.sdp, endpoint.port)
         });
         if (!this.isActivePeer(peer)) return;
         peer.phase = 'answered';
@@ -252,8 +263,8 @@ export class DirectMedia {
     }
   };
 
-  stopAttempt = (peerId: number | undefined): void => {
-    const key = this.getAttemptKey(peerId);
+  private stopAttempt = (peerId: number): void => {
+    const key = peerId;
     const attempt = this.outgoing.get(key);
     if (!attempt) return;
     this.outgoing.delete(key);
@@ -263,7 +274,7 @@ export class DirectMedia {
     if (attempt.peer) this.retirePeer(attempt.peer);
     if (attempt.sessionId) {
       this.retiredSessions.set(attempt.sessionId, false);
-      this.sendBestEffort(attempt.sessionId, { type: 'stop' }, true);
+      this.sendBestEffort(attempt.sessionId, { type: 'stop' }, attempt.peerId);
     }
     if (!this.outgoing.size) this.callbacks.onStatus('idle');
   };
@@ -272,12 +283,18 @@ export class DirectMedia {
     for (const pending of this.pendingOffers.values()) {
       if (pending.senderId !== userId) continue;
       this.retirePendingOffer(pending);
-      this.sendBestEffort(pending.sessionId, { type: 'fallback' });
+      this.sendBestEffort(pending.sessionId, {
+        type: 'fallback',
+        reason: 'unwatch'
+      });
     }
     for (const peer of this.peers.values()) {
       if (peer.direction !== 'incoming' || peer.peerId !== userId) continue;
       this.retirePeer(peer);
-      this.sendBestEffort(peer.sessionId, { type: 'fallback' });
+      this.sendBestEffort(peer.sessionId, {
+        type: 'fallback',
+        reason: 'unwatch'
+      });
     }
   };
 
@@ -293,19 +310,23 @@ export class DirectMedia {
     }
   };
 
-  private setPreparationBarrier = (request: Promise<unknown>) => {
+  private setPreparationBarrier = (
+    peerId: number,
+    request: Promise<unknown>
+  ) => {
     const pending = request.then(
       () => {},
       () => {}
     );
-    this.preparation = pending;
+    this.preparations.set(peerId, pending);
     pending.finally(() => {
-      if (this.preparation === pending) this.preparation = undefined;
+      if (this.preparations.get(peerId) === pending)
+        this.preparations.delete(peerId);
     });
   };
 
   private prepareSession = (attempt: TOutgoingAttempt) => {
-    const previous = this.preparation;
+    const previous = this.preparations.get(attempt.peerId);
     const request = (async () => {
       if (previous) await previous;
       if (!this.isCurrentAttempt(attempt)) return null;
@@ -325,7 +346,7 @@ export class DirectMedia {
       }
       return session;
     })();
-    this.setPreparationBarrier(request);
+    this.setPreparationBarrier(attempt.peerId, request);
     return request;
   };
 
@@ -339,14 +360,17 @@ export class DirectMedia {
       return;
     }
     if (!session) {
-      this.outgoing.delete(this.getAttemptKey(attempt.peerId));
+      this.outgoing.delete(attempt.peerId);
       clearTimeout(attempt.timer);
       attempt.controller.abort();
       this.resolveAttempt(attempt, 'relay');
       this.callbacks.onStatus('relayed');
       return;
     }
-    if (session.kind !== this.callbacks.kind) {
+    if (
+      session.transport !== 'holepunch' ||
+      session.kind !== this.callbacks.kind
+    ) {
       this.sendBestEffort(session.sessionId, { type: 'stop' });
       throw new Error('Direct media session kind does not match the capture');
     }
@@ -363,7 +387,8 @@ export class DirectMedia {
 
     attempt.sessionId = session.sessionId;
     const connection = new RTCPeerConnection({
-      iceServers: session.iceServers ?? []
+      iceServers: [],
+      bundlePolicy: 'max-bundle'
     });
     const peer: TDirectPeer = {
       sessionId: session.sessionId,
@@ -380,6 +405,8 @@ export class DirectMedia {
     attempt.peer = peer;
     this.peers.set(peer.sessionId, peer);
     this.listenForConnection(peer);
+    await this.openNative(peer);
+    if (!this.isActivePeer(peer)) return;
 
     const primary =
       this.callbacks.kind === StreamKind.AUDIO
@@ -409,14 +436,17 @@ export class DirectMedia {
     if (!this.isActivePeer(peer)) return;
     await connection.setLocalDescription(offer);
     if (!this.isActivePeer(peer)) return;
-    await this.gatherIce(peer);
-    if (!this.isActivePeer(peer)) return;
-    const sdp = connection.localDescription?.sdp;
-    if (!sdp) throw new Error('direct screen offer has no local SDP');
+    const sdp = offer.sdp;
+    if (!sdp || !peer.nativeEndpoint)
+      throw new Error('Holepunch offer has no local SDP or endpoint');
 
     // an answer can arrive through the subscription before the send RPC returns.
     peer.phase = 'offered';
-    await this.callbacks.send(peer.sessionId, { type: 'offer', sdp });
+    await this.callbacks.send(peer.sessionId, {
+      type: 'offer',
+      sdp,
+      publicKey: peer.nativeEndpoint.publicKey
+    });
   };
 
   private receiveOffer = async (event: TDirectMediaEvent): Promise<void> => {
@@ -439,7 +469,8 @@ export class DirectMedia {
     let peer: TDirectPeer | undefined;
     try {
       const connection = new RTCPeerConnection({
-        iceServers: event.iceServers ?? []
+        iceServers: [],
+        bundlePolicy: 'max-bundle'
       });
       peer = {
         sessionId: event.sessionId,
@@ -477,20 +508,34 @@ export class DirectMedia {
         { signal: peer.controller.signal }
       );
 
+      await this.openNative(peer);
+      if (!this.isActivePeer(peer)) return;
+      const endpoint = peer.nativeEndpoint;
+      const media = peer.nativeMedia;
+      if (!endpoint || !media)
+        throw new Error('Native media endpoint is missing');
+      await media.connect({
+        sessionId: peer.sessionId,
+        remotePublicKey: event.signal.publicKey,
+        initiator: false
+      });
+      if (!this.isActivePeer(peer)) return;
       await connection.setRemoteDescription({
         type: 'offer',
-        sdp: event.signal.sdp
+        sdp: withHolepunchCandidate(event.signal.sdp, endpoint.port)
       });
       if (!this.isActivePeer(peer)) return;
       const answer = await connection.createAnswer();
       if (!this.isActivePeer(peer)) return;
       await connection.setLocalDescription(answer);
       if (!this.isActivePeer(peer)) return;
-      await this.gatherIce(peer);
-      if (!this.isActivePeer(peer)) return;
-      const sdp = connection.localDescription?.sdp;
-      if (!sdp) throw new Error('direct screen answer has no local SDP');
-      await this.callbacks.send(peer.sessionId, { type: 'answer', sdp });
+      const sdp = answer.sdp;
+      if (!sdp) throw new Error('Holepunch answer has no local SDP');
+      await this.callbacks.send(peer.sessionId, {
+        type: 'answer',
+        sdp,
+        publicKey: endpoint.publicKey
+      });
       if (!this.isActivePeer(peer)) return;
       peer.phase = 'answered';
       this.readyIncoming(peer);
@@ -536,29 +581,20 @@ export class DirectMedia {
     );
   };
 
-  private gatherIce = (peer: TDirectPeer): Promise<void> => {
-    const { connection, controller } = peer;
-    if (
-      connection.iceGatheringState === 'complete' ||
-      controller.signal.aborted
-    ) {
-      return Promise.resolve();
-    }
-    return new Promise<void>((resolve) => {
-      const finish = () => {
-        clearTimeout(timer);
-        connection.removeEventListener('icegatheringstatechange', onGathering);
-        controller.signal.removeEventListener('abort', finish);
-        resolve();
-      };
-      const onGathering = () => {
-        if (connection.iceGatheringState === 'complete') finish();
-      };
-      const timer = setTimeout(finish, DIRECT_MEDIA_ICE_GATHER_TIMEOUT_MS);
-      connection.addEventListener('icegatheringstatechange', onGathering);
-      controller.signal.addEventListener('abort', finish, { once: true });
-      onGathering();
+  private openNative = async (peer: TDirectPeer): Promise<void> => {
+    const media = getHolepunchMedia();
+    if (!media) throw new Error('Holepunch requires the native media bridge');
+    peer.nativeMedia = media;
+    peer.unsubscribeNative = media.onClosed(({ sessionId }) => {
+      if (sessionId !== peer.sessionId || !this.isActivePeer(peer)) return;
+      this.failPeer(peer, new Error('Holepunch connection ended'), true, true);
     });
+    const endpoint = await media.create({ sessionId: peer.sessionId });
+    if (!this.isActivePeer(peer)) {
+      await media.close({ sessionId: peer.sessionId });
+      return;
+    }
+    peer.nativeEndpoint = endpoint;
   };
 
   private listenForConnection = (peer: TDirectPeer): void => {
@@ -672,7 +708,7 @@ export class DirectMedia {
 
   private isCurrentAttempt = (attempt: TOutgoingAttempt): boolean => {
     return (
-      this.outgoing.get(this.getAttemptKey(attempt.peerId)) === attempt &&
+      this.outgoing.get(attempt.peerId) === attempt &&
       !attempt.controller.signal.aborted
     );
   };
@@ -707,7 +743,7 @@ export class DirectMedia {
     peer: TDirectPeer,
     error?: unknown,
     notify = true,
-    relayAllowed = false
+    relayAllowed = true
   ): void => {
     if (!this.isActivePeer(peer)) return;
     if (peer.outgoing) {
@@ -723,23 +759,27 @@ export class DirectMedia {
     attempt: TOutgoingAttempt,
     error?: unknown,
     notify = true,
-    relayAllowed = false
+    relayAllowed = true
   ): void => {
     if (!this.isCurrentAttempt(attempt)) return;
-    this.outgoing.delete(this.getAttemptKey(attempt.peerId));
+    this.outgoing.delete(attempt.peerId);
     clearTimeout(attempt.timer);
     attempt.controller.abort();
     if (attempt.peer) this.retirePeer(attempt.peer);
     if (attempt.sessionId) {
       this.retiredSessions.set(attempt.sessionId, false);
       if (notify)
-        this.sendBestEffort(attempt.sessionId, { type: 'fallback' }, true);
+        this.sendBestEffort(
+          attempt.sessionId,
+          { type: 'fallback' },
+          attempt.peerId
+        );
     }
     this.resolveAttempt(attempt, relayAllowed ? 'relay' : 'failed');
     this.callbacks.onStatus(relayAllowed ? 'relayed' : 'failed');
     if (error !== undefined) this.callbacks.onError(error);
     if (attempt.established) {
-      const peerId = attempt.peerId ?? attempt.peer?.peerId;
+      const peerId = attempt.peerId;
       Promise.resolve()
         .then(() => attempt.onFailure(relayAllowed, peerId))
         .catch((fallbackError: unknown) => {
@@ -760,6 +800,14 @@ export class DirectMedia {
     clearTimeout(peer.timer);
     peer.controller.abort();
     peer.connection.close();
+    peer.unsubscribeNative?.();
+    if (peer.nativeMedia) {
+      peer.nativeMedia
+        .close({ sessionId: peer.sessionId })
+        .catch((error: unknown) => {
+          this.callbacks.onError(error);
+        });
+    }
     for (const [kind, stream] of peer.streams) {
       stream.getTracks().forEach((track) => track.stop());
       this.callbacks.onRemoveStream(peer.peerId, kind, stream);
@@ -770,14 +818,17 @@ export class DirectMedia {
   private sendBestEffort = (
     sessionId: string,
     signal: TDirectMediaSignal,
-    blocksPreparation = false
+    peerId?: number
   ): void => {
     const request = Promise.resolve()
       .then(() => this.callbacks.send(sessionId, signal))
       .catch((error: unknown) => {
         this.callbacks.onError(error);
       });
-    if (blocksPreparation)
-      this.setPreparationBarrier(Promise.all([this.preparation, request]));
+    if (peerId !== undefined)
+      this.setPreparationBarrier(
+        peerId,
+        Promise.all([this.preparations.get(peerId), request])
+      );
   };
 }

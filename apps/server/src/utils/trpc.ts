@@ -96,6 +96,7 @@ type TRateLimitedProcedureOptions = {
   windowMs: number;
   logLabel: string;
   maxEntries?: number;
+  skip?: (rawInput: unknown) => boolean;
 };
 
 const rateLimitedProcedure = (
@@ -108,37 +109,40 @@ const rateLimitedProcedure = (
     maxEntries: options.maxEntries
   });
 
-  const rateLimitMiddleware = t.middleware(async ({ ctx, next, path }) => {
-    const connectionInfo = ctx.getConnectionInfo();
+  const rateLimitMiddleware = t.middleware(
+    async ({ ctx, next, path, getRawInput }) => {
+      if (options.skip?.(await getRawInput())) return next();
+      const connectionInfo = ctx.getConnectionInfo();
 
-    if (!connectionInfo?.ip) {
-      // if we have no IP, it means we have no way to identify the client
-      // if we can't identify the client, we can't apply rate limiting, so we log a warning and skip it for this request
-      logger.warn(
-        `${chalk.dim('[Rate Limiter tRPC]')} Missing IP address in connection info, skipping rate limiting for this request. Path: ${path}`
+      if (!connectionInfo?.ip) {
+        // if we have no IP, it means we have no way to identify the client
+        // if we can't identify the client, we can't apply rate limiting, so we log a warning and skip it for this request
+        logger.warn(
+          `${chalk.dim('[Rate Limiter tRPC]')} Missing IP address in connection info, skipping rate limiting for this request. Path: ${path}`
+        );
+
+        return next();
+      }
+
+      const key = getClientRateLimitKey(
+        ctx.userId ? `user:${ctx.userId}` : connectionInfo.ip
       );
+      const rateLimit = limiter.consume(key);
+
+      if (!rateLimit.allowed) {
+        logger.debug(
+          `${chalk.dim('[Rate Limiter tRPC]')} ${options.logLabel} rate limited for key "${key}"`
+        );
+
+        throw new TRPCError({
+          code: 'TOO_MANY_REQUESTS',
+          message: 'Too many requests. Please try again shortly.'
+        });
+      }
 
       return next();
     }
-
-    const key = getClientRateLimitKey(
-      ctx.userId ? `user:${ctx.userId}` : connectionInfo.ip
-    );
-    const rateLimit = limiter.consume(key);
-
-    if (!rateLimit.allowed) {
-      logger.debug(
-        `${chalk.dim('[Rate Limiter tRPC]')} ${options.logLabel} rate limited for key "${key}"`
-      );
-
-      throw new TRPCError({
-        code: 'TOO_MANY_REQUESTS',
-        message: 'Too many requests. Please try again shortly.'
-      });
-    }
-
-    return next();
-  });
+  );
 
   return procedure.use(rateLimitMiddleware);
 };

@@ -23,9 +23,8 @@ import {
 import { useCallback, useEffect, useRef } from 'react';
 import { getStoredStreamQuality } from '../helpers';
 
-// the server only exposes a relay producer when no direct session owns that
-// kind, so filtering by the local policy would only drop a producer during the
-// fallback race and leave the peer silent.
+// relay visibility is decided per sender/viewer on the server. Do not filter
+// fallback events by room-wide capability: mixed rooms keep native pairs live.
 
 type TUseTransportParams = {
   voiceOnlyMode: boolean;
@@ -774,6 +773,9 @@ const useTransports = ({
             consumerStreams.current.set(`${remoteId}-${consumerKind}`, stream);
             addRemoteUserStream(remoteId, stream, consumerKind);
           }
+          // direct playback may synchronously retire a relay that lost the
+          // handoff race. Never resume that closed consumer on the server.
+          if (newConsumer.closed || !canContinue()) return;
 
           // the server holds video until native receive and its stream owner are ready.
           if (

@@ -7,6 +7,7 @@ import {
 } from '@dodecagon/shared';
 import { useEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { DirectMedia } from '../direct-media';
+import { getHolepunchMedia } from '../holepunch-media';
 
 type TDirectMediaParams = {
   channelId: number | undefined;
@@ -39,10 +40,11 @@ const useDirectMedia = ({
   addRemoteUserStream,
   removeRemoteUserStream
 }: TDirectMediaParams) => {
-  const enabledRef = useRef(enabled);
+  const nativeEnabled = enabled && !!getHolepunchMedia();
+  const enabledRef = useRef(nativeEnabled);
   const voiceOnlyModeRef = useRef(voiceOnlyMode);
   const sessionActiveRef = useRef(isVoiceSessionActive);
-  enabledRef.current = enabled;
+  enabledRef.current = nativeEnabled;
   voiceOnlyModeRef.current = voiceOnlyMode;
   sessionActiveRef.current = isVoiceSessionActive;
   const subscribed = useRef(false);
@@ -109,7 +111,11 @@ const useDirectMedia = ({
         },
         onRemoveStream: removeRemoteUserStream,
         onStatus: (status) =>
-          logVoice('direct media: path changed', { kind, status }),
+          logVoice('direct media: path changed', {
+            kind,
+            status,
+            transport: 'holepunch'
+          }),
         onError: (error) =>
           logVoiceError('direct media: failed', error, { kind })
       });
@@ -129,7 +135,7 @@ const useDirectMedia = ({
   useEffect(() => {
     if (
       !channelId ||
-      !enabled ||
+      !nativeEnabled ||
       !isVoiceSessionActive ||
       typeof RTCPeerConnection === 'undefined'
     )
@@ -138,7 +144,7 @@ const useDirectMedia = ({
     let active = true;
     const waiters = readyWaiters.current;
     const subscription = trpc.voice.onDirectMediaSignal.subscribe(
-      { enabled: true },
+      { enabled: true, transport: 'holepunch' },
       {
         onStarted: () => {
           if (!active) return;
@@ -174,7 +180,7 @@ const useDirectMedia = ({
       const coordinators = Object.values(directMedia);
       coordinators.forEach((coordinator) => coordinator.close());
     };
-  }, [channelId, enabled, isVoiceSessionActive, directMedia]);
+  }, [channelId, nativeEnabled, isVoiceSessionActive, directMedia]);
 
   useEffect(() => {
     if (!voiceOnlyMode) return;

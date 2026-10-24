@@ -71,7 +71,6 @@ export const DIRECT_MEDIA_CONNECT_TIMEOUT_MS = 8000;
 export const DIRECT_MEDIA_AUDIO_CONNECT_TIMEOUT_MS = 5000;
 export const DIRECT_MEDIA_SERVER_CONNECT_TIMEOUT_MS = 7500;
 export const DIRECT_MEDIA_SERVER_AUDIO_CONNECT_TIMEOUT_MS = 4500;
-export const DIRECT_MEDIA_ICE_GATHER_TIMEOUT_MS = 2000;
 export const DIRECT_MEDIA_SDP_MAX_LENGTH = 65536;
 
 export const DIRECT_MEDIA_KINDS = [
@@ -82,17 +81,17 @@ export const DIRECT_MEDIA_KINDS = [
 export type TDirectMediaKind = (typeof DIRECT_MEDIA_KINDS)[number];
 
 export type TDirectMediaSignal =
-  | { type: 'offer'; sdp: string }
-  | { type: 'answer'; sdp: string }
+  | { type: 'offer'; sdp: string; publicKey: string }
+  | { type: 'answer'; sdp: string; publicKey: string }
   | { type: 'ready' }
-  | { type: 'fallback' }
+  | { type: 'fallback'; reason?: 'unwatch' }
   | { type: 'stop' };
 
 export type TDirectMediaSession = {
   kind: TDirectMediaKind;
   sessionId: string;
   peerId: number;
-  iceServers: TIceServer[];
+  transport: 'holepunch';
 };
 
 export type TDirectMediaEvent = {
@@ -102,8 +101,18 @@ export type TDirectMediaEvent = {
   channelId: number;
   senderId: number;
   fromUserId: number;
-  iceServers: TIceServer[];
+  transport: 'holepunch';
   signal: TDirectMediaSignal;
+};
+
+export type TRelayDemandEvent = {
+  channelId: number;
+  kind:
+    | StreamKind.AUDIO
+    | StreamKind.VIDEO
+    | StreamKind.SCREEN
+    | StreamKind.SCREEN_AUDIO;
+  required: boolean;
 };
 
 export type TScreenViewerDemo = {

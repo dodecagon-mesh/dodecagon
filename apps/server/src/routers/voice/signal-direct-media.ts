@@ -22,21 +22,33 @@ const sdp = z
       !/^m=(?!audio(?:\s)|video(?:\s))/m.test(value),
     'Invalid direct screen SDP'
   );
+const publicKey = z.string().regex(/^[0-9a-f]{64}$/i);
+const terminalSignal = z.discriminatedUnion('type', [
+  z.strictObject({
+    type: z.literal('fallback'),
+    reason: z.literal('unwatch').optional()
+  }),
+  z.strictObject({ type: z.literal('stop') })
+]);
+const terminalInput = z.strictObject({
+  sessionId: z.uuid(),
+  signal: terminalSignal
+});
 
 const signalDirectMediaRoute = rateLimitedProcedure(protectedProcedure, {
   maxRequests: config.rateLimiters.voiceStream.maxRequests,
   windowMs: config.rateLimiters.voiceStream.windowMs,
-  logLabel: 'signalDirectMedia'
+  logLabel: 'signalDirectMedia',
+  skip: (rawInput) => terminalInput.safeParse(rawInput).success
 })
   .input(
     z.strictObject({
       sessionId: z.uuid(),
       signal: z.discriminatedUnion('type', [
-        z.strictObject({ type: z.literal('offer'), sdp }),
-        z.strictObject({ type: z.literal('answer'), sdp }),
+        z.strictObject({ type: z.literal('offer'), sdp, publicKey }),
+        z.strictObject({ type: z.literal('answer'), sdp, publicKey }),
         z.strictObject({ type: z.literal('ready') }),
-        z.strictObject({ type: z.literal('fallback') }),
-        z.strictObject({ type: z.literal('stop') })
+        ...terminalSignal.options
       ])
     })
   )

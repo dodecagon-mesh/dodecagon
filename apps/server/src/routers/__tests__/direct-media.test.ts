@@ -3,16 +3,19 @@ import {
   Permission,
   ServerEvents,
   StreamKind,
-  type TDirectMediaEvent
+  type TDirectMediaEvent,
+  type TRelayDemandEvent
 } from '@dodecagon/shared';
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { and, eq } from 'drizzle-orm';
+import { parse } from 'ini';
 import { getCaller, initTest, type TTestCaller } from '../../__tests__/helpers';
 import { tdb, testLogs } from '../../__tests__/setup';
 import { config, defaultConfig, envOverridesMap, zConfig } from '../../config';
 import { channelRolePermissions, rolePermissions } from '../../db/schema';
 import { applyEnvOverrides } from '../../helpers/apply-env-overrides';
 import { VoiceRuntime } from '../../runtimes/voice';
+import { deepMerge } from '../../utils/deep-merge';
 import { pubsub } from '../../utils/pubsub';
 
 test('keeps established screen direct sessions when a third participant joins', async () => {
@@ -25,8 +28,8 @@ test('keeps established screen direct sessions when a third participant joins', 
   const { caller: receiver } = await initTest(2, undefined, {
     currentVoiceChannelId: 2
   });
-  const previous = config.webRtc.directScreenSharing;
-  config.webRtc.directScreenSharing = true;
+  const previous = config.webRtc.holepunchMediaEnabled;
+  config.webRtc.holepunchMediaEnabled = true;
   const signals: string[] = [];
   const observation = pubsub
     .subscribeFor(1, ServerEvents.DIRECT_MEDIA_SIGNAL)
@@ -35,13 +38,20 @@ test('keeps established screen direct sessions when a third participant joins', 
   let receiverSubscription: { unsubscribe: () => void } | undefined;
   try {
     senderSubscription = (
-      await sender.voice.onDirectMediaSignal({ enabled: true })
+      await sender.voice.onDirectMediaSignal({
+        enabled: true,
+        transport: 'holepunch'
+      })
     ).subscribe({ next: () => {} });
     receiverSubscription = (
-      await receiver.voice.onDirectMediaSignal({ enabled: true })
+      await receiver.voice.onDirectMediaSignal({
+        enabled: true,
+        transport: 'holepunch'
+      })
     ).subscribe({ next: () => {} });
     const session = await sender.voice.startDirectMedia({
-      kind: StreamKind.SCREEN
+      kind: StreamKind.SCREEN,
+      peerId: 2
     });
     expect(session?.peerId).toBe(2);
     runtime.addUser(3, { micMuted: false, soundMuted: false });
@@ -50,14 +60,14 @@ test('keeps established screen direct sessions when a third participant joins', 
     await expect(
       sender.voice.signalDirectMedia({
         sessionId: session!.sessionId,
-        signal: { type: 'offer', sdp: 'v=0\r\n' }
+        signal: { type: 'offer', sdp: 'v=0\r\n', publicKey: 'a'.repeat(64) }
       })
     ).resolves.toBeUndefined();
   } finally {
     senderSubscription?.unsubscribe();
     receiverSubscription?.unsubscribe();
     observation.unsubscribe();
-    config.webRtc.directScreenSharing = previous;
+    config.webRtc.holepunchMediaEnabled = previous;
     await runtime.destroy();
   }
 });
@@ -96,27 +106,29 @@ const clock = () => {
 };
 const subscriptions: { unsubscribe: () => void }[] = [];
 const runtimes: VoiceRuntime[] = [];
-const originalEnabled = config.webRtc.directScreenSharing;
+const originalEnabled = config.webRtc.holepunchMediaEnabled;
 const originalStun = config.webRtc.directScreenStunUrls;
 const offer = {
   type: 'offer',
-  sdp: 'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n'
+  sdp: 'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n',
+  publicKey: 'a'.repeat(64)
 } as const;
 const answer = {
   type: 'answer',
-  sdp: 'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n'
+  sdp: 'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n',
+  publicKey: 'b'.repeat(64)
 } as const;
 
 afterEach(async () => {
   for (const subscription of subscriptions.splice(0))
     subscription.unsubscribe();
   for (const runtime of runtimes.splice(0)) await runtime.destroy();
-  config.webRtc.directScreenSharing = originalEnabled;
+  config.webRtc.holepunchMediaEnabled = originalEnabled;
   config.webRtc.directScreenStunUrls = originalStun;
 });
 
 const pair = async (channelId = 2) => {
-  config.webRtc.directScreenSharing = true;
+  config.webRtc.holepunchMediaEnabled = true;
   const runtime = new VoiceRuntime(channelId);
   runtimes.push(runtime);
   runtime.addUser(1, { micMuted: false, soundMuted: false });
@@ -133,7 +145,7 @@ const pair = async (channelId = 2) => {
 const listen = async (caller: TTestCaller, enabled = true) => {
   const events: TDirectMediaEvent[] = [];
   const subscription = (
-    await caller.voice.onDirectMediaSignal({ enabled })
+    await caller.voice.onDirectMediaSignal({ enabled, transport: 'holepunch' })
   ).subscribe({
     next: (event) => events.push(event)
   });
@@ -146,7 +158,8 @@ const prepared = async () => {
   const sending = await listen(result.sender);
   const receiving = await listen(result.receiver);
   const session = await result.sender.voice.startDirectMedia({
-    kind: StreamKind.SCREEN
+    kind: StreamKind.SCREEN,
+    peerId: 2
   });
   expect(session).not.toBeNull();
   return { ...result, sending, receiving, session: session! };
@@ -212,7 +225,7 @@ test('allocates independent microphone, webcam and screen sessions for one opted
     StreamKind.SCREEN
   ] as const;
   const sessions = await Promise.allSettled(
-    kinds.map((kind) => sender.voice.startDirectMedia({ kind }))
+    kinds.map((kind) => sender.voice.startDirectMedia({ kind, peerId: 2 }))
   );
   expect(sessions.map((result) => result.status)).toEqual([
     'fulfilled',
@@ -282,14 +295,14 @@ test('voice-only mode ends direct media and blocks capability until disabled', a
     'fallback'
   ]);
   expect(
-    await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+    await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 2 })
   ).toBeNull();
   const replacement = runtime.registerDirectMediaSubscriber(2, true);
   expect(runtime.hasDirectMediaCapability(2, StreamKind.SCREEN)).toBe(false);
   await receiver.voice.updateState({ voiceOnlyMode: false });
   expect(runtime.hasDirectMediaCapability(2, StreamKind.SCREEN)).toBe(true);
   expect(
-    await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+    await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 2 })
   ).not.toBeNull();
   replacement.unregister();
 });
@@ -434,7 +447,10 @@ describe('direct screen configuration', () => {
       await listen(sender, senderEnabled);
       await listen(receiver, !senderEnabled);
       expect(
-        await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+        await sender.voice.startDirectMedia({
+          kind: StreamKind.SCREEN,
+          peerId: 2
+        })
       ).toBeNull();
       await runtime.init();
       const params = await runtime.createProducerTransport(1);
@@ -482,12 +498,10 @@ describe('direct screen configuration', () => {
     const { runtime, sender, receiver } = await pair();
     await listen(sender);
     await listen(receiver);
-    config.webRtc.directScreenSharing =
-      zConfig.parse(defaultConfig).webRtc.directScreenSharing;
+    config.webRtc.holepunchMediaEnabled = false;
     await expect(
-      sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      sender.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 2 })
     ).resolves.toBeNull();
-    expect(runtime.isDirectMediaRequired(1, StreamKind.SCREEN)).toBe(false);
     expect(runtime.hasDirectMediaCapability(1, StreamKind.SCREEN)).toBe(false);
   });
 
@@ -558,7 +572,7 @@ describe('direct screen configuration', () => {
 
   test('supports validated environment opt-in and STUN configuration', () => {
     const keys = [
-      'DODECAGON_WEBRTC_DIRECT_SCREEN_SHARING',
+      'DODECAGON_WEBRTC_HOLEPUNCH_MEDIA_ENABLED',
       'DODECAGON_WEBRTC_DIRECT_SCREEN_STUN_URLS'
     ];
     const saved = keys.map((key) => process.env[key]);
@@ -568,14 +582,14 @@ describe('direct screen configuration', () => {
       const result = zConfig.parse(
         applyEnvOverrides(defaultConfig, envOverridesMap)
       );
-      expect(result.webRtc.directScreenSharing).toBe(true);
+      expect(result.webRtc.holepunchMediaEnabled).toBe(true);
       expect(result.webRtc.directScreenStunUrls).toEqual([
         'stun:example.org:3478'
       ]);
       process.env[keys[0]!] = 'false';
       expect(
         zConfig.parse(applyEnvOverrides(defaultConfig, envOverridesMap)).webRtc
-          .directScreenSharing
+          .holepunchMediaEnabled
       ).toBe(false);
       process.env[keys[1]!] = 'turn:example.org';
       expect(() =>
@@ -594,19 +608,31 @@ describe('startDirectMedia', () => {
   test('requires two actual opted-in subscribers, not just observable creation', async () => {
     const { sender, receiver } = await pair();
     expect(
-      await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      await sender.voice.startDirectMedia({
+        kind: StreamKind.SCREEN,
+        peerId: 2
+      })
     ).toBeNull();
     await listen(sender);
     const observable = await receiver.voice.onDirectMediaSignal({
-      enabled: true
+      enabled: true,
+      transport: 'holepunch'
     });
     expect(
-      await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      await sender.voice.startDirectMedia({
+        kind: StreamKind.SCREEN,
+        peerId: 2
+      })
     ).toBeNull();
     const subscription = observable.subscribe({ next: () => {} });
     subscriptions.push(subscription);
     expect(
-      (await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN }))?.peerId
+      (
+        await sender.voice.startDirectMedia({
+          kind: StreamKind.SCREEN,
+          peerId: 2
+        })
+      )?.peerId
     ).toBe(2);
   });
 
@@ -615,12 +641,18 @@ describe('startDirectMedia', () => {
     await listen(sender);
     await listen(receiver, false);
     expect(
-      await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      await sender.voice.startDirectMedia({
+        kind: StreamKind.SCREEN,
+        peerId: 2
+      })
     ).toBeNull();
     await listen(receiver);
     runtime.removeUser(2);
     expect(
-      await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      await sender.voice.startDirectMedia({
+        kind: StreamKind.SCREEN,
+        peerId: 2
+      })
     ).toBeNull();
   });
 
@@ -715,30 +747,32 @@ describe('startDirectMedia', () => {
     expect(runtime.getProducer(StreamKind.SCREEN, 1)?.id).toBe(producerId);
   });
 
-  test('derives peer and session identifiers and returns configured ICE servers', async () => {
+  test('returns a server-generated Holepunch session for the explicitly targeted peer', async () => {
     const { sender, receiver } = await pair();
     await listen(sender);
     await listen(receiver);
     config.webRtc.directScreenStunUrls = ['stun:example.org:3478'];
     const session = await sender.voice.startDirectMedia({
-      kind: StreamKind.SCREEN
+      kind: StreamKind.SCREEN,
+      peerId: 2
     });
     expect(session).toEqual({
       kind: StreamKind.SCREEN,
       sessionId: expect.any(String),
       peerId: 2,
-      iceServers: [{ urls: ['stun:example.org:3478'] }]
+      transport: 'holepunch'
     });
     expect(session!.sessionId).toMatch(/^[0-9a-f-]{36}$/);
     await expect(
-      sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      sender.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 2 })
     ).resolves.toBeNull();
   });
 
   test('allows independent simultaneous opposite shares', async () => {
     const { sender, receiver, session } = await prepared();
     const opposite = await receiver.voice.startDirectMedia({
-      kind: StreamKind.SCREEN
+      kind: StreamKind.SCREEN,
+      peerId: 1
     });
     expect(opposite?.peerId).toBe(1);
     expect(opposite?.sessionId).not.toBe(session.sessionId);
@@ -757,7 +791,7 @@ describe('startDirectMedia', () => {
     StreamKind.VIDEO,
     StreamKind.SCREEN
   ] as const) {
-    test(`upgrades only the selected ${kind} SFU producer to direct media`, async () => {
+    test(`keeps standby and unrelated SFU producers during a direct ${kind} attempt`, async () => {
       const { runtime, sender, receiver } = await pair();
       await listen(sender);
       await runtime.init();
@@ -794,14 +828,13 @@ describe('startDirectMedia', () => {
         runtime.addProducer(1, kind, producer);
         runtime.addProducer(1, otherKind, other);
         await listen(receiver);
-        const session = await sender.voice.startDirectMedia({ kind });
+        const session = await sender.voice.startDirectMedia({
+          kind,
+          peerId: 2
+        });
         expect(session).toMatchObject({ kind, peerId: 2 });
-        // screen shares keep the relay producer for mesh viewers and fallbacks.
-        const keepsRelay = kind === StreamKind.SCREEN;
-        expect(producer.closed).toBe(!keepsRelay);
-        expect(runtime.getProducer(kind, 1)).toBe(
-          keepsRelay ? producer : undefined
-        );
+        expect(producer.closed).toBe(false);
+        expect(runtime.getProducer(kind, 1)).toBe(producer);
         expect(other.closed).toBe(false);
       } finally {
         transport.close();
@@ -823,7 +856,9 @@ describe('startDirectMedia', () => {
       signal: offer
     });
     for (const kind of [StreamKind.AUDIO, StreamKind.VIDEO] as const)
-      expect(await sender.voice.startDirectMedia({ kind })).toMatchObject({
+      expect(
+        await sender.voice.startDirectMedia({ kind, peerId: 2 })
+      ).toMatchObject({
         kind,
         peerId: 2
       });
@@ -840,7 +875,7 @@ describe('startDirectMedia', () => {
       const { receiver } = await pair();
       await revoke(permission);
       await expect(
-        receiver.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+        receiver.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 1 })
       ).rejects.toThrow('Insufficient permissions');
     });
   }
@@ -849,19 +884,19 @@ describe('startDirectMedia', () => {
     const { sender } = await pair();
     const { caller: absent } = await initTest(3);
     await expect(
-      absent.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      absent.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 2 })
     ).rejects.toThrow('User is not in a voice channel');
     const { caller: missing } = await initTest(3, undefined, {
       currentVoiceChannelId: 999999
     });
     await expect(
-      missing.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      missing.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 2 })
     ).rejects.toThrow();
     const { caller: outsider } = await initTest(3, undefined, {
       currentVoiceChannelId: 2
     });
     await expect(
-      outsider.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      outsider.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 2 })
     ).rejects.toThrow('User is not in this voice channel');
     await expect(
       sender.voice.startDirectMedia({ peerId: 3 } as never)
@@ -871,7 +906,7 @@ describe('startDirectMedia', () => {
         currentVoiceChannelId: channelId
       });
       await expect(
-        caller.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+        caller.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 2 })
       ).rejects.toThrow('Channel is not a voice channel');
     }
   });
@@ -879,7 +914,7 @@ describe('startDirectMedia', () => {
   test('rejects a sender without channel view or share access', async () => {
     const { receiver } = await pair(4);
     await expect(
-      receiver.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      receiver.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 1 })
     ).rejects.toThrow('Insufficient channel permissions');
     await tdb.insert(channelRolePermissions).values({
       channelId: 4,
@@ -889,7 +924,7 @@ describe('startDirectMedia', () => {
       createdAt: Date.now()
     });
     await expect(
-      receiver.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      receiver.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 1 })
     ).rejects.toThrow('Insufficient channel permissions');
   });
 
@@ -908,7 +943,10 @@ describe('startDirectMedia', () => {
       .delete(channelRolePermissions)
       .where(eq(channelRolePermissions.channelId, 4));
     expect(
-      await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      await sender.voice.startDirectMedia({
+        kind: StreamKind.SCREEN,
+        peerId: 2
+      })
     ).toBeNull();
   });
 
@@ -920,11 +958,14 @@ describe('startDirectMedia', () => {
       index++
     ) {
       expect(
-        await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+        await sender.voice.startDirectMedia({
+          kind: StreamKind.SCREEN,
+          peerId: 2
+        })
       ).toBeNull();
     }
     await expect(
-      sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      sender.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 2 })
     ).rejects.toThrow('Too many requests');
   });
 });
@@ -934,19 +975,28 @@ describe('onDirectMediaSignal', () => {
     await pair();
     const { caller: absent } = await initTest(3);
     await expect(
-      absent.voice.onDirectMediaSignal({ enabled: true })
+      absent.voice.onDirectMediaSignal({
+        enabled: true,
+        transport: 'holepunch'
+      })
     ).rejects.toThrow();
     const { caller: outsider } = await initTest(3, undefined, {
       currentVoiceChannelId: 2
     });
     await expect(
-      outsider.voice.onDirectMediaSignal({ enabled: true })
+      outsider.voice.onDirectMediaSignal({
+        enabled: true,
+        transport: 'holepunch'
+      })
     ).rejects.toThrow('User is not in this voice channel');
     const { caller: missing } = await initTest(3, undefined, {
       currentVoiceChannelId: 999999
     });
     await expect(
-      missing.voice.onDirectMediaSignal({ enabled: true })
+      missing.voice.onDirectMediaSignal({
+        enabled: true,
+        transport: 'holepunch'
+      })
     ).rejects.toThrow();
     const privateRuntime = new VoiceRuntime(4);
     runtimes.push(privateRuntime);
@@ -955,7 +1005,10 @@ describe('onDirectMediaSignal', () => {
       currentVoiceChannelId: 4
     });
     await expect(
-      privateCaller.voice.onDirectMediaSignal({ enabled: true })
+      privateCaller.voice.onDirectMediaSignal({
+        enabled: true,
+        transport: 'holepunch'
+      })
     ).rejects.toThrow('Insufficient channel permissions');
   });
 
@@ -966,7 +1019,10 @@ describe('onDirectMediaSignal', () => {
     ).rejects.toThrow();
     await revoke(Permission.JOIN_VOICE_CHANNELS);
     await expect(
-      receiver.voice.onDirectMediaSignal({ enabled: true })
+      receiver.voice.onDirectMediaSignal({
+        enabled: true,
+        transport: 'holepunch'
+      })
     ).rejects.toThrow('Insufficient permissions');
   });
 
@@ -977,17 +1033,26 @@ describe('onDirectMediaSignal', () => {
     const current = await listen(receiver);
     old.subscription.unsubscribe();
     expect(
-      await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      await sender.voice.startDirectMedia({
+        kind: StreamKind.SCREEN,
+        peerId: 2
+      })
     ).not.toBeNull();
     const disabled = await listen(receiver, false);
     disabled.subscription.unsubscribe();
     expect(
-      await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      await sender.voice.startDirectMedia({
+        kind: StreamKind.SCREEN,
+        peerId: 2
+      })
     ).toBeNull();
     current.subscription.unsubscribe();
     await listen(receiver);
     expect(
-      await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      await sender.voice.startDirectMedia({
+        kind: StreamKind.SCREEN,
+        peerId: 2
+      })
     ).not.toBeNull();
   });
 
@@ -998,10 +1063,16 @@ describe('onDirectMediaSignal', () => {
       index < config.rateLimiters.voiceStream.maxRequests;
       index++
     ) {
-      await sender.voice.onDirectMediaSignal({ enabled: true });
+      await sender.voice.onDirectMediaSignal({
+        enabled: true,
+        transport: 'holepunch'
+      });
     }
     await expect(
-      sender.voice.onDirectMediaSignal({ enabled: true })
+      sender.voice.onDirectMediaSignal({
+        enabled: true,
+        transport: 'holepunch'
+      })
     ).rejects.toThrow('Too many requests');
   });
 
@@ -1009,13 +1080,17 @@ describe('onDirectMediaSignal', () => {
     const { runtime, sender, receiver } = await pair();
     await listen(sender);
     const delayed = await receiver.voice.onDirectMediaSignal({
-      enabled: true
+      enabled: true,
+      transport: 'holepunch'
     });
     runtime.removeUser(2);
     runtime.addUser(2, { micMuted: false, soundMuted: false });
     subscriptions.push(delayed.subscribe({ next: () => {} }));
     expect(
-      await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      await sender.voice.startDirectMedia({
+        kind: StreamKind.SCREEN,
+        peerId: 2
+      })
     ).toBeNull();
   });
 
@@ -1023,22 +1098,30 @@ describe('onDirectMediaSignal', () => {
     const { runtime, sender, receiver } = await pair();
     await listen(sender);
     const delayed = await receiver.voice.onDirectMediaSignal({
-      enabled: true
+      enabled: true,
+      transport: 'holepunch'
     });
     await sender.voice.moveUser({ userId: 2, channelId: 4 });
     subscriptions.push(delayed.subscribe({ next: () => {} }));
     expect(
-      await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      await sender.voice.startDirectMedia({
+        kind: StreamKind.SCREEN,
+        peerId: 2
+      })
     ).toBeNull();
     await listen(receiver);
     expect(
-      await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      await sender.voice.startDirectMedia({
+        kind: StreamKind.SCREEN,
+        peerId: 2
+      })
     ).toBeNull();
     runtime.removeUser(2);
     runtime.addUser(2, { micMuted: false, soundMuted: false });
     await listen(receiver);
     const session = await sender.voice.startDirectMedia({
-      kind: StreamKind.SCREEN
+      kind: StreamKind.SCREEN,
+      peerId: 2
     });
     expect(session?.peerId).toBe(2);
     await sender.voice.signalDirectMedia({
@@ -1053,11 +1136,15 @@ describe('onDirectMediaSignal', () => {
     const current = await listen(receiver);
     current.subscription.unsubscribe();
     expect(
-      await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      await sender.voice.startDirectMedia({
+        kind: StreamKind.SCREEN,
+        peerId: 2
+      })
     ).toBeNull();
     await listen(receiver);
     const session = await sender.voice.startDirectMedia({
-      kind: StreamKind.SCREEN
+      kind: StreamKind.SCREEN,
+      peerId: 2
     });
     expect(session?.peerId).toBe(2);
     await sender.voice.signalDirectMedia({
@@ -1095,7 +1182,7 @@ describe('signalDirectMedia', () => {
         channelId: 2,
         senderId: 1,
         fromUserId: 1,
-        iceServers: [],
+        transport: 'holepunch',
         signal: offer
       }
     ]);
@@ -1161,12 +1248,17 @@ describe('signalDirectMedia', () => {
   test('rejects unknown, oversized, malformed and unexpected signalling fields', async () => {
     const { sender, session } = await prepared();
     for (const signal of [
-      { type: 'offer', sdp: '' },
-      { type: 'offer', sdp: 'not SDP' },
-      { type: 'offer', sdp: `v=0\r\n${'x'.repeat(65536)}` },
+      { type: 'offer', sdp: '', publicKey: 'a'.repeat(64) },
+      { type: 'offer', sdp: 'not SDP', publicKey: 'a'.repeat(64) },
       {
         type: 'offer',
-        sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n'
+        sdp: `v=0\r\n${'x'.repeat(65536)}`,
+        publicKey: 'a'.repeat(64)
+      },
+      {
+        type: 'offer',
+        sdp: 'v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n',
+        publicKey: 'a'.repeat(64)
       },
       { type: 'candidate', candidate: 'private IP' },
       { type: 'stop', sdp: 'private SDP' },
@@ -1246,7 +1338,10 @@ describe('signalDirectMedia', () => {
       const { receiver, session } = await prepared();
       const outgoing =
         permission === Permission.SHARE_SCREEN
-          ? await receiver.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+          ? await receiver.voice.startDirectMedia({
+              kind: StreamKind.SCREEN,
+              peerId: 1
+            })
           : session;
       await revoke(permission);
       await expect(
@@ -1260,7 +1355,7 @@ describe('signalDirectMedia', () => {
 
   test('permits terminal cleanup after disabling the feature, once only', async () => {
     const { sender, sending, receiving, session } = await prepared();
-    config.webRtc.directScreenSharing = false;
+    config.webRtc.holepunchMediaEnabled = false;
     await expect(
       sender.voice.signalDirectMedia({
         sessionId: session.sessionId,
@@ -1349,7 +1444,10 @@ describe('direct screen lifecycle', () => {
     runtime.removeUser(2);
     runtime.addUser(2, { micMuted: false, soundMuted: false });
     expect(
-      await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+      await sender.voice.startDirectMedia({
+        kind: StreamKind.SCREEN,
+        peerId: 2
+      })
     ).toBeNull();
     await expect(
       sender.voice.signalDirectMedia({
@@ -1359,7 +1457,7 @@ describe('direct screen lifecycle', () => {
     ).rejects.toThrow('Direct screen session not found');
   });
 
-  test('expires a pending screen session but keeps relay and retries available', async () => {
+  test('expires a pending screen session and latches only that pair until rejoin', async () => {
     const time = clock();
     const { runtime, sender, sending, session } = await prepared();
     time.advance(8200);
@@ -1375,13 +1473,10 @@ describe('direct screen lifecycle', () => {
     expect(runtime.getUserState(1).directMediaEnabled).toBe(true);
     expect(runtime.getUserState(2).directMediaEnabled).toBe(true);
     const replacement = await sender.voice.startDirectMedia({
-      kind: StreamKind.SCREEN
+      kind: StreamKind.SCREEN,
+      peerId: 2
     });
-    expect(replacement).not.toBeNull();
-    await sender.voice.signalDirectMedia({
-      sessionId: replacement!.sessionId,
-      signal: { type: 'stop' }
-    });
+    expect(replacement).toBeNull();
   });
 
   test('ready clears the pending deadline', async () => {
@@ -1415,10 +1510,10 @@ describe('direct screen lifecycle', () => {
 test('all direct screen endpoints require authentication', async () => {
   const { caller } = await getCaller(1, undefined, { authenticated: false });
   await expect(
-    caller.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+    caller.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 2 })
   ).rejects.toThrow('You must be authenticated');
   await expect(
-    caller.voice.onDirectMediaSignal({ enabled: true })
+    caller.voice.onDirectMediaSignal({ enabled: true, transport: 'holepunch' })
   ).rejects.toThrow('You must be authenticated');
   await expect(
     caller.voice.signalDirectMedia({
@@ -1449,7 +1544,8 @@ test('screen signalling rechecks channel permissions before exposing SDP', async
   const sending = await listen(sender);
   const receiving = await listen(receiver);
   const session = await sender.voice.startDirectMedia({
-    kind: StreamKind.SCREEN
+    kind: StreamKind.SCREEN,
+    peerId: 2
   });
   await tdb
     .delete(channelRolePermissions)
@@ -1489,10 +1585,12 @@ test('screen offers need channel share permission but receive and cleanup do not
   await listen(sender);
   await listen(receiver);
   const session = await sender.voice.startDirectMedia({
-    kind: StreamKind.SCREEN
+    kind: StreamKind.SCREEN,
+    peerId: 2
   });
   const opposite = await receiver.voice.startDirectMedia({
-    kind: StreamKind.SCREEN
+    kind: StreamKind.SCREEN,
+    peerId: 1
   });
   await sender.voice.signalDirectMedia({
     sessionId: session!.sessionId,
@@ -1536,7 +1634,8 @@ test('a receive-only peer without global share permission can negotiate and clea
   const sending = await listen(sender);
   await listen(receiver);
   const session = await sender.voice.startDirectMedia({
-    kind: StreamKind.SCREEN
+    kind: StreamKind.SCREEN,
+    peerId: 2
   });
   await sender.voice.signalDirectMedia({
     sessionId: session!.sessionId,
@@ -1563,6 +1662,371 @@ test('a receive-only peer without global share permission can negotiate and clea
     signal: { type: 'fallback' }
   });
   await expect(
-    receiver.voice.startDirectMedia({ kind: StreamKind.SCREEN })
+    receiver.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 1 })
   ).rejects.toThrow('Insufficient permissions');
 });
+
+test.each([StreamKind.AUDIO, StreamKind.VIDEO, StreamKind.SCREEN])(
+  'isolates a failed %s pair among three native peers and a browser',
+  async (kind) => {
+    const { runtime, sender, receiver } = await pair();
+    runtime.addUser(3, { micMuted: false, soundMuted: false });
+    runtime.addUser(4, { micMuted: false, soundMuted: false });
+    const { caller: third } = await initTest(3, undefined, {
+      currentVoiceChannelId: 2
+    });
+    await listen(sender);
+    await listen(receiver);
+    await listen(third);
+    runtime.registerDirectMediaSubscriber(4, false);
+    const first = await sender.voice.startDirectMedia({ kind, peerId: 2 });
+    const second = await sender.voice.startDirectMedia({ kind, peerId: 3 });
+    expect(first).toMatchObject({ kind, peerId: 2, transport: 'holepunch' });
+    expect(second).toMatchObject({ kind, peerId: 3, transport: 'holepunch' });
+    expect(await sender.voice.startDirectMedia({ kind, peerId: 4 })).toBeNull();
+    await sender.voice.signalDirectMedia({
+      sessionId: second!.sessionId,
+      signal: offer
+    });
+    await third.voice.signalDirectMedia({
+      sessionId: second!.sessionId,
+      signal: answer
+    });
+    await third.voice.signalDirectMedia({
+      sessionId: second!.sessionId,
+      signal: { type: 'ready' }
+    });
+    await receiver.voice.signalDirectMedia({
+      sessionId: first!.sessionId,
+      signal: { type: 'fallback' }
+    });
+    expect(runtime.getDirectMediaSession(first!.sessionId, 1)).toBeUndefined();
+    expect(runtime.getDirectMediaSession(second!.sessionId, 1)?.phase).toBe(
+      'ready'
+    );
+    expect(runtime.getUserState(1).directMediaEnabled).toBe(true);
+    expect(runtime.getUserState(2).directMediaEnabled).toBe(true);
+    expect(await sender.voice.startDirectMedia({ kind, peerId: 2 })).toBeNull();
+  }
+);
+
+test('rejects missing or non-hex Holepunch keys without advancing offer or answer', async () => {
+  const { sender, receiver, session } = await prepared();
+  for (const publicKey of [undefined, '', 'a'.repeat(63), 'g'.repeat(64)]) {
+    await expect(
+      sender.voice.signalDirectMedia({
+        sessionId: session.sessionId,
+        signal: { ...offer, publicKey } as never
+      })
+    ).rejects.toThrow();
+  }
+  await expect(
+    sender.voice.signalDirectMedia({
+      sessionId: session.sessionId,
+      signal: { ...offer, publicKey: 'AB'.repeat(32) }
+    })
+  ).resolves.toBeUndefined();
+  for (const publicKey of [undefined, '', 'b'.repeat(65), 'x'.repeat(64)]) {
+    await expect(
+      receiver.voice.signalDirectMedia({
+        sessionId: session.sessionId,
+        signal: { ...answer, publicKey } as never
+      })
+    ).rejects.toThrow();
+  }
+  await expect(
+    receiver.voice.signalDirectMedia({
+      sessionId: session.sessionId,
+      signal: { ...answer, publicKey: 'CD'.repeat(32) }
+    })
+  ).resolves.toBeUndefined();
+});
+
+test.each([StreamKind.AUDIO, StreamKind.VIDEO, StreamKind.SCREEN])(
+  'switches only the ready %s pair off relay and restores it on fallback',
+  async (kind) => {
+    const { runtime, sender, receiver } = await pair();
+    runtime.addUser(3, { micMuted: false, soundMuted: false });
+    await listen(sender);
+    await listen(receiver);
+    await runtime.init();
+    const transport = await runtime.getRouter().createDirectTransport();
+    const audio = kind === StreamKind.AUDIO;
+    const producer = await transport.produce({
+      kind: audio ? 'audio' : 'video',
+      rtpParameters: {
+        codecs: [
+          audio
+            ? {
+                mimeType: 'audio/opus',
+                payloadType: 111,
+                clockRate: 48000,
+                channels: 2
+              }
+            : { mimeType: 'video/VP8', payloadType: 96, clockRate: 90000 }
+        ],
+        encodings: [{ ssrc: 7711 }]
+      }
+    });
+    runtime.addProducer(1, kind, producer);
+    const relay = await transport.consume({
+      producerId: producer.id,
+      rtpCapabilities: runtime.getRouter().rtpCapabilities
+    });
+    runtime.addConsumer(2, 1, kind, relay);
+    const discovery: unknown[] = [];
+    const observable = await receiver.voice.onNewProducer();
+    subscriptions.push(
+      observable.subscribe({ next: (event) => discovery.push(event) })
+    );
+    const demand: TRelayDemandEvent[] = [];
+    subscriptions.push(
+      (await sender.voice.onRelayDemand()).subscribe({
+        next: (event) => demand.push(event)
+      })
+    );
+    expect(demand).toContainEqual({ channelId: 2, kind, required: true });
+    const session = await sender.voice.startDirectMedia({ kind, peerId: 2 });
+    await sender.voice.signalDirectMedia({
+      sessionId: session!.sessionId,
+      signal: offer
+    });
+    await receiver.voice.signalDirectMedia({
+      sessionId: session!.sessionId,
+      signal: answer
+    });
+    await receiver.voice.signalDirectMedia({
+      sessionId: session!.sessionId,
+      signal: { type: 'ready' }
+    });
+    const ids = (peerId: number) => {
+      const remote = runtime.getRemoteIds(peerId);
+      return kind === StreamKind.AUDIO
+        ? remote.remoteAudioIds
+        : kind === StreamKind.VIDEO
+          ? remote.remoteVideoIds
+          : remote.remoteScreenIds;
+    };
+    expect(relay.closed).toBe(true);
+    expect(producer.closed).toBe(false);
+    expect(ids(2)).toEqual([]);
+    expect(ids(3)).toEqual([1]);
+    expect(demand.filter((event) => event.kind === kind).at(-1)?.required).toBe(
+      false
+    );
+    await receiver.voice.signalDirectMedia({
+      sessionId: session!.sessionId,
+      signal: { type: 'fallback' }
+    });
+    expect(ids(2)).toEqual([1]);
+    expect(discovery).toEqual([{ channelId: 2, remoteId: 1, kind }]);
+    const fallback = await transport.consume({
+      producerId: producer.id,
+      rtpCapabilities: runtime.getRouter().rtpCapabilities
+    });
+    runtime.addConsumer(2, 1, kind, fallback);
+    expect(demand.filter((event) => event.kind === kind).at(-1)?.required).toBe(
+      true
+    );
+    await fallback.pause();
+    expect(demand.filter((event) => event.kind === kind).at(-1)?.required).toBe(
+      false
+    );
+    await fallback.resume();
+    expect(demand.filter((event) => event.kind === kind).at(-1)?.required).toBe(
+      true
+    );
+    producer.close();
+    expect(
+      runtime.getDirectMediaSession(session!.sessionId, 1)
+    ).toBeUndefined();
+    transport.close();
+  }
+);
+
+test('direct routes require explicit peer and actual native transport', async () => {
+  const { sender } = await pair();
+  await expect(
+    sender.voice.startDirectMedia({ kind: StreamKind.AUDIO } as never)
+  ).rejects.toThrow();
+  for (const transport of [undefined, 'webrtc', 'mediasoup']) {
+    await expect(
+      sender.voice.onDirectMediaSignal({ enabled: true, transport } as never)
+    ).rejects.toThrow();
+  }
+});
+
+test('native direct media is available by default without disabling browser relay', async () => {
+  const { sender, receiver } = await pair();
+  config.webRtc.holepunchMediaEnabled =
+    zConfig.parse(defaultConfig).webRtc.holepunchMediaEnabled;
+  await listen(sender);
+  await listen(receiver);
+  expect(
+    await sender.voice.startDirectMedia({ kind: StreamKind.AUDIO, peerId: 2 })
+  ).toMatchObject({ transport: 'holepunch', peerId: 2 });
+});
+
+test('relay demand requires current membership and sends an initial snapshot', async () => {
+  const { sender } = await pair();
+  const events: unknown[] = [];
+  subscriptions.push(
+    (await sender.voice.onRelayDemand()).subscribe({
+      next: (event) => events.push(event)
+    })
+  );
+  expect(events).toEqual([
+    { channelId: 2, kind: StreamKind.AUDIO, required: false },
+    { channelId: 2, kind: StreamKind.VIDEO, required: false },
+    { channelId: 2, kind: StreamKind.SCREEN, required: false },
+    { channelId: 2, kind: StreamKind.SCREEN_AUDIO, required: false }
+  ]);
+  const { caller: outsider } = await initTest(3, undefined, {
+    currentVoiceChannelId: 2
+  });
+  await expect(outsider.voice.onRelayDemand()).rejects.toThrow(
+    'User is not in this voice channel'
+  );
+  const { caller: anonymous } = await getCaller(1, undefined, {
+    authenticated: false
+  });
+  await expect(anonymous.voice.onRelayDemand()).rejects.toThrow(
+    'You must be authenticated'
+  );
+});
+
+test('legacy persisted direct-screen defaults do not disable native Holepunch', () => {
+  const migrated = zConfig.parse(
+    deepMerge(
+      defaultConfig,
+      parse('[webRtc]\ndirectScreenSharing=false\nport=40000\n')
+    )
+  );
+  expect(migrated.webRtc.holepunchMediaEnabled).toBe(true);
+  expect(migrated.webRtc).not.toHaveProperty('directScreenSharing');
+  const explicitlyDisabled = zConfig.parse(
+    deepMerge(defaultConfig, parse('[webRtc]\nholepunchMediaEnabled=false\n'))
+  );
+  expect(explicitlyDisabled.webRtc.holepunchMediaEnabled).toBe(false);
+});
+
+test('receiver unwatch can rewatch the same source without clearing real pair failures', async () => {
+  const { runtime, sender, receiver, session } = await prepared();
+  await expect(
+    sender.voice.signalDirectMedia({
+      sessionId: session.sessionId,
+      signal: { type: 'fallback', reason: 'unwatch' }
+    })
+  ).rejects.toThrow('Only the receiver can cancel watching');
+  expect(runtime.getDirectMediaSession(session.sessionId, 1)).toBeDefined();
+  await sender.voice.signalDirectMedia({
+    sessionId: session.sessionId,
+    signal: offer
+  });
+  await receiver.voice.signalDirectMedia({
+    sessionId: session.sessionId,
+    signal: answer
+  });
+  await receiver.voice.signalDirectMedia({
+    sessionId: session.sessionId,
+    signal: { type: 'ready' }
+  });
+  await receiver.voice.signalDirectMedia({
+    sessionId: session.sessionId,
+    signal: { type: 'fallback', reason: 'unwatch' }
+  });
+  const rewatch = await sender.voice.startDirectMedia({
+    kind: StreamKind.SCREEN,
+    peerId: 2
+  });
+  expect(rewatch).not.toBeNull();
+  await receiver.voice.signalDirectMedia({
+    sessionId: rewatch!.sessionId,
+    signal: { type: 'fallback' }
+  });
+  expect(
+    await sender.voice.startDirectMedia({ kind: StreamKind.SCREEN, peerId: 2 })
+  ).toBeNull();
+});
+
+test.each(['fallback', 'stop'] as const)(
+  'acknowledges %s after exhausting negotiation budget and restores relay',
+  async (type) => {
+    const { runtime, sender, receiver, session } = await prepared();
+    await runtime.init();
+    const transport = await runtime.getRouter().createDirectTransport();
+    const producer = await transport.produce({
+      kind: 'video',
+      rtpParameters: {
+        codecs: [{ mimeType: 'video/VP8', payloadType: 96, clockRate: 90000 }],
+        encodings: [{ ssrc: 8822 }]
+      }
+    });
+    runtime.addProducer(1, StreamKind.SCREEN, producer);
+    await sender.voice.signalDirectMedia({
+      sessionId: session.sessionId,
+      signal: offer
+    });
+    await receiver.voice.signalDirectMedia({
+      sessionId: session.sessionId,
+      signal: answer
+    });
+    await receiver.voice.signalDirectMedia({
+      sessionId: session.sessionId,
+      signal: { type: 'ready' }
+    });
+    expect(runtime.getRemoteIds(2).remoteScreenIds).toEqual([]);
+    for (
+      let index = 0;
+      index < config.rateLimiters.voiceStream.maxRequests;
+      index++
+    ) {
+      await expect(
+        receiver.voice.signalDirectMedia({
+          sessionId: crypto.randomUUID(),
+          signal: offer
+        })
+      ).rejects.toThrow(/Direct screen session not found|Too many requests/);
+    }
+    await expect(
+      receiver.voice.signalDirectMedia({
+        sessionId: crypto.randomUUID(),
+        signal: offer
+      })
+    ).rejects.toThrow('Too many requests');
+    await expect(
+      receiver.voice.signalDirectMedia({
+        sessionId: session.sessionId,
+        signal: { type, extra: true } as never
+      })
+    ).rejects.toThrow('Too many requests');
+    expect(runtime.getDirectMediaSession(session.sessionId, 1)?.phase).toBe(
+      'ready'
+    );
+    await expect(
+      receiver.voice.signalDirectMedia({
+        sessionId: session.sessionId,
+        signal: { type }
+      })
+    ).resolves.toBeUndefined();
+    expect(runtime.getDirectMediaSession(session.sessionId, 1)).toBeUndefined();
+    expect(runtime.getRemoteIds(2).remoteScreenIds).toEqual([1]);
+    const relay = await transport.consume({
+      producerId: producer.id,
+      rtpCapabilities: runtime.getRouter().rtpCapabilities
+    });
+    runtime.addConsumer(2, 1, StreamKind.SCREEN, relay);
+    expect(runtime.getRelayDemand(1)).toContainEqual({
+      channelId: 2,
+      kind: StreamKind.SCREEN,
+      required: true
+    });
+    await expect(
+      receiver.voice.signalDirectMedia({
+        sessionId: session.sessionId,
+        signal: { type }
+      })
+    ).resolves.toBeUndefined();
+    transport.close();
+  }
+);

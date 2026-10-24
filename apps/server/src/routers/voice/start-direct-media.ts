@@ -1,7 +1,6 @@
 import {
   ChannelPermission,
   DIRECT_MEDIA_KINDS,
-  StreamKind,
   type TDirectMediaSession
 } from '@dodecagon/shared';
 import { z } from 'zod';
@@ -19,16 +18,13 @@ const startDirectMediaRoute = rateLimitedProcedure(protectedProcedure, {
   .input(
     z.strictObject({
       kind: z.enum(DIRECT_MEDIA_KINDS),
-      peerId: z.number().int().positive().optional()
+      peerId: z.number().int().positive()
     })
   )
   .mutation(async ({ ctx, input }): Promise<TDirectMediaSession | null> => {
     const { runtime, channelId } = await getDirectMediaRuntime(ctx, input.kind);
     const member = runtime.getUser(ctx.user.id);
-    const peer =
-      input.kind === StreamKind.SCREEN && input.peerId
-        ? runtime.getState().users.find((user) => user.userId === input.peerId)
-        : runtime.getState().users.find((user) => user.userId !== ctx.user.id);
+    const peer = runtime.getUser(input.peerId);
     if (
       !peer ||
       peer.userId === ctx.user.id ||
@@ -45,9 +41,6 @@ const startDirectMediaRoute = rateLimitedProcedure(protectedProcedure, {
       ctx.currentVoiceChannelId !== channelId ||
       VoiceRuntime.findById(channelId) !== runtime ||
       runtime.getUser(ctx.user.id) !== member ||
-      (input.kind !== StreamKind.SCREEN &&
-        runtime.getState().users.length !== 2) ||
-      runtime.getState().users.length < 2 ||
       runtime.getUser(peer.userId) !== peer
     )
       return null;

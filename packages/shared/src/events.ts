@@ -28,6 +28,7 @@ export enum ServerEvents {
   VOICE_PRODUCER_CLOSED = 'voiceProducerClosed',
   VOICE_SCREEN_CONSUMER_STARTED = 'voiceScreenConsumerStarted',
   VOICE_SCREEN_VIEWERS_CHANGED = 'voiceScreenViewersChanged',
+  VOICE_RELAY_DEMAND = 'voiceRelayDemand',
   DIRECT_MEDIA_SIGNAL = 'directScreenSignal',
 
   EMOJI_CREATE = 'emojiCreate',

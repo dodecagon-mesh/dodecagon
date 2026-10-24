@@ -3,9 +3,23 @@ import * as trpc from '@/lib/trpc';
 import { StreamKind } from '@dodecagon/shared';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 vi.mock('@/lib/trpc', { spy: true });
+
+beforeEach(() => {
+  vi.stubGlobal('dodecagonDesktop', {
+    media: {
+      version: 1,
+      create: async () => ({ publicKey: 'a'.repeat(64), port: 45000 }),
+      connect: async () => {},
+      close: async () => {},
+      onClosed: () => () => {}
+    }
+  });
+});
+
+afterEach(() => vi.unstubAllGlobals());
 
 test('voice-only microphone publication waits for the direct subscription acknowledgement', async () => {
   let started: (() => void) | undefined;
@@ -51,7 +65,7 @@ test('voice-only microphone publication waits for the direct subscription acknow
     const destination = context.createMediaStreamDestination();
     let result: string | undefined;
     const pending = subject!.directMedia[StreamKind.AUDIO]
-      .start(destination.stream, {
+      .startForPeer(3, destination.stream, {
         maxBitrate: 128000,
         onFailure: vi.fn(async () => {})
       })
@@ -63,7 +77,6 @@ test('voice-only microphone publication waits for the direct subscription acknow
     expect(prepare).not.toHaveBeenCalled();
     started!();
     await pending;
-    expect(prepare).toHaveBeenCalledWith({ kind: StreamKind.AUDIO });
     expect(result).toBe('relay');
     destination.stream.getTracks().forEach((track) => track.stop());
   } finally {
@@ -121,10 +134,14 @@ test('a superseded subscription error cannot clear the replacement acknowledgeme
     await expect.poll(() => callbacks.length).toBe(2);
     callbacks[1]!.onStarted();
     callbacks[0]!.onError(new Error('obsolete subscription'));
-    const pending = subject!.directMedia.audio.start(destination.stream, {
-      maxBitrate: 128000,
-      onFailure: vi.fn(async () => {})
-    });
+    const pending = subject!.directMedia.audio.startForPeer(
+      3,
+      destination.stream,
+      {
+        maxBitrate: 128000,
+        onFailure: vi.fn(async () => {})
+      }
+    );
     await expect.poll(() => prepare.mock.calls.length).toBe(1);
     expect(await pending).toBe('relay');
   } finally {

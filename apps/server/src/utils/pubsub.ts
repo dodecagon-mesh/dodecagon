@@ -16,6 +16,7 @@ import type {
   TPluginMetadata,
   TPluginPushEvent,
   TPublicServerSettings,
+  TRelayDemandEvent,
   TVoiceUserState
 } from '@dodecagon/shared';
 import type { Unsubscribable } from '@trpc/server/observable';
@@ -87,6 +88,7 @@ type Events = {
     emoji: string;
   };
   [ServerEvents.DIRECT_MEDIA_SIGNAL]: TDirectMediaEvent;
+  [ServerEvents.VOICE_RELAY_DEMAND]: TRelayDemandEvent;
   [ServerEvents.VOICE_NEW_PRODUCER]: {
     channelId: number;
     remoteId: number;

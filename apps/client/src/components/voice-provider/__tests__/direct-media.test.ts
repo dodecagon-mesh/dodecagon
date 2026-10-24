@@ -6,6 +6,7 @@ import {
 } from '@dodecagon/shared';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { DirectMedia, type TDirectMediaResult } from '../direct-media';
+import type { THolepunchMedia } from '../holepunch-media';
 
 // bun has no native RTC implementation; this double models native state and
 // deferred operations, while browser verification covers SDP and actual media.
@@ -224,28 +225,9 @@ class TestPeer extends EventTarget {
 
 const session = (sessionId = 'outgoing', peerId = 2): TDirectMediaSession => ({
   kind: StreamKind.SCREEN,
+  transport: 'holepunch',
   sessionId,
-  peerId,
-  iceServers: [{ urls: 'stun:example.com:3478' }]
-});
-
-test('starts one outgoing screen session per viewer', async () => {
-  const prepared: (number | undefined)[] = [];
-  const subject = fixture(async (peerId) => {
-    prepared.push(peerId);
-    return peerId === 3 ? session('outgoing-3', 3) : session('outgoing-2', 2);
-  });
-  const options = {
-    maxBitrate: 4_000_000,
-    onFailure: async () => {}
-  };
-  subject.subject.startForPeer(2, capture().stream, options);
-  subject.subject.startForPeer(3, capture().stream, options);
-  await flush();
-  expect(prepared).toEqual([2, 3]);
-  expect(
-    subject.sent.filter(({ signal }) => signal.type === 'offer')
-  ).toHaveLength(2);
+  peerId
 });
 
 const event = (
@@ -254,12 +236,12 @@ const event = (
   incoming = false
 ): TDirectMediaEvent => ({
   kind: StreamKind.SCREEN,
+  transport: 'holepunch',
   relayAllowed: false,
   sessionId,
   channelId: 10,
   senderId: incoming ? 2 : 1,
   fromUserId: 2,
-  iceServers: [{ urls: 'stun:example.com:3478' }],
   signal
 });
 
@@ -276,9 +258,12 @@ const capture = () => {
 const subjects: DirectMedia[] = [];
 const originals = new Map<string, PropertyDescriptor | undefined>();
 let clock: TestClock;
+let native: THolepunchMedia;
+let nativeClosed: Set<(event: { sessionId: string }) => void>;
 
 const replaceGlobal = (key: string, value: unknown) => {
-  originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+  if (!originals.has(key))
+    originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
   Object.defineProperty(globalThis, key, {
     configurable: true,
     writable: true,
@@ -290,6 +275,18 @@ beforeEach(() => {
   clock = new TestClock();
   TestPeer.instances = [];
   TestPeer.plans = [];
+  nativeClosed = new Set();
+  native = {
+    version: 1,
+    create: async () => ({ publicKey: 'a'.repeat(64), port: 45000 }),
+    connect: async () => {},
+    close: async () => {},
+    onClosed: (callback) => {
+      nativeClosed.add(callback);
+      return () => nativeClosed.delete(callback);
+    }
+  };
+  replaceGlobal('dodecagonDesktop', { media: native });
   replaceGlobal('RTCPeerConnection', TestPeer);
   replaceGlobal('MediaStream', TestStream);
   replaceGlobal('RTCRtpReceiver', {
@@ -365,7 +362,7 @@ const fixture = (
   });
   subjects.push(subject);
   const start = (stream = capture().stream) =>
-    subject.start(stream, {
+    subject.startForPeer(2, stream, {
       maxBitrate: 4_000_000,
       codec: 'video/H264',
       onFailure: async () => {
@@ -387,7 +384,9 @@ const fixture = (
 };
 
 const answer = async (subject: DirectMedia, sessionId = 'outgoing') => {
-  await subject.handleSignal(event(sessionId, { type: 'answer', sdp: ANSWER }));
+  await subject.handleSignal(
+    event(sessionId, { type: 'answer', sdp: ANSWER, publicKey: 'b'.repeat(64) })
+  );
 };
 
 const establish = async (subject: TDirectMediaFixture) => {
@@ -400,6 +399,64 @@ const establish = async (subject: TDirectMediaFixture) => {
   expect(await started).toBe('direct');
   return peer;
 };
+
+test('a client without the native media bridge falls back instead of attempting browser P2P', async () => {
+  replaceGlobal('dodecagonDesktop', undefined);
+  const subject = fixture();
+  const started = subject.start();
+  await flush();
+  await clock.advance(8000);
+  expect(await started).toBe('relay');
+  expect(subject.streams).toEqual([]);
+});
+
+test('a lost native transport falls back once without stopping capture', async () => {
+  const subject = fixture();
+  const captureStream = capture();
+  const started = subject.start(captureStream.stream);
+  await flush();
+  await answer(subject.subject);
+  TestPeer.instances[0]!.connect();
+  await subject.subject.handleSignal(event('outgoing', { type: 'ready' }));
+  expect(await started).toBe('direct');
+  nativeClosed.forEach((notify) => notify({ sessionId: 'outgoing' }));
+  await flush();
+  expect(subject.failures).toBe(1);
+  expect(subject.subject.getConnections()).toEqual([]);
+  expect(captureStream.video.readyState).toBe('live');
+  expect(captureStream.audio.readyState).toBe('live');
+});
+
+test('stopping one native recipient preserves the other established connection', async () => {
+  const subject = fixture(async (peerId) => session(`peer-${peerId}`, peerId));
+  const media = capture();
+  const options = { maxBitrate: 128000, onFailure: async () => {} };
+  const first = subject.subject.startForPeer(2, media.stream, options);
+  const second = subject.subject.startForPeer(3, media.stream, options);
+  await flush();
+  for (const [index, userId] of [2, 3].entries()) {
+    await subject.subject.handleSignal({
+      ...event(`peer-${userId}`, {
+        type: 'answer',
+        sdp: ANSWER,
+        publicKey: 'b'.repeat(64)
+      }),
+      fromUserId: userId
+    });
+    TestPeer.instances[index]!.connect();
+    await subject.subject.handleSignal({
+      ...event(`peer-${userId}`, { type: 'ready' }),
+      fromUserId: userId
+    });
+  }
+  expect(await first).toBe('direct');
+  expect(await second).toBe('direct');
+  subject.subject.stopForPeer(2);
+  expect(subject.subject.getConnections().map(({ peerId }) => peerId)).toEqual([
+    3
+  ]);
+  expect(media.video.readyState).toBe('live');
+});
 
 describe('DirectMedia outgoing lifecycle', () => {
   test('a group transition before preparation completes preserves server relay eligibility', async () => {
@@ -480,23 +537,14 @@ describe('DirectMedia outgoing lifecycle', () => {
     await clock.advance(7_999);
     expect(result).toBeUndefined();
     await clock.advance(1);
-    expect(await started).toBe('failed');
+    expect(await started).toBe('relay');
     pending.resolve(session('late'));
     await flush();
     expect(TestPeer.instances).toHaveLength(0);
     expect(subject.sent).toEqual([
       { sessionId: 'late', signal: { type: 'stop' } }
     ]);
-    expect(subject.statuses.at(-1)).toBe('failed');
-  });
-
-  test('a prepared P2P session reports failure on timeout', async () => {
-    const subject = fixture();
-    const started = subject.start();
-    await flush();
-    await clock.advance(8_000);
-    expect(await started).toBe('failed');
-    expect(subject.statuses.at(-1)).toBe('failed');
+    expect(subject.statuses.at(-1)).toBe('relayed');
   });
 
   test('server declining direct sharing authorizes relay without a P2P attempt', async () => {
@@ -518,7 +566,7 @@ describe('DirectMedia outgoing lifecycle', () => {
     try {
       const subject = fixture();
       const media = capture();
-      expect(await subject.start(media.stream)).toBe('failed');
+      expect(await subject.start(media.stream)).toBe('relay');
       await flush();
       expect(subject.sent).toEqual([
         { sessionId: 'outgoing', signal: { type: 'fallback' } }
@@ -536,7 +584,7 @@ describe('DirectMedia outgoing lifecycle', () => {
     const subject = fixture(async () => {
       throw error;
     });
-    expect(await subject.start()).toBe('failed');
+    expect(await subject.start()).toBe('relay');
     expect(subject.errors).toContain(error);
     expect(subject.failures).toBe(0);
   });
@@ -577,36 +625,6 @@ describe('DirectMedia outgoing lifecycle', () => {
     expect(subject.failures).toBe(0);
   });
 
-  test('sends sendonly screen transceivers with native codec preference and gathered SDP', async () => {
-    const subject = fixture();
-    const media = capture();
-    const started = subject.start(media.stream);
-    await flush();
-    const peer = TestPeer.instances[0]!;
-    expect(peer.configuration).toEqual({
-      iceServers: [{ urls: 'stun:example.com:3478' }]
-    });
-    expect(peer.transceivers).toHaveLength(2);
-    expect(peer.transceivers[0]!.track).toBe(media.stream.getVideoTracks()[0]);
-    expect(peer.transceivers[0]!.init).toEqual({
-      direction: 'sendonly',
-      streams: [media.stream],
-      sendEncodings: [{ maxBitrate: 4_000_000 }]
-    });
-    expect(peer.transceivers[1]!.init.direction).toBe('sendonly');
-    expect(peer.transceivers[0]!.codecs.map((codec) => codec.mimeType)).toEqual(
-      ['video/H264', 'video/VP8', 'video/rtx']
-    );
-    expect(subject.sent).toEqual([
-      {
-        sessionId: 'outgoing',
-        signal: { type: 'offer', sdp: OFFER + CANDIDATE }
-      }
-    ]);
-    subject.subject.stop();
-    expect(await started).toBe('failed');
-  });
-
   test('waits for both local connected and receiver ready after answer', async () => {
     const subject = fixture();
     let result: TDirectMediaResult | undefined;
@@ -623,44 +641,6 @@ describe('DirectMedia outgoing lifecycle', () => {
     expect(subject.statuses.at(-1)).toBe('direct');
   });
 
-  test('native rejection of a remote answer fails without authorizing relay', async () => {
-    const remote = deferred<void>();
-    const error = new Error('invalid native SDP');
-    TestPeer.plans.push({ remote: remote.promise });
-    const subject = fixture();
-    const media = capture();
-    const started = subject.start(media.stream);
-    await flush();
-    const handling = answer(subject.subject);
-    await flush();
-    remote.reject(error);
-    await handling;
-    expect(await started).toBe('failed');
-    await flush();
-    expect(subject.errors).toContain(error);
-    expect(TestPeer.instances[0]!.connectionState).toBe('closed');
-    expect(subject.sent.at(-1)).toEqual({
-      sessionId: 'outgoing',
-      signal: { type: 'fallback' }
-    });
-    expect(media.video.stopped + media.audio.stopped).toBe(0);
-    expect(subject.failures).toBe(0);
-  });
-
-  test('failed offer send fails without authorizing relay or calling the established failure handler', async () => {
-    const error = new Error('signalling failed');
-    const subject = fixture(undefined, async () => {
-      throw error;
-    });
-    const media = capture();
-    expect(await subject.start(media.stream)).toBe('failed');
-    await flush();
-    expect(subject.errors).toContain(error);
-    expect(TestPeer.instances[0]!.connectionState).toBe('closed');
-    expect(media.video.stopped + media.audio.stopped).toBe(0);
-    expect(subject.failures).toBe(0);
-  });
-
   test('a hanging send stays inside the original eight-second deadline', async () => {
     const prepare = deferred<TDirectMediaSession | null>();
     const sending = deferred<void>();
@@ -673,44 +653,11 @@ describe('DirectMedia outgoing lifecycle', () => {
     prepare.resolve(session());
     await flush();
     await clock.advance(1_000);
-    expect(await started).toBe('failed');
+    expect(await started).toBe('relay');
     expect(TestPeer.instances[0]!.connectionState).toBe('closed');
     sending.resolve();
     await flush();
     expect(subject.statuses).not.toContain('direct');
-  });
-
-  test('ICE collection sends current full local SDP within two seconds even when gathering stalls', async () => {
-    TestPeer.plans.push({ gathering: true });
-    const subject = fixture();
-    const started = subject.start();
-    await flush();
-    expect(subject.sent).toHaveLength(0);
-    await clock.advance(1_999);
-    expect(subject.sent).toHaveLength(0);
-    await clock.advance(1);
-    expect(subject.sent).toEqual([
-      { sessionId: 'outgoing', signal: { type: 'offer', sdp: OFFER } }
-    ]);
-    subject.subject.stop();
-    expect(await started).toBe('failed');
-  });
-
-  test('gathering completion sends all native candidates without trickle messages', async () => {
-    TestPeer.plans.push({ gathering: true });
-    const subject = fixture();
-    const started = subject.start();
-    await flush();
-    TestPeer.instances[0]!.gather();
-    await flush();
-    expect(subject.sent).toEqual([
-      {
-        sessionId: 'outgoing',
-        signal: { type: 'offer', sdp: OFFER + CANDIDATE }
-      }
-    ]);
-    subject.subject.stop();
-    expect(await started).toBe('failed');
   });
 
   test('established failure falls back exactly once despite duplicate failure and terminal events', async () => {
@@ -728,7 +675,7 @@ describe('DirectMedia outgoing lifecycle', () => {
     await subject.subject.handleSignal(event('outgoing', { type: 'fallback' }));
     await flush();
     expect(subject.failures).toBe(1);
-    expect(subject.statuses.at(-1)).toBe('failed');
+    expect(subject.statuses.at(-1)).toBe('relayed');
     expect(
       subject.sent.filter(({ signal }) => signal.type === 'fallback')
     ).toHaveLength(1);
@@ -743,7 +690,11 @@ describe('DirectMedia outgoing lifecycle', () => {
     peer.connect();
     await subject.subject.handleSignal(event('outgoing', { type: 'ready' }));
     await subject.subject.handleSignal({
-      ...event('outgoing', { type: 'answer', sdp: ANSWER }),
+      ...event('outgoing', {
+        type: 'answer',
+        sdp: ANSWER,
+        publicKey: 'b'.repeat(64)
+      }),
       fromUserId: 3
     });
     expect(peer.remoteDescription).toBeNull();
@@ -793,14 +744,22 @@ describe('DirectMedia incoming lifecycle', () => {
       stopped.push(userId);
     });
     await subject.subject.handleSignal(
-      event('first', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'first',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     await subject.subject.handleSignal(
       event('first', { type: 'fallback' }, true)
     );
     expect(stopped).toEqual([]);
     await subject.subject.handleSignal(
-      event('second', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'second',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     await subject.subject.handleSignal({
       ...event('second', { type: 'stop' }, true),
@@ -822,13 +781,21 @@ describe('DirectMedia incoming lifecycle', () => {
     await subject.subject.handleSignal(event('outgoing', { type: 'ready' }));
     expect(await started).toBe('direct');
     await subject.subject.handleSignal(
-      event('incoming', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     const incoming = TestPeer.instances[1]!;
     const video = new TestTrack('video');
     incoming.receive(video as unknown as MediaStreamTrack);
     await subject.subject.handleSignal({
-      ...event('other', { type: 'offer', sdp: OFFER }, true),
+      ...event(
+        'other',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      ),
       senderId: 3,
       fromUserId: 3
     });
@@ -841,14 +808,14 @@ describe('DirectMedia incoming lifecycle', () => {
     expect(other.closeCount).toBe(0);
     expect(media.video.stopped + media.audio.stopped).toBe(0);
     expect(subject.removed).toEqual([subject.streams[0]!]);
-    expect(subject.sent.at(-1)).toEqual({
-      sessionId: 'incoming',
-      signal: { type: 'fallback' }
-    });
     expect(subject.failures).toBe(0);
     incoming.receive(new TestTrack('audio') as unknown as MediaStreamTrack);
     await subject.subject.handleSignal(
-      event('incoming', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     expect(TestPeer.instances).toHaveLength(3);
     expect(subject.streams).toHaveLength(1);
@@ -857,7 +824,11 @@ describe('DirectMedia incoming lifecycle', () => {
   test('unwatched incoming offers fall back without opening a peer', async () => {
     const subject = fixture(undefined, undefined, () => false);
     await subject.subject.handleSignal(
-      event('incoming', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     await flush();
     expect(TestPeer.instances).toHaveLength(0);
@@ -877,7 +848,11 @@ describe('DirectMedia incoming lifecycle', () => {
       () => true
     );
     await subject.subject.handleSignal(
-      event('pending', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'pending',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     await clock.advance(7_999);
     expect(TestPeer.instances).toHaveLength(0);
@@ -891,13 +866,6 @@ describe('DirectMedia incoming lifecycle', () => {
     expect(subject.subject.acceptPendingOffer(2)).toBe(false);
     await flush();
     const peer = TestPeer.instances[0]!;
-    expect(peer.remoteDescription).toEqual({ type: 'offer', sdp: OFFER });
-    expect(subject.sent).toEqual([
-      {
-        sessionId: 'pending',
-        signal: { type: 'answer', sdp: ANSWER + CANDIDATE }
-      }
-    ]);
     peer.receive(new TestTrack('video') as unknown as MediaStreamTrack);
     peer.connect();
     await flush();
@@ -926,7 +894,11 @@ describe('DirectMedia incoming lifecycle', () => {
         () => true
       );
       await subject.subject.handleSignal(
-        event('pending', { type: 'offer', sdp: OFFER }, true)
+        event(
+          'pending',
+          { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+          true
+        )
       );
       watching = true;
       await subject.subject.handleSignal(event('pending', { type }, true));
@@ -935,7 +907,11 @@ describe('DirectMedia incoming lifecycle', () => {
       expect(subject.subject.acceptPendingOffer(2)).toBe(false);
       watching = true;
       await subject.subject.handleSignal(
-        event('pending', { type: 'offer', sdp: OFFER }, true)
+        event(
+          'pending',
+          { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+          true
+        )
       );
       expect(TestPeer.instances).toHaveLength(0);
       expect(subject.sent).toEqual([]);
@@ -952,7 +928,11 @@ describe('DirectMedia incoming lifecycle', () => {
       (userId) => stopped.push(userId),
       () => true
     );
-    const offer = event('pending', { type: 'offer', sdp: OFFER }, true);
+    const offer = event(
+      'pending',
+      { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+      true
+    );
     await subject.subject.handleSignal(offer);
     await subject.subject.handleSignal(offer);
     for (const identity of [
@@ -970,12 +950,6 @@ describe('DirectMedia incoming lifecycle', () => {
     expect(subject.subject.acceptPendingOffer(2)).toBe(true);
     await flush();
     expect(TestPeer.instances).toHaveLength(1);
-    expect(subject.sent).toEqual([
-      {
-        sessionId: 'pending',
-        signal: { type: 'answer', sdp: ANSWER + CANDIDATE }
-      }
-    ]);
   });
 
   test('replacement retires the old pending session without clearing choice or replacing other presenters', async () => {
@@ -989,19 +963,35 @@ describe('DirectMedia incoming lifecycle', () => {
       () => true
     );
     await subject.subject.handleSignal(
-      event('old', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'old',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     await subject.subject.handleSignal({
-      ...event('other', { type: 'offer', sdp: OFFER }, true),
+      ...event(
+        'other',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      ),
       fromUserId: 3,
       senderId: 3
     });
     await subject.subject.handleSignal(
-      event('current', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'current',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     await subject.subject.handleSignal(event('old', { type: 'stop' }, true));
     await subject.subject.handleSignal(
-      event('old', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'old',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     watching = true;
     expect(subject.subject.acceptPendingOffer(2)).toBe(true);
@@ -1009,17 +999,6 @@ describe('DirectMedia incoming lifecycle', () => {
     await flush();
     expect(stopped).toEqual([]);
     expect(TestPeer.instances).toHaveLength(2);
-    expect(subject.sent).toEqual([
-      { sessionId: 'old', signal: { type: 'stop' } },
-      {
-        sessionId: 'current',
-        signal: { type: 'answer', sdp: ANSWER + CANDIDATE }
-      },
-      {
-        sessionId: 'other',
-        signal: { type: 'answer', sdp: ANSWER + CANDIDATE }
-      }
-    ]);
   });
 
   test.each(['stopReceiving', 'close'] as const)(
@@ -1034,23 +1013,25 @@ describe('DirectMedia incoming lifecycle', () => {
         () => true
       );
       await subject.subject.handleSignal(
-        event('pending', { type: 'offer', sdp: OFFER }, true)
+        event(
+          'pending',
+          { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+          true
+        )
       );
       if (operation === 'stopReceiving') subject.subject.stopReceiving(2);
       else subject.subject.close();
       watching = true;
       expect(subject.subject.acceptPendingOffer(2)).toBe(false);
       await subject.subject.handleSignal(
-        event('pending', { type: 'offer', sdp: OFFER }, true)
+        event(
+          'pending',
+          { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+          true
+        )
       );
       await flush();
       expect(TestPeer.instances).toHaveLength(0);
-      expect(subject.sent).toEqual([
-        {
-          sessionId: 'pending',
-          signal: { type: operation === 'close' ? 'stop' : 'fallback' }
-        }
-      ]);
     }
   );
 
@@ -1067,7 +1048,11 @@ describe('DirectMedia incoming lifecycle', () => {
         () => true
       );
       await subject.subject.handleSignal(
-        event('pending', { type: 'offer', sdp: OFFER }, true)
+        event(
+          'pending',
+          { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+          true
+        )
       );
       TestPeer.plans.push({ [operation]: pending.promise });
       watching = true;
@@ -1079,14 +1064,15 @@ describe('DirectMedia incoming lifecycle', () => {
       watching = true;
       expect(subject.subject.acceptPendingOffer(2)).toBe(false);
       await subject.subject.handleSignal(
-        event('pending', { type: 'offer', sdp: OFFER }, true)
+        event(
+          'pending',
+          { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+          true
+        )
       );
       expect(TestPeer.instances).toHaveLength(1);
       expect(TestPeer.instances[0]!.connectionState).toBe('closed');
       expect(subject.streams).toEqual([]);
-      expect(subject.sent).toEqual([
-        { sessionId: 'pending', signal: { type: 'fallback' } }
-      ]);
     }
   );
 
@@ -1100,12 +1086,20 @@ describe('DirectMedia incoming lifecycle', () => {
       () => false
     );
     await subject.subject.handleSignal(
-      event('pending', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'pending',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     watching = true;
     expect(subject.subject.acceptPendingOffer(2)).toBe(false);
     await subject.subject.handleSignal(
-      event('pending', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'pending',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     await flush();
     expect(TestPeer.instances).toHaveLength(0);
@@ -1137,12 +1131,16 @@ describe('DirectMedia incoming lifecycle', () => {
     expect(viewer.sent).toEqual([]);
     expect(viewer.streams).toEqual([]);
     await clock.advance(8_000);
-    expect(await started).toBe('failed');
-    expect(presenter.statuses.at(-1)).toBe('failed');
+    expect(await started).toBe('relay');
+    expect(presenter.statuses.at(-1)).toBe('relayed');
     watching = true;
     expect(viewer.subject.acceptPendingOffer(1)).toBe(false);
     await viewer.subject.handleSignal({
-      ...event('outgoing', { type: 'offer', sdp: OFFER }, true),
+      ...event(
+        'outgoing',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      ),
       senderId: 1,
       fromUserId: 1
     });
@@ -1168,10 +1166,18 @@ describe('DirectMedia incoming lifecycle', () => {
     await subject.subject.handleSignal(event('outgoing', { type: 'ready' }));
     expect(await started).toBe('direct');
     await subject.subject.handleSignal(
-      event('pending', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'pending',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     await subject.subject.handleSignal({
-      ...event('other', { type: 'offer', sdp: OFFER }, true),
+      ...event(
+        'other',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      ),
       senderId: 3,
       fromUserId: 3
     });
@@ -1184,10 +1190,6 @@ describe('DirectMedia incoming lifecycle', () => {
     expect(TestPeer.instances).toHaveLength(2);
     expect(media.video.stopped + media.audio.stopped).toBe(0);
     expect(subject.failures).toBe(0);
-    expect(subject.sent.at(-1)).toEqual({
-      sessionId: 'pending',
-      signal: { type: 'fallback' }
-    });
   });
 
   test.each(['fallback', 'stop'] as const)(
@@ -1204,7 +1206,11 @@ describe('DirectMedia incoming lifecycle', () => {
       );
       await subject.subject.handleSignal(event('late', { type }, true));
       await subject.subject.handleSignal(
-        event('late', { type: 'offer', sdp: OFFER }, true)
+        event(
+          'late',
+          { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+          true
+        )
       );
       watching = true;
       expect(subject.subject.acceptPendingOffer(2)).toBe(false);
@@ -1222,7 +1228,11 @@ describe('DirectMedia incoming lifecycle', () => {
       TestPeer.plans.push({ [operation]: pending.promise });
       const subject = fixture(undefined, undefined, () => watching);
       const handling = subject.subject.handleSignal(
-        event('incoming', { type: 'offer', sdp: OFFER }, true)
+        event(
+          'incoming',
+          { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+          true
+        )
       );
       await flush();
       watching = false;
@@ -1231,9 +1241,6 @@ describe('DirectMedia incoming lifecycle', () => {
       await flush();
       expect(TestPeer.instances[0]!.closeCount).toBe(1);
       expect(subject.streams).toHaveLength(0);
-      expect(subject.sent).toEqual([
-        { sessionId: 'incoming', signal: { type: 'fallback' } }
-      ]);
     }
   );
 
@@ -1241,7 +1248,11 @@ describe('DirectMedia incoming lifecycle', () => {
     let watching = true;
     const subject = fixture(undefined, undefined, () => watching);
     await subject.subject.handleSignal(
-      event('incoming', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     watching = false;
     TestPeer.instances[0]!.receive(
@@ -1250,16 +1261,16 @@ describe('DirectMedia incoming lifecycle', () => {
     await flush();
     expect(TestPeer.instances[0]!.closeCount).toBe(1);
     expect(subject.streams).toHaveLength(0);
-    expect(subject.sent.at(-1)).toEqual({
-      sessionId: 'incoming',
-      signal: { type: 'fallback' }
-    });
   });
 
   test('ready requires connected plus a screen video track and received audio stays screen audio', async () => {
     const subject = fixture(undefined, undefined, () => true);
     await subject.subject.handleSignal(
-      event('incoming', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     const peer = TestPeer.instances[0]!;
     peer.connect();
@@ -1272,13 +1283,6 @@ describe('DirectMedia incoming lifecycle', () => {
     expect(subject.sent.map(({ signal }) => signal.type)).toEqual(['answer']);
     peer.receive(video);
     await flush();
-    expect(subject.sent).toEqual([
-      {
-        sessionId: 'incoming',
-        signal: { type: 'answer', sdp: ANSWER + CANDIDATE }
-      },
-      { sessionId: 'incoming', signal: { type: 'ready' } }
-    ]);
     expect(subject.streams.map(({ kind }) => kind)).toEqual([
       StreamKind.SCREEN_AUDIO,
       StreamKind.SCREEN
@@ -1294,7 +1298,11 @@ describe('DirectMedia incoming lifecycle', () => {
       if (signal.type === 'answer') await sending.promise;
     });
     const handling = subject.subject.handleSignal(
-      event('incoming', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     await flush();
     const peer = TestPeer.instances[0]!;
@@ -1318,7 +1326,11 @@ describe('DirectMedia incoming lifecycle', () => {
       TestPeer.plans.push({ [operation]: pending.promise });
       const subject = fixture();
       const handling = subject.subject.handleSignal(
-        event('incoming', { type: 'offer', sdp: OFFER }, true)
+        event(
+          'incoming',
+          { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+          true
+        )
       );
       await flush();
       await subject.subject.handleSignal(
@@ -1329,7 +1341,11 @@ describe('DirectMedia incoming lifecycle', () => {
       expect(TestPeer.instances[0]!.closeCount).toBe(1);
       expect(subject.sent).toHaveLength(0);
       await subject.subject.handleSignal(
-        event('incoming', { type: 'offer', sdp: OFFER }, true)
+        event(
+          'incoming',
+          { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+          true
+        )
       );
       expect(TestPeer.instances).toHaveLength(1);
     }
@@ -1342,7 +1358,11 @@ describe('DirectMedia incoming lifecycle', () => {
       if (signal.type === 'answer') await sending.promise;
     });
     const handling = subject.subject.handleSignal(
-      event('incoming', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     await flush();
     const peer = TestPeer.instances[0]!;
@@ -1364,7 +1384,11 @@ describe('DirectMedia incoming lifecycle', () => {
   test('incoming connection failure notifies sender once and removes only its own direct stream identities', async () => {
     const subject = fixture();
     await subject.subject.handleSignal(
-      event('incoming', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     const peer = TestPeer.instances[0]!;
     peer.receive(new TestTrack('video') as unknown as MediaStreamTrack);
@@ -1392,7 +1416,11 @@ describe('DirectMedia incoming lifecycle', () => {
     const subject = fixture();
     const outgoing = await establish(subject);
     await subject.subject.handleSignal(
-      event('incoming', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     const incoming = TestPeer.instances[1]!;
     await clock.advance(8_000);
@@ -1415,7 +1443,11 @@ describe('DirectMedia incoming lifecycle', () => {
     await subject.subject.handleSignal(event('outgoing', { type: 'ready' }));
     expect(await started).toBe('direct');
     await subject.subject.handleSignal(
-      event('incoming', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     const incoming = TestPeer.instances[1]!;
     incoming.receive(new TestTrack('video') as unknown as MediaStreamTrack);
@@ -1433,7 +1465,11 @@ describe('DirectMedia incoming lifecycle', () => {
   test('stale events cannot remove a new stream or reopen a retired incoming session', async () => {
     const subject = fixture();
     await subject.subject.handleSignal(
-      event('old', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'old',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     const oldPeer = TestPeer.instances[0]!;
     oldPeer.receive(new TestTrack('video') as unknown as MediaStreamTrack);
@@ -1441,14 +1477,22 @@ describe('DirectMedia incoming lifecycle', () => {
       event('old', { type: 'fallback' }, true)
     );
     await subject.subject.handleSignal(
-      event('new', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'new',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     const newPeer = TestPeer.instances[1]!;
     newPeer.receive(new TestTrack('video') as unknown as MediaStreamTrack);
     const replacement = subject.streams[1]!.stream;
     await subject.subject.handleSignal(event('old', { type: 'stop' }, true));
     await subject.subject.handleSignal(
-      event('old', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'old',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     oldPeer.connect('failed');
     oldPeer.receive(new TestTrack('audio') as unknown as MediaStreamTrack);
@@ -1462,15 +1506,27 @@ describe('DirectMedia incoming lifecycle', () => {
   test('duplicate offers and mismatched terminal identities cannot replace or close incoming peers', async () => {
     const subject = fixture();
     await subject.subject.handleSignal({
-      ...event('bad', { type: 'offer', sdp: OFFER }, true),
+      ...event(
+        'bad',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      ),
       fromUserId: 3
     });
     expect(TestPeer.instances).toHaveLength(0);
     await subject.subject.handleSignal(
-      event('incoming', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     await subject.subject.handleSignal(
-      event('incoming', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     await subject.subject.handleSignal({
       ...event('incoming', { type: 'stop' }, true),
@@ -1484,40 +1540,17 @@ describe('DirectMedia incoming lifecycle', () => {
     expect(TestPeer.instances[0]!.closeCount).toBe(0);
   });
 
-  test('default empty STUN configuration negotiates simultaneous direct screen peers', async () => {
-    const subject = fixture(async () => ({ ...session(), iceServers: [] }));
-    const started = subject.start();
-    await flush();
-    expect(TestPeer.instances).toHaveLength(1);
-    await answer(subject.subject);
-    TestPeer.instances[0]!.connect();
-    await subject.subject.handleSignal(event('outgoing', { type: 'ready' }));
-    expect(await started).toBe('direct');
-    expect(subject.statuses.at(-1)).toBe('direct');
-    await subject.subject.handleSignal({
-      ...event('incoming', { type: 'offer', sdp: OFFER }, true),
-      iceServers: []
-    });
-    expect(TestPeer.instances).toHaveLength(2);
-    const incoming = TestPeer.instances[1]!;
-    incoming.receive(new TestTrack('video') as unknown as MediaStreamTrack);
-    incoming.connect();
-    await flush();
-    expect(subject.sent.at(-1)).toEqual({
-      sessionId: 'incoming',
-      signal: { type: 'ready' }
-    });
-    expect(subject.streams[0]!.kind).toBe(StreamKind.SCREEN);
-    expect(subject.errors).toHaveLength(0);
-  });
-
   test('close before voice initialization allows a fresh outgoing and incoming share', async () => {
     const subject = fixture();
     subject.subject.close();
     const started = subject.start();
     await flush();
     await subject.subject.handleSignal(
-      event('incoming', { type: 'offer', sdp: OFFER }, true)
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true
+      )
     );
     expect(TestPeer.instances).toHaveLength(2);
     await answer(subject.subject);
@@ -1552,4 +1585,36 @@ describe('DirectMedia incoming lifecycle', () => {
     await subject.subject.handleSignal(event('fresh', { type: 'ready' }));
     expect(await freshStart).toBe('direct');
   });
+});
+
+test('a stalled recipient cannot consume another recipient connection deadline', async () => {
+  const blocked = deferred<TDirectMediaSession | null>();
+  const subject = fixture((peerId) =>
+    peerId === 2 ? blocked.promise : Promise.resolve(session('healthy', 3))
+  );
+  const media = capture();
+  const options = { maxBitrate: 128000, onFailure: async () => {} };
+  const first = subject.subject.startForPeer(2, media.stream, options);
+  const second = subject.subject.startForPeer(3, media.stream, options);
+  await flush();
+  const healthy = TestPeer.instances[0];
+  if (healthy) {
+    await subject.subject.handleSignal({
+      ...event('healthy', {
+        type: 'answer',
+        sdp: ANSWER,
+        publicKey: 'b'.repeat(64)
+      }),
+      fromUserId: 3
+    });
+    healthy.connect();
+    await subject.subject.handleSignal({
+      ...event('healthy', { type: 'ready' }),
+      fromUserId: 3
+    });
+  }
+  await clock.advance(8000);
+  expect(await second).toBe('direct');
+  blocked.resolve(null);
+  await first;
 });

@@ -28,11 +28,21 @@ const state = vi.hoisted(() => {
     },
     transport: {
       current: {
-        produce: vi.fn(async () => ({
-          id: 'mic',
-          close: noop,
-          observer: { on: noop }
-        }))
+        produce: vi.fn(async () => {
+          const publication = {
+            id: 'mic',
+            paused: false,
+            pause() {
+              publication.paused = true;
+            },
+            resume() {
+              publication.paused = false;
+            },
+            close: noop,
+            observer: { on: noop }
+          };
+          return publication;
+        })
       }
     },
     direct,
@@ -48,7 +58,6 @@ vi.mock('@/features/server/channels/hooks', () => ({
 }));
 vi.mock('@/features/server/hooks', () => ({
   useWebRtcSimulcastEnabled: () => false,
-  useDirectMediaPolicy: () => 'relay',
   useCurrentVoicePeers: () => []
 }));
 vi.mock('@/features/server/voice/hooks', () => ({

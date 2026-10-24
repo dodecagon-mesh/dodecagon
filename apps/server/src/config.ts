@@ -89,13 +89,13 @@ const zConfig = z.object({
     port: z.coerce.number().int().positive(),
     announcedAddress: z.string(),
     maxBitrate: z.coerce.number().int().positive(),
-    directScreenSharing: z
+    holepunchMediaEnabled: z
       .preprocess((value) => {
         if (value === 'true') return true;
         if (value === 'false') return false;
         return value;
       }, z.boolean())
-      .default(false),
+      .default(true),
     directScreenStunUrls: z
       .preprocess((value) => {
         if (value === '') return [];
@@ -179,7 +179,7 @@ const defaultConfig: TConfig = {
     port: 40000,
     announcedAddress: '',
     maxBitrate: 30_000_000, // 30 Mbps
-    directScreenSharing: false,
+    holepunchMediaEnabled: true,
     directScreenStunUrls: [],
     turnUrls: [],
     turnSecret: '',
@@ -337,7 +337,7 @@ const envOverridesMap: Record<string, string> = {
   'webRtc.port': 'DODECAGON_WEBRTC_PORT',
   'webRtc.announcedAddress': 'DODECAGON_WEBRTC_ANNOUNCED_ADDRESS',
   'webRtc.maxBitrate': 'DODECAGON_WEBRTC_MAX_BITRATE',
-  'webRtc.directScreenSharing': 'DODECAGON_WEBRTC_DIRECT_SCREEN_SHARING',
+  'webRtc.holepunchMediaEnabled': 'DODECAGON_WEBRTC_HOLEPUNCH_MEDIA_ENABLED',
   'webRtc.directScreenStunUrls': 'DODECAGON_WEBRTC_DIRECT_SCREEN_STUN_URLS',
   'webRtc.turnUrls': 'DODECAGON_WEBRTC_TURN_URLS',
   'webRtc.turnSecret': 'DODECAGON_WEBRTC_TURN_SECRET',

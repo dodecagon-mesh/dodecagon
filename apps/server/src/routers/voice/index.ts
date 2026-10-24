@@ -7,6 +7,7 @@ import { createConsumerTransportRoute } from './create-consumer-transport';
 import { createProducerTransportRoute } from './create-producer-transport';
 import {
   onDirectMediaSignalRoute,
+  onRelayDemandRoute,
   onScreenConsumerStartedRoute,
   onScreenViewersRoute,
   onUserJoinVoiceRoute,
@@ -42,6 +43,7 @@ export const voiceRouter = t.router({
   startDirectMedia: startDirectMediaRoute,
   signalDirectMedia: signalDirectMediaRoute,
   onDirectMediaSignal: onDirectMediaSignalRoute,
+  onRelayDemand: onRelayDemandRoute,
   onScreenConsumerStarted: onScreenConsumerStartedRoute,
   onScreenViewers: onScreenViewersRoute,
   createProducerTransport: createProducerTransportRoute,

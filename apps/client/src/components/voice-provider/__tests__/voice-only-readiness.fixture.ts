@@ -212,7 +212,6 @@ mock.module('@/features/server/hooks', () => ({
   useTotalUnreadCount: () => 0,
   usePublicServerSettings: () => ({}),
   useWebRtcSimulcastEnabled: () => false,
-  useDirectMediaPolicy: () => 'relay',
   useCurrentVoicePeers: () => [],
   useOwnUserRoles: () => [],
   useHiddenPluginComponents: () => [],
@@ -324,6 +323,7 @@ mock.module('@/hooks/use-screen-share-support', () => ({
 const createTrpcClient = (mutate = updateState) => ({
   voice: {
     updateState: { mutate },
+    onRelayDemand: { subscribe: () => ({ unsubscribe() {} }) },
     closeProducer: { mutate: async () => {} }
   }
 });
@@ -383,17 +383,34 @@ type Transport = {
   close: () => void;
   produce: () => Promise<Producer>;
 };
-type Producer = { id: string; close: () => void; observer: { on: () => void } };
+type Producer = {
+  id: string;
+  paused: boolean;
+  pause: () => void;
+  resume: () => void;
+  close: () => void;
+  observer: { on: () => void };
+};
 const makeTransport = (): Transport => ({
   closed: false,
   close() {
     this.closed = true;
   },
-  produce: async () => ({
-    id: 'audio-producer',
-    close() {},
-    observer: { on() {} }
-  })
+  produce: async () => {
+    const publication: Producer = {
+      id: 'audio-producer',
+      paused: false,
+      pause() {
+        publication.paused = true;
+      },
+      resume() {
+        publication.paused = false;
+      },
+      close() {},
+      observer: { on() {} }
+    };
+    return publication;
+  }
 });
 mock.module('../hooks/use-transports', () => ({
   useTransports: () => ({

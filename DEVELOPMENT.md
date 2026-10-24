@@ -75,47 +75,50 @@ separately.
 search), `--seed <number>` changes the cast, and `--counting <n>` resizes the numbered channel
 (`0` skips it). The same seed always produces the same server.
 
-## Direct screen sharing
+## Native peer-to-peer media
 
-Screen video and captured screen audio can use a direct WebRTC connection for a
-new share with exactly two voice participants. Microphones and webcams still use
-mediasoup. Server-relayed screen sharing remains the default.
+Updated desktop clients use Holepunch for microphone audio, webcams, screen
+video, and captured screen audio by default. The native bridge carries the
+existing WebRTC media packets over HyperDHT's encrypted unordered messages;
+capture, audio processing, and codecs stay in WebRTC. Browser clients and older
+desktop clients without the native media bridge use mediasoup.
 
-To enable the optional path, set `webRtc.directScreenSharing` to `true` in the
-server configuration or start `apps/server` with:
+Routing is per sender, recipient, and media kind, including group calls. A
+browser joining or one failed peer does not move healthy native pairs onto the
+relay. Full peer-to-peer fan-out increases the sender's upload with the number
+of recipients.
+
+`webRtc.holepunchMediaEnabled` defaults to `true`. To disable native peer-to-peer
+media server-wide, set it to `false` in `config.ini` or start `apps/server` with:
 
 ```bash
-DODECAGON_WEBRTC_DIRECT_SCREEN_SHARING=true bun dev
+DODECAGON_WEBRTC_HOLEPUNCH_MEDIA_ENABLED=false bun dev
 ```
 
-Both participants must have **Direct screen sharing (1:1)** enabled in **User
-Settings > Devices** before joining voice. The client preference defaults to on
-when no value is saved; an existing saved off preference is preserved. It cannot
-be changed while connected. Direct connections expose each participant's network
-address to the other participant.
+The old server-side `directScreenSharing` option and
+`DODECAGON_WEBRTC_DIRECT_SCREEN_SHARING` variable no longer control this path.
+The existing saved client direct-media preference is preserved; a saved off
+preference opts that desktop client out. Direct peers can learn each other's
+network address.
 
-Screen viewing remains opt-in with **View demo**. An unwatched direct offer waits
-for consent within the existing eight-second negotiation deadline without opening
-a receiving peer or consuming screen media. If nobody opts in before that deadline,
-the share falls back to the server. **Stop viewing** closes incoming direct screen
-media and pauses relayed screen video and audio without ending the presenter's
-capture. Delayed stop/re-view requests are serialized so they cannot replace or
-pause a newer viewing session. Stopping a presentation clears its viewing choice.
+Mediasoup transports and producer metadata remain available for discovery and
+fallback. Publishers pause their relay RTP while no relay consumer needs it,
+without disabling the shared capture track. Browsers and blocked or failed
+native paths cause the necessary relay publishers to resume. If relay-demand
+signalling fails, publishers stay relay-enabled rather than leaving listeners
+silent. A failed pair does not repeatedly retry during the same publication.
 
-The direct path is tried for up to eight seconds, including signalling and ICE
-gathering. Each ICE gathering attempt is limited to two seconds. Failure reuses
-the same captured tracks through mediasoup without asking for another capture.
-A third participant, an external stream, loss of peer capability, or a failed
-direct connection also returns the share to the server.
-Existing relayed shares are never upgraded in place. Canceling a handover stops
-the original capture; late producer cleanup cannot close a newer share.
+Screen viewing remains opt-in with **View demo**. **Stop viewing** closes that
+viewer's incoming direct session and pauses its relayed screen video and audio,
+without ending the presenter's capture or preventing a later direct rewatch.
+Unwatched offers expire within the negotiation deadline. Native microphone
+attempts have a five-second client deadline; camera and screen attempts have an
+eight-second deadline, including signalling and native setup. Failure reuses
+the captured tracks through mediasoup without requesting capture again.
 
-For peers on different networks, configure `webRtc.directScreenStunUrls` or the
-comma-separated `DODECAGON_WEBRTC_DIRECT_SCREEN_STUN_URLS` environment variable.
-Only `stun:` and `stuns:` URLs are accepted, with no public STUN service enabled by
-default. Some NAT/firewall combinations cannot connect directly. TURN is not used
-for this path: mediasoup is the relay fallback. Group calls and older clients that
-do not advertise direct support continue using the server.
+Holepunch performs native peer discovery and hole punching, rather than using
+the browser direct-media STUN/TURN path. Existing SFU ICE and TURN configuration
+continues to apply to mediasoup connections.
 
 ## Voice-only mode
 
