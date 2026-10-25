@@ -7,6 +7,7 @@ import {
   useActiveDmChannelId,
   useUnreadMessagesCount
 } from '@/features/server/hooks';
+import { useMessageNavigationIntent } from '@/features/server/messages/use-message-navigation-intent';
 import {
   useOwnUserId,
   useUserById,
@@ -45,6 +46,7 @@ const DirectMessageItem = memo(
   ({ dm, selected, expanded, onSelect }: TDirectMessageItemProps) => {
     const user = useUserById(dm.userId);
     const unreadCount = useUnreadMessagesCount(dm.channelId);
+    const navigationIntent = useMessageNavigationIntent(dm.channelId);
     const handleSelect = useCallback(() => {
       onSelect(dm.channelId);
     }, [dm.channelId, onSelect]);
@@ -58,6 +60,7 @@ const DirectMessageItem = memo(
 
     return (
       <button
+        {...navigationIntent}
         data-testid={TestId.DM_ITEM}
         type="button"
         aria-current={selected ? 'page' : undefined}

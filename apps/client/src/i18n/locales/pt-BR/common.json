@@ -50,6 +50,7 @@
   "failedEditMessage": "Falha ao editar a mensagem",
   "pressEnterToSave": "Pressione Enter para salvar, Esc para cancelar",
   "failedSendMessage": "Falha ao enviar mensagem",
+  "sendingMessage": "Enviando...",
   "failedLoadPluginUi": "Falha ao carregar a interface do plugin \"{{pluginId}}\"",
   "failedLoadSearchResults": "Não foi possível carregar os resultados da busca",
   "failedExecuteCommand": "Falha ao executar o comando",

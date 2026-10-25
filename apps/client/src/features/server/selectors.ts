@@ -12,9 +12,7 @@ import { selectedDmChannelIdSelector } from '../app/selectors';
 import type { IRootState } from '../store';
 import { categoriesSelector } from './categories/selectors';
 import {
-  channelByIdSelector,
   channelPermissionsSelector,
-  channelReadStateByIdSelector,
   channelsByCategoryIdSelector,
   channelsReadStatesSelector,
   channelsSelector,
@@ -22,10 +20,8 @@ import {
   selectedChannelIdSelector
 } from './channels/selectors';
 import { emojisSelector } from './emojis/selectors';
-import { canViewChannel, hasUnreadMentionInMessages } from './helpers';
+import { canViewChannel } from './helpers';
 import {
-  messagesByChannelIdSelector,
-  messagesMapSelector,
   threadTypingMapSelector,
   typingMapSelector
 } from './messages/selectors';
@@ -37,7 +33,6 @@ import { rolesSelector } from './roles/selectors';
 import type { TVoiceUser } from './types';
 import {
   ownUserIdSelector,
-  ownUserRoleIdsSelector,
   ownUserSelector,
   userByIdSelector,
   usersMapSelector,
@@ -49,6 +44,8 @@ import {
 } from './voice/selectors';
 
 export const connectedSelector = (state: IRootState) => state.server.connected;
+
+export const serverIdSelector = (state: IRootState) => state.server.serverId;
 
 export const disconnectInfoSelector = (state: IRootState) =>
   state.server.disconnectInfo;
@@ -255,53 +252,12 @@ export const currentVoicePeersSelector = createSelector(
   (ownUserId, users) => users?.filter((user) => user.id !== ownUserId) ?? []
 );
 
-// this approach has some limitations but it should work for most cases
-export const hasUnreadMentionsSelector = createCachedSelector(
-  [
-    channelReadStateByIdSelector,
-    channelByIdSelector,
-    messagesByChannelIdSelector,
-    ownUserIdSelector,
-    ownUserRoleIdsSelector
-  ],
-  (readState, channel, messages, ownUserId, ownRoleIds) => {
-    if (!channel || !messages) return false;
-
-    return hasUnreadMentionInMessages(
-      readState,
-      messages,
-      ownUserId,
-      ownRoleIds
-    );
-  }
-)((_, channelId: number) => channelId);
-
 export const categoryUnreadMessagesCountSelector = createCachedSelector(
   [visibleChannelsInCategorySelector, channelsReadStatesSelector],
   (channelsInCategory, readStatesMap) => {
     return channelsInCategory.reduce((total, channel) => {
       return total + (readStatesMap[channel.id] ?? 0);
     }, 0);
-  }
-)((_, categoryId: number) => categoryId);
-
-export const categoryHasUnreadMentionsSelector = createCachedSelector(
-  [
-    visibleChannelsInCategorySelector,
-    channelsReadStatesSelector,
-    messagesMapSelector,
-    ownUserIdSelector,
-    ownUserRoleIdsSelector
-  ],
-  (channelsInCategory, readStatesMap, messagesMap, ownUserId, ownRoleIds) => {
-    return channelsInCategory.some((channel) => {
-      return hasUnreadMentionInMessages(
-        readStatesMap[channel.id] ?? 0,
-        messagesMap[channel.id] ?? [],
-        ownUserId,
-        ownRoleIds
-      );
-    });
   }
 )((_, categoryId: number) => categoryId);
 

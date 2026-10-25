@@ -23,18 +23,38 @@ type TUploadProgress = {
   percent: number;
 };
 
+type TUploadedAttachment = TTempFile & {
+  sourceFile?: File;
+};
+
 type TUploadFileOptions = {
   onProgress?: (progress: TUploadProgress) => void;
+  signal?: AbortSignal;
 };
 
 const uploadFile = async (file: File, options?: TUploadFileOptions) => {
+  const signal = options?.signal;
+  if (signal?.aborted) return undefined;
   const url = getUrlFromServer();
+  const { promise, resolve, reject } = Promise.withResolvers<
+    TTempFile | undefined
+  >();
+  const xhr = new XMLHttpRequest();
+  let settled = false;
+  const finish = (tempFile?: TTempFile) => {
+    if (settled) return;
+    settled = true;
+    signal?.removeEventListener('abort', abort);
+    resolve(tempFile);
+  };
+  const abort = () => {
+    xhr.abort();
+    // abort() before send need not emit an event, but the caller still settles
+    finish();
+  };
 
-  return new Promise<TTempFile | undefined>((resolve) => {
-    const xhr = new XMLHttpRequest();
-
+  try {
     xhr.open('POST', `${url}/upload`);
-
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.setRequestHeader(UploadHeaders.TYPE, file.type);
     xhr.setRequestHeader(
@@ -57,33 +77,36 @@ const uploadFile = async (file: File, options?: TUploadFileOptions) => {
         }
       });
     }
-
     xhr.addEventListener('load', () => {
+      if (settled) return;
       if (xhr.status >= 200 && xhr.status < 300) {
         const tempFile: TTempFile = JSON.parse(xhr.responseText);
-
-        resolve(tempFile);
+        finish(tempFile);
       } else {
         try {
           const errorData = JSON.parse(xhr.responseText);
-
           toast.error(errorData.error || xhr.statusText);
         } catch {
           toast.error(xhr.statusText);
         }
-
-        resolve(undefined);
+        finish();
       }
     });
-
     xhr.addEventListener('error', () => {
+      if (settled) return;
       toast.error(i18next.t('uploadFailed', { ns: 'common' }));
-
-      resolve(undefined);
+      finish();
     });
-
-    xhr.send(file);
-  });
+    xhr.addEventListener('abort', () => finish());
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    else xhr.send(file);
+  } catch (error) {
+    settled = true;
+    signal?.removeEventListener('abort', abort);
+    reject(error);
+  }
+  return promise;
 };
 
 const uploadFiles = async (
@@ -103,4 +126,10 @@ const uploadFiles = async (
   return results.filter((file): file is TTempFile => !!file);
 };
 
-export { uploadFile, uploadFiles, uploadImage, type TUploadProgress };
+export {
+  uploadFile,
+  uploadFiles,
+  uploadImage,
+  type TUploadedAttachment,
+  type TUploadProgress
+};

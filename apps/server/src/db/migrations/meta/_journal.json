@@ -253,6 +253,13 @@
       "when": 1788517601742,
       "tag": "0035_grant_send_voice_reaction",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1792896249565,
+      "tag": "0036_peaceful_lionheart",
+      "breakpoints": true
     }
   ]
 }

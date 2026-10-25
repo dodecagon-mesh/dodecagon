@@ -28,7 +28,11 @@ const VoiceChatSidebar = memo(() => {
     >
       <div className="flex flex-col h-full w-full">
         <div className="flex-1 flex flex-col overflow-hidden">
-          <TextChannel channelId={channelId} onClose={closeVoiceChatSidebar} />
+          <TextChannel
+            key={channelId}
+            channelId={channelId}
+            onClose={closeVoiceChatSidebar}
+          />
         </div>
       </div>
     </ResizableSidebar>

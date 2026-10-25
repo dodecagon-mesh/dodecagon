@@ -1,8 +1,6 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 
-// the app treats anything within 120px of the end as "at the bottom" (isNearBottom in
-// use-scroll-controller), so the tests judge it by the same rule rather than a number of
-// their own
+// the virtual history's scrollEndThreshold is 120px, shared with the scroll assertions
 const BOTTOM_THRESHOLD = 120;
 
 const WHEEL_STEP = 600;
@@ -31,6 +29,28 @@ const readScroll = (container: Locator): Promise<TScrollState> =>
       clientHeight: target.clientHeight,
       fromBottom:
         target.scrollHeight - (target.scrollTop + target.clientHeight)
+    };
+  });
+
+const readReadingAnchor = (container: Locator) =>
+  container.evaluate((element) => {
+    type TAnchor = {
+      dataset: { messageId?: string };
+      getBoundingClientRect: () => { top: number; bottom: number };
+    };
+    const target = element as unknown as {
+      getBoundingClientRect: TAnchor['getBoundingClientRect'];
+      querySelectorAll: (selector: string) => ArrayLike<TAnchor>;
+    };
+    const viewport = target.getBoundingClientRect();
+    const message = Array.from(target.querySelectorAll('[data-message-id]')).find((candidate) => {
+      const bounds = candidate.getBoundingClientRect();
+      return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+    });
+    if (!message) throw new Error('No visible message in the reading viewport');
+    return {
+      messageId: message.dataset.messageId,
+      offset: message.getBoundingClientRect().top - viewport.top
     };
   });
 
@@ -107,6 +127,7 @@ export {
   expectAtBottom,
   messagesContainer,
   readScroll,
+  readReadingAnchor,
   scrollWellAwayFromBottom,
   waitForStableScroll,
   wheelUpUntil,

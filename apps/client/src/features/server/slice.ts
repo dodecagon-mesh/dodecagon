@@ -8,7 +8,6 @@ import type {
   TExternalStream,
   TExternalStreamsMap,
   TJoinedEmoji,
-  TJoinedMessage,
   TJoinedPublicUser,
   TJoinedRole,
   TPluginCapabilityAccessRule,
@@ -23,16 +22,8 @@ import type {
   TVoiceMap,
   TVoiceUserState
 } from '@dodecagon/shared';
-import { DEFAULT_MESSAGES_LIMIT } from '@dodecagon/shared';
 import { produce } from 'immer';
-import { mergeMessagesChronologically } from './helpers';
-import type {
-  TDisconnectInfo,
-  TMessagesMap,
-  TReconnectState,
-  TThreadMessagesMap,
-  TVoiceReaction
-} from './types';
+import type { TDisconnectInfo, TReconnectState, TVoiceReaction } from './types';
 import { MAX_VOICE_REACTIONS_PER_USER } from './voice/statics';
 
 export interface IServerState {
@@ -50,9 +41,6 @@ export interface IServerState {
   currentVoiceChannelId: number | undefined;
   // it lives here rather than in the subscription because joining the new room needs the voice provider context
   voiceMoveTargetChannelId: number | undefined;
-  messagesMap: TMessagesMap;
-  detachedChannels: Record<number, boolean>;
-  threadMessagesMap: TThreadMessagesMap;
   users: TJoinedPublicUser[];
   roles: TJoinedRole[];
   publicSettings: TPublicServerSettings | undefined;
@@ -104,9 +92,6 @@ const initialState: IServerState = {
   selectedChannelId: undefined,
   currentVoiceChannelId: undefined,
   voiceMoveTargetChannelId: undefined,
-  messagesMap: {},
-  detachedChannels: {},
-  threadMessagesMap: {},
   users: [],
   roles: [],
   publicSettings: undefined,
@@ -196,41 +181,6 @@ const serverSliceActions = {
     readStates: TReadStateMap;
     pluginsMetadata: TPluginMetadata[];
   }) => ({ type: 'server/setInitialData', payload }) as const,
-  addMessages: (payload: {
-    channelId: number;
-    messages: TJoinedMessage[];
-    isLive?: boolean;
-  }) => ({ type: 'server/addMessages', payload }) as const,
-  updateMessage: (payload: { channelId: number; message: TJoinedMessage }) =>
-    ({ type: 'server/updateMessage', payload }) as const,
-  updateReplyCount: (payload: {
-    channelId: number;
-    messageId: number;
-    replyCount: number;
-  }) => ({ type: 'server/updateReplyCount', payload }) as const,
-  deleteMessage: (payload: { channelId: number; messageId: number }) =>
-    ({ type: 'server/deleteMessage', payload }) as const,
-  addThreadMessages: (payload: {
-    parentMessageId: number;
-    messages: TJoinedMessage[];
-  }) => ({ type: 'server/addThreadMessages', payload }) as const,
-  updateThreadMessage: (payload: {
-    parentMessageId: number;
-    message: TJoinedMessage;
-  }) => ({ type: 'server/updateThreadMessage', payload }) as const,
-  deleteThreadMessage: (payload: {
-    parentMessageId: number;
-    messageId: number;
-  }) => ({ type: 'server/deleteThreadMessage', payload }) as const,
-  setChannelMessages: (payload: {
-    channelId: number;
-    messages: TJoinedMessage[];
-    detached: boolean;
-  }) => ({ type: 'server/setChannelMessages', payload }) as const,
-  trimChannelMessages: (payload: number) =>
-    ({ type: 'server/trimChannelMessages', payload }) as const,
-  clearThreadMessages: (payload: number) =>
-    ({ type: 'server/clearThreadMessages', payload }) as const,
   clearTypingUsers: (payload: number) =>
     ({ type: 'server/clearTypingUsers', payload }) as const,
   addTypingUser: (payload: { channelId: number; userId: number }) =>
@@ -422,157 +372,6 @@ const serverSliceReducer = (
         draft.pluginsMetadata = action.payload.pluginsMetadata;
         break;
       }
-      case 'server/addMessages': {
-        const { channelId, messages, isLive } = action.payload;
-
-        // a detached channel shows a window that stops short of the present, so appending a live
-        // message would put the very gap this window exists to avoid back into the list. it
-        // arrives with the rest when the user returns to the present
-        if (isLive && draft.detachedChannels[channelId]) return;
-
-        const existing = draft.messagesMap[channelId] ?? [];
-
-        // dedupe against the incoming batch rather than the loaded history: the
-        // set is the size of what just arrived, usually one message, instead of
-        // every message the channel has scrolled into memory
-        const incomingIds = new Set(messages.map((m) => m.id));
-
-        for (const message of existing) {
-          incomingIds.delete(message.id);
-
-          if (incomingIds.size === 0) break;
-        }
-
-        const filtered =
-          incomingIds.size === messages.length
-            ? messages
-            : messages.filter((m) => incomingIds.has(m.id));
-
-        draft.messagesMap[channelId] = mergeMessagesChronologically(
-          existing,
-          filtered
-        );
-        break;
-      }
-      case 'server/updateMessage': {
-        const messages = draft.messagesMap[action.payload.channelId];
-
-        if (!messages) return;
-
-        const messageIndex = messages.findIndex(
-          (message) => message.id === action.payload.message.id
-        );
-
-        if (messageIndex === -1) return;
-
-        messages[messageIndex] = action.payload.message;
-        break;
-      }
-      case 'server/updateReplyCount': {
-        const messages = draft.messagesMap[action.payload.channelId];
-
-        if (!messages) return;
-
-        const message = messages.find((m) => m.id === action.payload.messageId);
-
-        if (!message) return;
-
-        message.replyCount = action.payload.replyCount;
-        break;
-      }
-      case 'server/deleteMessage': {
-        const messages = draft.messagesMap[action.payload.channelId];
-
-        if (!messages) return;
-
-        const remaining = messages.filter(
-          (m) => m.id !== action.payload.messageId
-        );
-
-        remaining.forEach((message) => {
-          if (message.replyToMessageId === action.payload.messageId) {
-            message.replyToMessageId = null;
-            message.replyTo = null;
-          }
-        });
-
-        draft.messagesMap[action.payload.channelId] = remaining;
-        break;
-      }
-      case 'server/addThreadMessages': {
-        const { parentMessageId, messages } = action.payload;
-        const existing = draft.threadMessagesMap[parentMessageId] ?? [];
-
-        const existingIds = new Set(existing.map((m) => m.id));
-        const filtered = messages.filter((m) => !existingIds.has(m.id));
-
-        draft.threadMessagesMap[parentMessageId] = mergeMessagesChronologically(
-          existing,
-          filtered
-        );
-        break;
-      }
-      case 'server/updateThreadMessage': {
-        const messages =
-          draft.threadMessagesMap[action.payload.parentMessageId];
-
-        if (!messages) return;
-
-        const messageIndex = messages.findIndex(
-          (message) => message.id === action.payload.message.id
-        );
-
-        if (messageIndex === -1) return;
-
-        messages[messageIndex] = action.payload.message;
-        break;
-      }
-      case 'server/deleteThreadMessage': {
-        const messages =
-          draft.threadMessagesMap[action.payload.parentMessageId];
-
-        if (!messages) return;
-
-        draft.threadMessagesMap[action.payload.parentMessageId] =
-          messages.filter((m) => m.id !== action.payload.messageId);
-        break;
-      }
-      case 'server/setChannelMessages': {
-        const { channelId, messages, detached } = action.payload;
-
-        draft.messagesMap[channelId] = messages;
-
-        if (detached) {
-          draft.detachedChannels[channelId] = true;
-        } else {
-          delete draft.detachedChannels[channelId];
-        }
-        break;
-      }
-      case 'server/trimChannelMessages': {
-        // a detached window is dropped outright rather than trimmed: keeping its newest page
-        // would leave the channel holding a slice of old history that the next mount's page-1
-        // fetch would merge into, reopening the gap
-        if (draft.detachedChannels[action.payload]) {
-          delete draft.messagesMap[action.payload];
-          delete draft.detachedChannels[action.payload];
-
-          return;
-        }
-
-        const messages = draft.messagesMap[action.payload];
-
-        if (!messages || messages.length <= DEFAULT_MESSAGES_LIMIT) return;
-
-        draft.messagesMap[action.payload] = messages.slice(
-          -DEFAULT_MESSAGES_LIMIT
-        );
-        break;
-      }
-      case 'server/clearThreadMessages': {
-        delete draft.threadMessagesMap[action.payload];
-        break;
-      }
       case 'server/clearTypingUsers': {
         delete draft.typingMap[action.payload];
         break;
@@ -652,30 +451,6 @@ const serverSliceReducer = (
           delete draft.voiceMap[channelId].users[userId];
         }
 
-        // remove user from messages and reactions
-        for (const channelId in draft.messagesMap) {
-          draft.messagesMap[channelId] = draft.messagesMap[channelId]
-            .filter((m) => m.userId !== userId)
-            .map((m) => ({
-              ...m,
-              reactions: m.reactions.filter(
-                (reaction) => reaction.userId !== userId
-              )
-            }));
-        }
-
-        // remove user from thread messages and reactions
-        for (const parentId in draft.threadMessagesMap) {
-          draft.threadMessagesMap[parentId] = draft.threadMessagesMap[parentId]
-            .filter((m) => m.userId !== userId)
-            .map((m) => ({
-              ...m,
-              reactions: m.reactions.filter(
-                (reaction) => reaction.userId !== userId
-              )
-            }));
-        }
-
         // remove user from emojis
         draft.emojis = draft.emojis.filter((e) => e.userId !== userId);
         break;
@@ -696,36 +471,6 @@ const serverSliceReducer = (
         // remove user from voice channels
         for (const channelId in draft.voiceMap) {
           delete draft.voiceMap[channelId].users[userId];
-        }
-
-        // reassign messages and reactions
-        for (const channelId in draft.messagesMap) {
-          draft.messagesMap[channelId] = draft.messagesMap[channelId].map(
-            (m) => ({
-              ...m,
-              userId: m.userId === userId ? deletedUserId : m.userId,
-              reactions: m.reactions.map((reaction) =>
-                reaction.userId === userId
-                  ? { ...reaction, userId: deletedUserId }
-                  : reaction
-              )
-            })
-          );
-        }
-
-        // reassign thread messages and reactions
-        for (const parentId in draft.threadMessagesMap) {
-          draft.threadMessagesMap[parentId] = draft.threadMessagesMap[
-            parentId
-          ].map((m) => ({
-            ...m,
-            userId: m.userId === userId ? deletedUserId : m.userId,
-            reactions: m.reactions.map((reaction) =>
-              reaction.userId === userId
-                ? { ...reaction, userId: deletedUserId }
-                : reaction
-            )
-          }));
         }
 
         // reassign emojis

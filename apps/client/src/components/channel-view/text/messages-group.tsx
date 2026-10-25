@@ -28,6 +28,8 @@ type TMessagesGroupProps = {
   editingMessageId?: number;
   onEditComplete?: () => void;
   compact?: boolean;
+  continuation?: boolean;
+  continues?: boolean;
 };
 
 const MessagesGroup = memo(
@@ -42,7 +44,9 @@ const MessagesGroup = memo(
     activeThreadMessageId,
     editingMessageId,
     onEditComplete,
-    compact = false
+    compact = false,
+    continuation = false,
+    continues = false
   }: TMessagesGroupProps) => {
     const { t } = useTranslation('common');
     const firstMessage = group[0];
@@ -59,74 +63,85 @@ const MessagesGroup = memo(
 
     const groupContent = (
       <div
-        data-message-group
+        data-message-group={!continuation || undefined}
         className={cn(
           'flex min-w-0 max-w-dvw gap-4 py-2 select-text',
           compact &&
-            'gap-3 py-1.5 [&_.msg-content]:text-[14px]! [&_.msg-content]:leading-[22px]! [&_[data-slot=avatar]]:size-7!'
+            'gap-3 py-1.5 [&_.msg-content]:text-[14px]! [&_.msg-content]:leading-[22px]! [&_[data-slot=avatar]]:size-7!',
+          continuation && 'pt-0',
+          continues && 'pb-0'
         )}
       >
-        {isPluginMessage ? (
-          <PluginAvatar
-            name={pluginMetadata?.name}
-            avatarUrl={pluginMetadata?.avatarUrl}
-            className={compact ? 'size-7' : 'h-[38px] w-[38px]'}
-          />
-        ) : (
-          <UserAvatar
-            userId={user!.id}
-            className={compact ? 'size-7' : 'h-[38px] w-[38px]'}
-            showUserPopover
+        {continuation && (
+          <div
+            aria-hidden
+            className={compact ? 'w-7 shrink-0' : 'w-[38px] shrink-0'}
           />
         )}
+        {!continuation &&
+          (isPluginMessage ? (
+            <PluginAvatar
+              name={pluginMetadata?.name}
+              avatarUrl={pluginMetadata?.avatarUrl}
+              className={compact ? 'size-7' : 'h-[38px] w-[38px]'}
+            />
+          ) : (
+            <UserAvatar
+              userId={user!.id}
+              className={compact ? 'size-7' : 'h-[38px] w-[38px]'}
+              showUserPopover
+            />
+          ))}
         <div className="flex min-w-0 flex-col gap-1 w-full">
-          <div className="flex gap-[9px] items-baseline">
-            <span
-              className={cn(
-                'text-sm font-semibold leading-5',
-                isDeletedUser && 'line-through text-muted-foreground',
-                isPluginMessage && 'text-accent-text'
-              )}
-            >
-              {authorName}
-            </span>
-            {isPluginMessage && (
-              <span className="inline-flex items-center rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-accent-text uppercase tracking-wide">
-                bot
-              </span>
-            )}
-            {showClockTime && hasValidDate && (
-              <time
-                className="text-subtle-foreground text-xs leading-4"
-                dateTime={date.toISOString()}
-                title={format(date, 'PPpp')}
-              >
-                {format(date, 'h:mm a')}
-              </time>
-            )}
-            {showClockTime && !hasValidDate && (
-              <span className="text-subtle-foreground text-xs leading-4">
-                {t('unknownTime')}
-              </span>
-            )}
-            {!showClockTime && hasValidDate && (
-              <RelativeTime date={date}>
-                {(relativeTime) => (
-                  <span
-                    className="text-subtle-foreground text-xs"
-                    title={format(date, 'PPpp')}
-                  >
-                    {relativeTime}
-                  </span>
+          {!continuation && (
+            <div className="flex gap-[9px] items-baseline">
+              <span
+                className={cn(
+                  'text-sm font-semibold leading-5',
+                  isDeletedUser && 'line-through text-muted-foreground',
+                  isPluginMessage && 'text-accent-text'
                 )}
-              </RelativeTime>
-            )}
-            {!showClockTime && !hasValidDate && (
-              <span className="text-subtle-foreground text-xs">
-                {t('unknownTime')}
+              >
+                {authorName}
               </span>
-            )}
-          </div>
+              {isPluginMessage && (
+                <span className="inline-flex items-center rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-accent-text uppercase tracking-wide">
+                  bot
+                </span>
+              )}
+              {showClockTime && hasValidDate && (
+                <time
+                  className="text-subtle-foreground text-xs leading-4"
+                  dateTime={date.toISOString()}
+                  title={format(date, 'PPpp')}
+                >
+                  {format(date, 'h:mm a')}
+                </time>
+              )}
+              {showClockTime && !hasValidDate && (
+                <span className="text-subtle-foreground text-xs leading-4">
+                  {t('unknownTime')}
+                </span>
+              )}
+              {!showClockTime && hasValidDate && (
+                <RelativeTime date={date}>
+                  {(relativeTime) => (
+                    <span
+                      className="text-subtle-foreground text-xs"
+                      title={format(date, 'PPpp')}
+                    >
+                      {relativeTime}
+                    </span>
+                  )}
+                </RelativeTime>
+              )}
+              {!showClockTime && !hasValidDate && (
+                <span className="text-subtle-foreground text-xs">
+                  {t('unknownTime')}
+                </span>
+              )}
+            </div>
+          )}
           <div className="flex min-w-0 flex-col">
             {group.map((message) => (
               <div

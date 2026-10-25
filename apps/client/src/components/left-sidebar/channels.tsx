@@ -14,6 +14,7 @@ import {
   useUnreadMessagesCount,
   useVoiceUsersByChannelId
 } from '@/features/server/hooks';
+import { useMessageNavigationIntent } from '@/features/server/messages/use-message-navigation-intent';
 import { useVoiceChannelExternalStreamsList } from '@/features/server/voice/hooks';
 import { useSelectChannel } from '@/hooks/use-select-channel';
 import { getTRPCClient } from '@/lib/trpc';
@@ -176,9 +177,10 @@ const Text = memo(({ channel, ...props }: TTextProps) => {
   const hasUnreadMessages = useHasUnreadMentions(channel.id);
   const hasTypingUsers = typingUsers.length > 0;
   const isMuted = useIsChannelMuted(channel.id);
+  const navigationIntent = useMessageNavigationIntent(channel.id);
 
   return (
-    <ItemWrapper {...props}>
+    <ItemWrapper {...props} {...navigationIntent}>
       <HashtagIcon className="size-5 shrink-0" />
       <span className={cn('flex-1', { 'opacity-50': isMuted })}>
         {channel.name}
@@ -206,6 +208,8 @@ type TItemWrapperProps = {
   onDragOver?: React.DragEventHandler<HTMLDivElement>;
   onDragLeave?: React.DragEventHandler<HTMLDivElement>;
   onDrop?: React.DragEventHandler<HTMLDivElement>;
+  onPointerEnter?: React.PointerEventHandler<HTMLDivElement>;
+  onFocus?: React.FocusEventHandler<HTMLDivElement>;
 };
 
 const ItemWrapper = memo(
@@ -219,7 +223,9 @@ const ItemWrapper = memo(
     disabled = false,
     onDragOver,
     onDragLeave,
-    onDrop
+    onDrop,
+    onPointerEnter,
+    onFocus
   }: TItemWrapperProps) => {
     return (
       <div
@@ -230,6 +236,8 @@ const ItemWrapper = memo(
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
+        onPointerEnter={onPointerEnter}
+        onFocus={onFocus}
         className={cn(
           'flex h-[34px] w-full items-center gap-2 rounded-[6px] border border-transparent px-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground select-none cursor-pointer',
           {

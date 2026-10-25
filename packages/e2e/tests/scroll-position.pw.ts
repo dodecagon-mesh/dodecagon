@@ -8,7 +8,7 @@ import {
 } from './helpers/channels';
 import { withSecondClient } from './helpers/clients';
 import {
-  getMockMessageNumbers,
+  getLoadedMessageCount,
   LIVE_MESSAGES_NEWEST,
   messageByText,
   messageItems,
@@ -19,6 +19,7 @@ import {
   BOTTOM_THRESHOLD,
   expectAtBottom,
   messagesContainer,
+  readReadingAnchor,
   readScroll,
   scrollWellAwayFromBottom,
   waitForStableScroll,
@@ -95,14 +96,11 @@ test('paging up holds the reading position', async ({ page }) => {
   await loginAs(page, 'testowner', 'password123');
 
   const container = await openMockChannel(page, INFINITE_SCROLL_CHANNEL);
-  const oldestBefore = Math.min(...(await getMockMessageNumbers(page)));
+  const loadedBefore = await getLoadedMessageCount(page);
 
   await scrollWellAwayFromBottom(page, container);
 
-  // walk up until the older page arrives, keeping the closest the view ever came to the
-  // bottom. a single reading at the end would miss a snap that corrects itself. the arrival
-  // is judged by mock number, since the suite shares a server and another spec's message
-  // landing here would otherwise pass for a loaded page
+  // require a fetched page, not merely an older virtual row becoming visible while scrolling
   let closestToBottom = Number.POSITIVE_INFINITY;
 
   await wheelUpUntil(page, container, async () => {
@@ -111,7 +109,7 @@ test('paging up holds the reading position', async ({ page }) => {
       (await readScroll(container)).fromBottom
     );
 
-    return Math.min(...(await getMockMessageNumbers(page))) < oldestBefore;
+    return (await getLoadedMessageCount(page)) > loadedBefore;
   });
 
   await waitForStableScroll(container);
@@ -144,17 +142,23 @@ test('sending a message while scrolled up sends it without yanking the view down
   const container = await openMockChannel(page, LIVE_MESSAGES_CHANNEL);
 
   await scrollWellAwayFromBottom(page, container);
+  const before = await readReadingAnchor(container);
 
   const content = `Own message while scrolled up ${Date.now()}`;
 
-  await sendMessage(page, content);
+  await sendMessage(page, content, { waitForVisible: false });
 
-  await expect(messageByText(page, content)).toHaveCount(1);
-
+  const after = await readReadingAnchor(container);
+  expect(after.messageId).toBe(before.messageId);
+  expect(Math.abs(after.offset - before.offset)).toBeLessThanOrEqual(2);
   // sending is a deliberate act, but it is not a request to leave the history being read
   expect((await readScroll(container)).fromBottom).toBeGreaterThan(
     BOTTOM_THRESHOLD
   );
+  await container.focus();
+  await page.keyboard.press('End');
+  await expectAtBottom(container);
+  await expect(messageByText(page, content)).toHaveCount(1);
 });
 
 test('a message from someone else keeps a reader at the bottom', async ({
@@ -186,7 +190,8 @@ test('a message from someone else does not pull a scrolled-up reader down', asyn
   await loginAs(page, 'testowner', 'password123');
 
   const container = await openMockChannel(page, LIVE_MESSAGES_CHANNEL);
-  const before = await scrollWellAwayFromBottom(page, container);
+  await scrollWellAwayFromBottom(page, container);
+  const before = await readReadingAnchor(container);
 
   await withSecondClient(browser, 'testuser', 'password123', async (sender) => {
     await openChannel(sender, LIVE_MESSAGES_CHANNEL);
@@ -195,16 +200,23 @@ test('a message from someone else does not pull a scrolled-up reader down', asyn
 
     await sendMessage(sender, content);
 
-    // the reader has to have received it before the position means anything
-    await expect(messageByText(page, content)).toHaveCount(1);
-
-    const after = await readScroll(container);
-
-    // the new message grew the list below the reader, so the offset from the top is what has
-    // to hold still, not the distance from a bottom that just moved
-    expect(Math.abs(after.scrollTop - before.scrollTop)).toBeLessThanOrEqual(
-      20
+    const sentMessageId = await messageByText(sender, content).getAttribute(
+      'data-message-id'
     );
-    expect(after.fromBottom).toBeGreaterThan(BOTTOM_THRESHOLD);
+    await expect(container).toHaveAttribute(
+      'data-newest-message-id',
+      sentMessageId!
+    );
+
+    const after = await readReadingAnchor(container);
+    expect(after.messageId).toBe(before.messageId);
+    expect(Math.abs(after.offset - before.offset)).toBeLessThanOrEqual(2);
+    expect((await readScroll(container)).fromBottom).toBeGreaterThan(
+      BOTTOM_THRESHOLD
+    );
+    await container.focus();
+    await page.keyboard.press('End');
+    await expectAtBottom(container);
+    await expect(messageByText(page, content)).toHaveCount(1);
   });
 });

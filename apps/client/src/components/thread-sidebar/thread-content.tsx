@@ -1,3 +1,4 @@
+import { PendingMessages } from '@/components/message-compose/pending-messages';
 import { useThreadSidebar } from '@/features/app/hooks';
 import { useTypingUsersByThreadId } from '@/features/server/hooks';
 import {
@@ -7,13 +8,14 @@ import {
 
 import type { TJoinedMessage } from '@dodecagon/shared';
 import { Spinner } from '@dodecagon/ui';
-import { ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useArrowUpEdit } from '../channel-view/text/hooks/use-arrow-up-edit';
-import { useScrollController } from '../channel-view/text/hooks/use-scroll-controller';
-import { MessagesGroup } from '../channel-view/text/messages-group';
+import {
+  MessageHistory,
+  type TMessageHistoryHandle
+} from '../channel-view/text/message-history';
 import { ParentMessagePreview } from './parent-message-preview';
 import { ThreadCompose } from './thread-compose';
 import { ThreadHeader } from './thread-header';
@@ -23,10 +25,12 @@ type TThreadContentProps = {
   channelId: number;
 };
 
+const HISTORY_COMPONENTS = { Footer: PendingMessages };
+
 const ThreadContent = memo(
   ({ parentMessageId, channelId }: TThreadContentProps) => {
     const { t } = useTranslation('common');
-    const { messages, hasMore, loadMore, loading, fetching, groupedMessages } =
+    const { messages, hasMore, loadMore, loading, fetching } =
       useThreadMessages(parentMessageId);
     const [replyingToMessage, setReplyingToMessage] = useState<
       TJoinedMessage | undefined
@@ -43,25 +47,13 @@ const ThreadContent = memo(
 
     const typingUsers = useTypingUsersByThreadId(parentMessageId);
 
-    const {
-      bindContainer,
-      onScroll,
-      onAsyncContentLoaded,
-      scrollToBottom,
-      isAtBottom
-    } = useScrollController({
-      messages,
-      fetching,
-      hasMore,
-      loadMore,
-      hasTypingUsers: typingUsers.length > 0
-    });
+    const historyRef = useRef<TMessageHistoryHandle>(null);
 
     const onComposeResize = useCallback(() => {
-      if (isAtBottom()) {
-        scrollToBottom();
+      if (historyRef.current?.isAtBottom()) {
+        historyRef.current.scrollToBottom();
       }
-    }, [isAtBottom, scrollToBottom]);
+    }, []);
 
     const onReplyMessageSelect = useCallback((message: TJoinedMessage) => {
       setReplyingToMessage(message);
@@ -101,37 +93,24 @@ const ThreadContent = memo(
                 </div>
               )}
 
-              <div
-                ref={bindContainer}
-                onScroll={onScroll}
-                onLoadCapture={onAsyncContentLoaded}
-                data-thread-messages
-                className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-3 animate-in fade-in duration-500"
-              >
-                {messages.length === 0 && !fetching ? (
-                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-sm">
-                    <ChatBubbleLeftRightIcon className="h-8 w-8 mb-2 opacity-50" />
-                    <p>{t('noRepliesYet')}</p>
-                    <p className="text-xs">{t('beFirstToReply')}</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {groupedMessages.map((group) => (
-                      <MessagesGroup
-                        key={group.key}
-                        group={group.messages}
-                        compact
-                        showClockTime
-                        onReplyMessageSelect={onReplyMessageSelect}
-                        replyTargetMessageId={replyingToMessage?.id}
-                        activeThreadMessageId={activeThreadMessageId}
-                        editingMessageId={editingMessageId}
-                        onEditComplete={handleEditComplete}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
+              <MessageHistory
+                key={parentMessageId}
+                ref={historyRef}
+                channelId={channelId}
+                parentMessageId={parentMessageId}
+                compact
+                messages={messages}
+                loading={loading}
+                fetching={fetching}
+                hasMore={hasMore}
+                loadMore={loadMore}
+                components={HISTORY_COMPONENTS}
+                onReplyMessageSelect={onReplyMessageSelect}
+                replyTargetMessageId={replyingToMessage?.id}
+                activeThreadMessageId={activeThreadMessageId}
+                editingMessageId={editingMessageId}
+                onEditComplete={handleEditComplete}
+              />
             </>
           )}
 
@@ -143,7 +122,6 @@ const ThreadContent = memo(
             replyingToMessage={replyingToMessage}
             onCancelReply={handleCancelReply}
             onArrowUp={handleArrowUpEdit}
-
             onResize={onComposeResize}
           />
         </div>

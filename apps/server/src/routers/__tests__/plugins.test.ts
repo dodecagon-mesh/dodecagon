@@ -45,6 +45,7 @@ import {
   canUseCapability,
   getCapabilityAccessRules
 } from '../../helpers/plugin-capability-access';
+import * as beforeMessageSave from '../../helpers/run-before-message-save-hooks';
 import { pluginManager } from '../../plugins';
 import { eventBus } from '../../plugins/event-bus';
 import { drainActivityLogQueue } from '../../queues/activity-log';
@@ -1300,6 +1301,27 @@ describe('plugins router', () => {
       expect(message.editable).toBe(false);
     });
 
+    test('should not execute a command twice when its request is replayed', async () => {
+      const { caller } = await initTest();
+      await pluginManager.load('plugin-b');
+      const execute = spyOn(pluginManager, 'executeCommand');
+      const input = {
+        channelId: 1,
+        content: '<p>/sum 2 3</p>',
+        clientRequestId: '58addf3b-9ec6-4578-9fdb-ce26dfb5b7de'
+      };
+      const [first, second] = await Promise.all([
+        caller.messages.send(input),
+        caller.messages.send(input)
+      ]);
+      expect(first).toBe(second);
+      expect(await caller.messages.send(input)).toBe(first);
+      expect(execute).toHaveBeenCalledTimes(1);
+      const message = await caller.messages.getOne({ messageId: first });
+      expect(message.editable).toBe(false);
+      expect(message.content).toContain('data-command="sum"');
+    });
+
     test('should record the command result on the message once it finishes', async () => {
       const { caller } = await initTest();
 
@@ -1383,6 +1405,38 @@ describe('plugins router', () => {
 
       expect(message.content).toContain('rewritten by plugin');
       expect(message.content).not.toContain('rewriteme');
+    });
+
+    test('should return the transformed message without running save hooks again', async () => {
+      const { caller } = await initTest();
+      const hook = spyOn(beforeMessageSave, 'runBeforeMessageSaveHooks');
+      const input = {
+        channelId: 1,
+        content: '<p>rewriteme please</p>',
+        clientRequestId: '8275a53f-3492-4f79-aa9d-50f30425837d'
+      };
+      const id = await caller.messages.send(input);
+      expect(await caller.messages.send(input)).toBe(id);
+      expect(hook).toHaveBeenCalledTimes(1);
+      const message = await caller.messages.getOne({ messageId: id });
+      expect(message.content).toContain('rewritten by plugin');
+    });
+
+    test('should not repeat a failed irreversible hook on retry', async () => {
+      const { caller } = await initTest();
+      const hook = spyOn(beforeMessageSave, 'runBeforeMessageSaveHooks');
+      const input = {
+        channelId: 1,
+        content: '<p>rejectme now</p>',
+        clientRequestId: 'e85c690e-6d80-4a1a-a7a7-fe859f56d496'
+      };
+      await expect(caller.messages.send(input)).rejects.toThrow(
+        'Blocked by the test filter'
+      );
+      await expect(caller.messages.send(input)).rejects.toThrow(
+        'The previous send was interrupted or failed after processing began. It cannot be replayed safely.'
+      );
+      expect(hook).toHaveBeenCalledTimes(1);
     });
 
     // the whole point of the hook: the message must never reach the database

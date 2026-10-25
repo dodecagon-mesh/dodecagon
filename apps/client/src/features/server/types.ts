@@ -1,5 +1,4 @@
 import {
-  type TJoinedMessage,
   type TJoinedPublicUser,
   type TVoiceUserState
 } from '@dodecagon/shared';
@@ -25,14 +24,6 @@ export enum SoundType {
   REMOTE_USER_STARTED_SCREENSHARE = 'remote_user_started_screenshare',
   REMOTE_USER_STOPPED_SCREENSHARE = 'remote_user_stopped_screenshare'
 }
-
-export type TMessagesMap = {
-  [channelId: number]: TJoinedMessage[];
-};
-
-export type TThreadMessagesMap = {
-  [parentMessageId: number]: TJoinedMessage[];
-};
 
 export type TDisconnectInfo = {
   code: number;

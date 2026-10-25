@@ -1,20 +1,25 @@
 import { useStoreSelector } from '@/features/store';
+import { useStore } from '@/features/store-context';
 import { ChannelPermission, Permission } from '@dodecagon/shared';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import type { IRootState } from '../store';
 import { useChannelById, useChannelPermissionsById } from './channels/hooks';
 import { channelReadStateByIdSelector } from './channels/selectors';
+import { hasUnreadMentionInMessages } from './helpers';
+import {
+  getMessageDatabaseScope,
+  getMessageQueryClient,
+  readLoadedMessages
+} from './messages/database';
 import {
   activeDmChannelIdSelector,
   activeFullscreenPluginIdSelector,
-  categoryHasUnreadMentionsSelector,
   categoryUnreadMessagesCountSelector,
   connectedSelector,
   currentVoicePeersSelector,
   disconnectInfoSelector,
   dmsOpenSelector,
   hasSharingScreenUsersSelector,
-  hasUnreadMentionsSelector,
   hasVisibleChannelsInCategorySelector,
   hiddenPluginComponentsSelector,
   infoSelector,
@@ -32,9 +37,11 @@ import {
   typingUsersByThreadIdSelector,
   userRolesSelector,
   userSettingsPluginsSelector,
+  visibleChannelsInCategorySelector,
   voiceUsersByChannelIdSelector,
   webRtcSimulcastEnabledSelector
 } from './selectors';
+import { ownUserIdSelector, ownUserRoleIdsSelector } from './users/selectors';
 
 export const useIsConnected = () => useStoreSelector(connectedSelector);
 
@@ -158,10 +165,46 @@ export const useCategoryUnreadMessagesCount = (categoryId: number) =>
     categoryUnreadMessagesCountSelector(state, categoryId)
   );
 
-export const useCategoryHasUnreadMentions = (categoryId: number) =>
-  useStoreSelector((state: IRootState) =>
-    categoryHasUnreadMentionsSelector(state, categoryId)
+export const useCategoryHasUnreadMentions = (categoryId: number) => {
+  const currentStore = useStore();
+  const channels = useStoreSelector((state) =>
+    visibleChannelsInCategorySelector(state, categoryId)
   );
+  const readStates = useStoreSelector((state) => state.server.readStatesMap);
+  const ownUserId = useStoreSelector(ownUserIdSelector);
+  const ownRoleIds = useStoreSelector(ownUserRoleIdsSelector);
+  useStoreSelector((state) => state.server.serverId);
+  const queryClient = getMessageQueryClient(currentStore);
+  const scope = getMessageDatabaseScope(currentStore);
+  const subscribe = useCallback(
+    (listener: () => void) =>
+      queryClient.getQueryCache().subscribe((event) => {
+        const key = event.query.queryKey;
+        if (
+          key[0] === 'messages' &&
+          key[1] === scope &&
+          key[3] === 'root' &&
+          key[4] === 'rows' &&
+          channels.some((channel) => channel.id === key[2])
+        )
+          listener();
+      }),
+    [queryClient, scope, channels]
+  );
+  const getSnapshot = useCallback(
+    () =>
+      channels.some((channel) =>
+        hasUnreadMentionInMessages(
+          readStates[channel.id] ?? 0,
+          readLoadedMessages(currentStore, channel.id),
+          ownUserId,
+          ownRoleIds
+        )
+      ),
+    [currentStore, channels, readStates, ownUserId, ownRoleIds]
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+};
 
 export const useCategoryUnreadData = (categoryId: number) => {
   const unreadCount = useCategoryUnreadMessagesCount(categoryId);
@@ -178,10 +221,41 @@ export const useHasSharingScreenUsers = (channelId: number) =>
     hasSharingScreenUsersSelector(state, channelId)
   );
 
-export const useHasUnreadMentions = (channelId: number) =>
-  useStoreSelector((state: IRootState) =>
-    hasUnreadMentionsSelector(state, channelId)
+export const useHasUnreadMentions = (channelId: number) => {
+  const currentStore = useStore();
+  const readState = useUnreadMessagesCount(channelId);
+  const ownUserId = useStoreSelector(ownUserIdSelector);
+  const ownRoleIds = useStoreSelector(ownUserRoleIdsSelector);
+  useStoreSelector((state) => state.server.serverId);
+  const scope = getMessageDatabaseScope(currentStore);
+  const queryClient = getMessageQueryClient(currentStore);
+  const subscribe = useCallback(
+    (listener: () => void) =>
+      queryClient.getQueryCache().subscribe((event) => {
+        const key = event.query.queryKey;
+        if (
+          key[0] === 'messages' &&
+          key[1] === scope &&
+          key[2] === channelId &&
+          key[3] === 'root' &&
+          key[4] === 'rows'
+        )
+          listener();
+      }),
+    [queryClient, scope, channelId]
   );
+  const getSnapshot = useCallback(
+    () =>
+      hasUnreadMentionInMessages(
+        readState,
+        readLoadedMessages(currentStore, channelId),
+        ownUserId,
+        ownRoleIds
+      ),
+    [currentStore, channelId, readState, ownUserId, ownRoleIds]
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+};
 
 export const useActiveFullscreenPluginId = () =>
   useStoreSelector(activeFullscreenPluginIdSelector);

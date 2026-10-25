@@ -260,6 +260,7 @@ const messages = sqliteTable(
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
     content: text('content'),
+    clientRequestId: text('client_request_id'),
     // nullable because plugin-authored messages have no user, see plugins/actions. the
     // cascade is delete-user's `wipe: true` branch; `wipe: false` reassigns to the deleted
     // user placeholder first, so nothing is left to cascade
@@ -308,6 +309,28 @@ const messages = sqliteTable(
       t.channelId,
       t.id
     )
+  ]
+);
+
+const messageSendRequests = sqliteTable(
+  'message_send_requests',
+  {
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    clientRequestId: text('client_request_id').notNull(),
+    // a sha256 fingerprint, never the original message or temporary file IDs
+    payload: text('payload').notNull(),
+    messageId: integer('message_id').references(() => messages.id, {
+      onDelete: 'set null'
+    }),
+    // safe terminal markers only; completed survives deletion of the message row
+    failure: text('failure'),
+    createdAt: integer('created_at').notNull()
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.clientRequestId] }),
+    index('message_send_requests_message_idx').on(t.messageId)
   ]
 );
 
@@ -629,6 +652,7 @@ export {
   messageFiles,
   messageReactions,
   messages,
+  messageSendRequests,
   oidcHandoffs,
   oidcTransactions,
   pluginCapabilities,

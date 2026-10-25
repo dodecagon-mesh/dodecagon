@@ -67,15 +67,12 @@ describe('the start server bundle', () => {
   test('keeps every dependency inside the bundle', async () => {
     const files = await listBundleFiles();
     const external = new Set<string>();
+    const transpiler = new Bun.Transpiler({ loader: 'js' });
 
     for (const file of files) {
       const source = await Bun.file(file).text();
-      const imports = source.match(/\bfrom\s*["']([^"'\s]+)["']/g) ?? [];
-
-      for (const line of imports) {
-        const name = line
-          .replace(/^.*["']([^"']+)["']$/, '$1')
-          .replace(/^node:/, '');
+      for (const { path: specifier } of transpiler.scanImports(source)) {
+        const name = specifier.replace(/^node:/, '');
 
         // a relative path stays inside the bundle
         if (name.startsWith('.') || name.startsWith('/')) {
