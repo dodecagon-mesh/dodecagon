@@ -1,6 +1,6 @@
 {
   "name": "@dodecagon/scripts",
-  "version": "0.0.66",
+  "version": "0.0.67",
   "type": "module",
   "private": true,
   "main": "src/index.ts",
