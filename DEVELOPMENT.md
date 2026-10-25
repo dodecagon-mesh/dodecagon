@@ -139,8 +139,10 @@ migration is required.
 
 Call controls, captions and edge scrims appear together while the pointer is
 over the stage, a control has keyboard focus, or a menu is open. Leaving the
-stage hides them immediately, without an idle timer. Touch controls remain
-available after a tap and dismiss on the next tap outside the stage.
+stage starts a 150 ms opacity fade immediately, without an idle timer or
+transition delay; hidden controls stop accepting pointer input immediately.
+Reduced-motion mode disables this fade. Touch controls remain available after
+a tap and dismiss on the next tap outside the stage.
 
 A focused screen share keeps its aspect ratio and reserves space above the
 thumbnail row while controls are visible. Hiding the controls releases that

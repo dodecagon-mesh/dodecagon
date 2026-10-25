@@ -122,10 +122,12 @@ const elements = () => {
   return { toolbar, footer, participant, share, stage };
 };
 
-const waitForRender = () => {
+const waitForRender = async () => {
   const { promise, resolve } = Promise.withResolvers<void>();
   requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-  return promise;
+  await promise;
+  const animations = host?.getAnimations({ subtree: true }) ?? [];
+  await Promise.allSettled(animations.map((animation) => animation.finished));
 };
 
 const reveal = async () => {
@@ -167,6 +169,29 @@ test.each([1188, 375])(
     }
   }
 );
+
+test('call chrome fades through opacity without delaying pointer dismissal', async () => {
+  await render();
+  const { stage, footer, toolbar } = elements();
+  stage.dispatchEvent(new PointerEvent('pointerenter'));
+  const { promise, resolve } = Promise.withResolvers<void>();
+  requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  await promise;
+
+  const fade = footer.getAnimations()[0];
+  expect(fade).toBeDefined();
+  expect(fade.effect?.getTiming().delay).toBe(0);
+  fade.pause();
+  fade.currentTime = 75;
+  const opacity = Number(getComputedStyle(footer).opacity);
+  expect(opacity).toBeGreaterThan(0);
+  expect(opacity).toBeLessThan(1);
+
+  fade.play();
+  stage.dispatchEvent(new PointerEvent('pointerleave'));
+  await waitForRender();
+  expect(getComputedStyle(toolbar).pointerEvents).toBe('none');
+});
 
 test('leaving the stage hides controls immediately and expands the presentation', async () => {
   await render();
@@ -237,6 +262,7 @@ test('focused scrims follow controls through pointer and keyboard visibility', a
     expect(getComputedStyle(scrim).opacity).toBe('0');
   }
   await userEvent.tab();
+  await waitForRender();
   expect(getComputedStyle(footer).opacity).toBe('1');
   for (const scrim of scrims) {
     expect(getComputedStyle(scrim).opacity).toBe('1');
@@ -267,6 +293,7 @@ test('Tab reveals hidden controls and keeps disabled microphone settings keyboar
   const { toolbar, footer, stage } = elements();
   expect(getComputedStyle(footer).opacity).toBe('0');
   await userEvent.tab();
+  await waitForRender();
   const mute = page.getByRole('button', { name: 'Mute', exact: true });
   await expect.element(mute).toHaveFocus();
   expect(getComputedStyle(footer).opacity).toBe('1');

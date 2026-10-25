@@ -866,20 +866,28 @@ test('voice controls hide on pointer exit and remain available to keyboard focus
     )!;
     await page.elementLocator(stage).hover();
     await waitForRender();
-    expect(getComputedStyle(controls.parentElement!).opacity).toBe('1');
+    await expect
+      .poll(() => getComputedStyle(controls.parentElement!).opacity)
+      .toBe('1');
     await page.getByTestId(TestId.LEFT_SIDEBAR_SERVER_NAME).hover();
     await waitForRender();
-    expect(getComputedStyle(controls.parentElement!).opacity).toBe('0');
+    await expect
+      .poll(() => getComputedStyle(controls.parentElement!).opacity)
+      .toBe('0');
     expect(getComputedStyle(controls).pointerEvents).toBe('none');
 
     const mute = page.getByRole('button', { name: 'Mute', exact: true });
     mute.element().focus();
     await userEvent.keyboard('{ArrowRight}');
     await waitForRender();
-    expect(getComputedStyle(controls.parentElement!).opacity).toBe('1');
+    await expect
+      .poll(() => getComputedStyle(controls.parentElement!).opacity)
+      .toBe('1');
     mute.element().blur();
     await waitForRender();
-    expect(getComputedStyle(controls.parentElement!).opacity).toBe('0');
+    await expect
+      .poll(() => getComputedStyle(controls.parentElement!).opacity)
+      .toBe('0');
   } finally {
     removeVoiceParticipants();
     setSelectedChannelId(1);
