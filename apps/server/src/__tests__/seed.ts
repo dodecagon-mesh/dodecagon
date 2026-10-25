@@ -452,6 +452,7 @@ const seedTestDb = async (
   if (e2e) {
     const allUsers = [
       insertedOwner!,
+      insertedModerator!,
       insertedUser!,
       insertedUserA!,
       insertedUserB!
