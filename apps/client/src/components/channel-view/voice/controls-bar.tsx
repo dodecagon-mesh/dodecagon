@@ -65,23 +65,18 @@ const ControlsBar = memo(({ channelId, isActive }: TControlsBarProps) => {
   return (
     <div
       className={cn(
-        'absolute inset-x-0 bottom-3 z-20 flex min-h-[50px] items-center justify-center gap-3 px-2 pointer-events-none sm:px-4 max-[360px]:gap-1 max-[360px]:px-1',
+        'voice-chrome absolute inset-x-0 bottom-3 z-20 flex min-h-[50px] items-center justify-center gap-3 px-2 pointer-events-none sm:px-4 max-[360px]:gap-1 max-[360px]:px-1',
         barClass
       )}
     >
       <div
         data-voice-controls
         className={cn(
-          'flex items-center gap-3 max-[360px]:gap-1 focus-within:pointer-events-auto has-[[data-popup-open]]:pointer-events-auto has-[[aria-expanded=true]]:pointer-events-auto',
+          'voice-chrome-interactive flex items-center gap-3 max-[360px]:gap-1 focus-within:pointer-events-auto has-[[data-popup-open]]:pointer-events-auto has-[[aria-expanded=true]]:pointer-events-auto',
           isActive ? 'pointer-events-auto' : 'pointer-events-none'
         )}
       >
-        <div
-          className={cn(
-            'flex items-center gap-1 rounded-[12px] bg-black p-[5px] focus-within:pointer-events-auto has-[[data-popup-open]]:pointer-events-auto has-[[aria-expanded=true]]:pointer-events-auto',
-            isActive ? 'pointer-events-auto' : 'pointer-events-none'
-          )}
-        >
+        <div className="flex items-center gap-1 rounded-[12px] bg-black p-[5px]">
           <AudioSettingsMenu kind="microphone">
             <ControlToggleButton
               enabled={ownVoiceState.micMuted}
@@ -106,12 +101,7 @@ const ControlsBar = memo(({ channelId, isActive }: TControlsBarProps) => {
             disabled={!permissions.canWebcam || devices.voiceOnlyMode}
           />
         </div>
-        <div
-          className={cn(
-            'flex items-center gap-1 rounded-[12px] bg-black p-[5px] focus-within:pointer-events-auto has-[[data-popup-open]]:pointer-events-auto has-[[aria-expanded=true]]:pointer-events-auto',
-            isActive ? 'pointer-events-auto' : 'pointer-events-none'
-          )}
-        >
+        <div className="flex items-center gap-1 rounded-[12px] bg-black p-[5px]">
           {isScreenShareSupported && (
             <ControlToggleButton
               enabled={ownVoiceState.sharingScreen}
@@ -142,12 +132,7 @@ const ControlsBar = memo(({ channelId, isActive }: TControlsBarProps) => {
             />
           </AudioSettingsMenu>
         </div>
-        <div
-          className={cn(
-            'focus-within:pointer-events-auto',
-            isActive ? 'pointer-events-auto' : 'pointer-events-none'
-          )}
-        >
+        <div>
           <Tooltip content="Disconnect">
             <Button
               variant="destructive"

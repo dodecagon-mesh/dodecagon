@@ -82,9 +82,8 @@ test('chat toggle stays hidden until the pointer moves over the voice stage', as
   await page.getByRole('button', { name: 'openVoiceChat' }).click();
   expect(toggleVoiceChatSidebar).toHaveBeenCalledWith(2);
 
+  stage.element().dispatchEvent(new PointerEvent('pointerleave'));
   await expect
-    .poll(() => getComputedStyle(overlay.element()).opacity, {
-      timeout: 4_000
-    })
+    .poll(() => getComputedStyle(overlay.element()).opacity)
     .toBe('0');
 });

@@ -251,6 +251,7 @@ const VoiceUserCard = memo(
           )}
 
           <div
+            data-voice-caption
             className={cn(
               'absolute bottom-[var(--voice-caption-bottom,0px)] left-0 right-0 z-[1] flex',
               density.inset

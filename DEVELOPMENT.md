@@ -135,6 +135,17 @@ viewed demos, without restarting this user's camera or screen sharing. Camera
 and screen controls are disabled while the saved mode is enabled. No database
 migration is required.
 
+## Focused call controls
+
+Call controls, captions and edge scrims appear together while the pointer is
+over the stage, a control has keyboard focus, or a menu is open. Leaving the
+stage hides them immediately, without an idle timer. Touch controls remain
+available after a tap and dismiss on the next tap outside the stage.
+
+A focused screen share keeps its aspect ratio and reserves space above the
+thumbnail row while controls are visible. Hiding the controls releases that
+space. The presenter's stream indicator does not mount a second media player.
+
 ## Testing
 
 To run tests, use the following command:

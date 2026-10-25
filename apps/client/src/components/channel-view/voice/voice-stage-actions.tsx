@@ -31,7 +31,12 @@ const VoiceStageActions = memo(
 
     return (
       <div className="relative z-10 flex h-10 shrink-0 items-center justify-between gap-3 bg-black px-3 text-white">
-        <div className="flex min-w-0 items-center gap-2">
+        <div
+          className={cn(
+            'voice-chrome flex min-w-0 items-center gap-2',
+            isActive ? 'opacity-100' : 'opacity-0'
+          )}
+        >
           <SpeakerWaveIcon
             aria-hidden="true"
             className="size-5 shrink-0 text-white/70"
@@ -40,7 +45,7 @@ const VoiceStageActions = memo(
         </div>
         <div
           className={cn(
-            'flex shrink-0 items-center gap-2 transition-opacity duration-200 focus-within:pointer-events-auto focus-within:opacity-100',
+            'voice-chrome voice-chrome-interactive flex shrink-0 items-center gap-2 focus-within:pointer-events-auto focus-within:opacity-100 has-[[data-popup-open]]:opacity-100 has-[[aria-expanded=true]]:opacity-100',
             isActive ? 'opacity-100' : 'pointer-events-none opacity-0'
           )}
         >

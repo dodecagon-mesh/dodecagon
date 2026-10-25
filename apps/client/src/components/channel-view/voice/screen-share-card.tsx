@@ -368,6 +368,7 @@ const ScreenShareCard = memo(
           )}
 
           <div
+            data-voice-caption
             className={cn(
               SCREEN_SHARE_CAPTION_CLASS,
               'bg-black/65 text-white',

@@ -1,41 +1,44 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-
-const IDLE_TIMEOUT = 2500;
+import { useCallback, useEffect, useState } from 'react';
 
 export const useMouseActivity = () => {
   const [isVisible, setIsVisible] = useState(false);
   const [element, setElement] = useState<HTMLElement | null>(null);
-  const idleTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // state instead of a ref so the listeners attach when the stage mounts after the first render
   const stageRef = useCallback((node: HTMLElement | null) => {
     setElement(node);
   }, []);
 
-  const resetIdleTimer = useCallback(() => {
-    setIsVisible(true);
-    clearTimeout(idleTimerRef.current);
-    idleTimerRef.current = setTimeout(() => setIsVisible(false), IDLE_TIMEOUT);
+  const showControls = useCallback(() => setIsVisible(true), []);
+  const hideControls = useCallback((event: PointerEvent) => {
+    if (event.pointerType !== 'touch') setIsVisible(false);
   }, []);
 
   useEffect(() => {
     if (!element) return;
 
-    const onActivity = () => resetIdleTimer();
+    const onOutsidePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !element.contains(event.target)) {
+        setIsVisible(false);
+      }
+    };
 
-    element.addEventListener('pointermove', onActivity);
-    element.addEventListener('pointerdown', onActivity);
-    element.addEventListener('touchstart', onActivity);
-    element.addEventListener('keydown', onActivity);
+    element.addEventListener('pointerenter', showControls);
+    element.addEventListener('pointermove', showControls);
+    element.addEventListener('pointerdown', showControls);
+    element.addEventListener('touchstart', showControls);
+    element.addEventListener('pointerleave', hideControls);
+    document.addEventListener('pointerdown', onOutsidePointerDown);
 
     return () => {
-      element.removeEventListener('pointermove', onActivity);
-      element.removeEventListener('pointerdown', onActivity);
-      element.removeEventListener('touchstart', onActivity);
-      element.removeEventListener('keydown', onActivity);
-      clearTimeout(idleTimerRef.current);
+      element.removeEventListener('pointerenter', showControls);
+      element.removeEventListener('pointermove', showControls);
+      element.removeEventListener('pointerdown', showControls);
+      element.removeEventListener('touchstart', showControls);
+      element.removeEventListener('pointerleave', hideControls);
+      document.removeEventListener('pointerdown', onOutsidePointerDown);
     };
-  }, [element, resetIdleTimer]);
+  }, [element, showControls, hideControls]);
 
   return { isVisible, stageRef };
 };

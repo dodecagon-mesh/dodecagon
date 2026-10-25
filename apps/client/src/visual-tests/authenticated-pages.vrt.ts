@@ -855,7 +855,7 @@ test('direct messages match the Paper design', async () => {
   expect(document.querySelector('[data-channel-welcome]')).toBeNull();
 });
 
-test('voice toolbar hides with the chat button after inactivity without leaving the stage', async () => {
+test('voice controls hide on pointer exit and remain available to keyboard focus', async () => {
   setSelectedChannelId(2);
   addVoiceParticipants();
   await waitForRender();
@@ -865,28 +865,21 @@ test('voice toolbar hides with the chat button after inactivity without leaving 
       '[data-voice-controls]'
     )!;
     await page.elementLocator(stage).hover();
-    await expect
-      .poll(() => getComputedStyle(controls.parentElement!).opacity)
-      .toBe('1');
-    await expect
-      .poll(() => getComputedStyle(controls.parentElement!).opacity, {
-        timeout: 4000
-      })
-      .toBe('0');
-    expect(stage.matches(':hover')).toBe(true);
+    await waitForRender();
+    expect(getComputedStyle(controls.parentElement!).opacity).toBe('1');
+    await page.getByTestId(TestId.LEFT_SIDEBAR_SERVER_NAME).hover();
+    await waitForRender();
+    expect(getComputedStyle(controls.parentElement!).opacity).toBe('0');
     expect(getComputedStyle(controls).pointerEvents).toBe('none');
-    stage.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }));
-    await expect
-      .poll(() => getComputedStyle(controls.parentElement!).opacity)
-      .toBe('1');
+
     const mute = page.getByRole('button', { name: 'Mute', exact: true });
     mute.element().focus();
-    await new Promise((resolve) => setTimeout(resolve, 2700));
+    await userEvent.keyboard('{ArrowRight}');
+    await waitForRender();
     expect(getComputedStyle(controls.parentElement!).opacity).toBe('1');
     mute.element().blur();
-    await expect
-      .poll(() => getComputedStyle(controls.parentElement!).opacity)
-      .toBe('0');
+    await waitForRender();
+    expect(getComputedStyle(controls.parentElement!).opacity).toBe('0');
   } finally {
     removeVoiceParticipants();
     setSelectedChannelId(1);
