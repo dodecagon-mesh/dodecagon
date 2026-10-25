@@ -7,6 +7,7 @@ describe('the path dispatch', () => {
     expect(isStartPath('/connect')).toBe(true);
     expect(isStartPath('/app')).toBe(true);
     expect(isStartPath('/disconnected')).toBe(true);
+    expect(isStartPath('/design-system')).toBe(true);
     expect(isStartPath('/info')).toBe(true);
     expect(isStartPath('/manifest.json')).toBe(true);
     expect(isStartPath('/healthz')).toBe(true);

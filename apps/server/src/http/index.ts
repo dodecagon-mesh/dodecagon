@@ -44,6 +44,7 @@ const START_PATHS = new Set([
   '/connect',
   '/app',
   '/disconnected',
+  '/design-system',
   '/info',
   '/manifest.json',
   '/healthz',
