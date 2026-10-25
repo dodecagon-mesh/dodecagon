@@ -13,6 +13,14 @@
     scroll-behavior: auto !important;
   }
 
+  /* keep the global reset, opting only call chrome back into opacity motion. */
+  @media (prefers-reduced-motion: no-preference) {
+    .voice-stage .voice-chrome,
+    .voice-stage .voice-focused-media:not(:has(:fullscreen)) [data-voice-caption] {
+      transition: opacity 150ms ease-out !important;
+    }
+  }
+
   button:not(:disabled),
   [role='button']:not(:disabled) {
     cursor: pointer;
