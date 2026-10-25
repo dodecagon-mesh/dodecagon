@@ -31,6 +31,8 @@ import { ownUserIdSelector } from '../users/selectors';
 import { ownVoiceStateSelector } from './selectors';
 import { VOICE_REACTION_DURATION_MS } from './statics';
 
+let ownVoiceSessionId: string | undefined;
+
 export const addUserToVoiceChannel = (
   userId: number,
   channelId: number,
@@ -39,7 +41,6 @@ export const addUserToVoiceChannel = (
   const state = store.getState();
   const ownUserId = ownUserIdSelector(state);
   const currentChannelId = currentVoiceChannelIdSelector(state);
-
   store.dispatch(
     serverSliceActions.addUserToVoiceChannel({
       userId,
@@ -54,6 +55,7 @@ export const addUserToVoiceChannel = (
 };
 
 const clearLocalVoiceSession = (): void => {
+  ownVoiceSessionId = undefined;
   const state = store.getState();
 
   const selectedChannelId = selectedChannelIdSelector(state);
@@ -75,11 +77,20 @@ const clearLocalVoiceSession = (): void => {
 
 export const removeUserFromVoiceChannel = (
   userId: number,
-  channelId: number
+  channelId: number,
+  sessionId: string
 ): void => {
   const state = store.getState();
   const ownUserId = ownUserIdSelector(state);
   const currentChannelId = currentVoiceChannelIdSelector(state);
+
+  // A takeover's old departure can arrive while this connection is joining the same room.
+  if (
+    userId === ownUserId &&
+    currentChannelId === channelId &&
+    ownVoiceSessionId !== sessionId
+  )
+    return;
 
   store.dispatch(
     serverSliceActions.removeUserFromVoiceChannel({ userId, channelId })
@@ -206,6 +217,8 @@ export const joinVoice = async (
     await leaveVoice({ reason: 'switch_channel' });
   }
 
+  const sessionId = crypto.randomUUID();
+  ownVoiceSessionId = sessionId;
   setCurrentVoiceChannelId(channelId);
 
   const { micMuted, soundMuted } = ownVoiceStateSelector(state);
@@ -217,15 +230,17 @@ export const joinVoice = async (
 
     const { routerRtpCapabilities } = await client.voice.join.mutate({
       channelId,
+      sessionId,
       state: { micMuted, soundMuted }
     });
+    if (ownVoiceSessionId !== sessionId) return undefined;
 
     logVoice('session: joined', { channelId });
 
     return routerRtpCapabilities;
   } catch (error) {
     logVoiceError('session: join failed', error, { channelId });
-    clearLocalVoiceSession();
+    if (ownVoiceSessionId === sessionId) clearLocalVoiceSession();
 
     toast.error(getTrpcError(error, i18n.t('common:failedJoinVoiceChannel')));
   }

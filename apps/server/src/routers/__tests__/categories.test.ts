@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { initTest } from '../../__tests__/helpers';
 import { tdb } from '../../__tests__/setup';
+import { getTestVoiceConnection } from '../../__tests__/voice-connection';
 import { channels } from '../../db/schema';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { pubsub } from '../../utils/pubsub';
@@ -204,9 +205,17 @@ describe('categories router', () => {
 
     const runtime = new VoiceRuntime(2);
 
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
 
-    const departures: { channelId: number; userId: number }[] = [];
+    const departures: {
+      channelId: number;
+      userId: number;
+      sessionId: string;
+    }[] = [];
 
     const subscription = pubsub
       .subscribe(ServerEvents.USER_LEAVE_VOICE)
@@ -221,7 +230,9 @@ describe('categories router', () => {
     subscription.unsubscribe();
 
     expect(VoiceRuntime.findById(2)).toBeUndefined();
-    expect(departures).toEqual([{ channelId: 2, userId: 2 }]);
+    expect(departures).toEqual([
+      { channelId: 2, userId: 2, sessionId: expect.any(String) }
+    ]);
   });
 
   test('should throw error when deleting non-existing category', async () => {

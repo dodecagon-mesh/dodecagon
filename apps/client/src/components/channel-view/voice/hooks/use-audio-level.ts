@@ -8,9 +8,8 @@ const ANALYZER_SMOOTHING_TIME_CONSTANT = 0.85;
 const SPEAKING_THRESHOLD = 8;
 const MAX_SPEAKING_INTENSITY = 4;
 
-// The louder somebody talks, the bolder their speaking outline gets. Every
-// doubling of the level is one step, so the outline follows the voice instead
-// of the microphone gain.
+// louder speech brightens the outline in small logarithmic steps.
+// every doubling of the measured level is one step, independent of tile size.
 const getSpeakingIntensity = (normalizedLevel: number): number => {
   if (normalizedLevel <= SPEAKING_THRESHOLD) return 0;
 

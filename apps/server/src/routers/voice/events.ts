@@ -99,7 +99,7 @@ const onVoiceNewProducerRoute = protectedProcedure.subscription(
           return;
         const runtime = VoiceRuntime.findById(channelId);
         if (
-          !runtime?.getUser(ctx.user.id) ||
+          !runtime?.ownsUser(ctx.user.id, ctx.voiceConnection) ||
           runtime.hasReadyDirectMedia(event.remoteId, ctx.user.id, event.kind)
         )
           return;
@@ -131,10 +131,25 @@ const onVoiceProducerClosedRoute = protectedProcedure.subscription(
       return observable<TVoiceProducerClosedEvent>(() => () => {});
     }
 
-    return ctx.pubsub.subscribeForChannel(
-      ctx.currentVoiceChannelId,
-      ServerEvents.VOICE_PRODUCER_CLOSED
-    );
+    const channelId = ctx.currentVoiceChannelId;
+    const runtime = VoiceRuntime.findById(channelId);
+    const member = runtime?.getUser(ctx.user.id);
+    return observable<TVoiceProducerClosedEvent>((observer) => {
+      const subscription = ctx.pubsub
+        .subscribeForChannel(channelId, ServerEvents.VOICE_PRODUCER_CLOSED)
+        .subscribe({
+          next: (event) => {
+            if (
+              ctx.currentVoiceChannelId === channelId &&
+              runtime?.ownsUser(ctx.user.id, ctx.voiceConnection) &&
+              runtime.getUser(ctx.user.id) === member
+            )
+              observer.next(event);
+          },
+          error: (error) => observer.error(error)
+        });
+      return () => subscription.unsubscribe();
+    });
   }
 );
 
@@ -145,6 +160,7 @@ const onRelayDemandRoute = protectedProcedure.subscription(async ({ ctx }) => {
     if (
       ctx.currentVoiceChannelId !== channelId ||
       VoiceRuntime.findById(channelId) !== runtime ||
+      !runtime.ownsUser(ctx.user.id, ctx.voiceConnection) ||
       runtime.getUser(ctx.user.id) !== member
     )
       return () => {};
@@ -156,6 +172,7 @@ const onRelayDemandRoute = protectedProcedure.subscription(async ({ ctx }) => {
             event.channelId !== channelId ||
             ctx.currentVoiceChannelId !== channelId ||
             VoiceRuntime.findById(channelId) !== runtime ||
+            !runtime.ownsUser(ctx.user.id, ctx.voiceConnection) ||
             runtime.getUser(ctx.user.id) !== member
           )
             return;
@@ -184,6 +201,7 @@ const onDirectMediaSignalRoute = rateLimitedProcedure(protectedProcedure, {
       if (
         ctx.currentVoiceChannelId !== channelId ||
         VoiceRuntime.findById(channelId) !== runtime ||
+        !runtime.ownsUser(ctx.user.id, ctx.voiceConnection) ||
         runtime.getUser(ctx.user.id) !== member
       )
         return () => {};
@@ -202,6 +220,7 @@ const onDirectMediaSignalRoute = rateLimitedProcedure(protectedProcedure, {
               !terminal &&
               (!input.enabled ||
                 !registration.isCurrent() ||
+                !runtime.ownsUser(ctx.user.id, ctx.voiceConnection) ||
                 ctx.currentVoiceChannelId !== channelId ||
                 runtime.getUser(ctx.user.id) !== member)
             )
@@ -262,13 +281,23 @@ const onScreenConsumerStartedRoute = rateLimitedProcedure(protectedProcedure, {
   const runtime = channelId ? VoiceRuntime.findById(channelId) : undefined;
   const member = runtime?.getUser(ctx.user.id);
   return observable<TScreenConsumerStartedEvent>((observer) => {
-    if (!channelId || !runtime || !member) return () => {};
+    if (
+      !channelId ||
+      !runtime?.ownsUser(ctx.user.id, ctx.voiceConnection) ||
+      !member
+    )
+      return () => {};
     const subscription = ctx.pubsub
       .subscribeFor(ctx.user.id, ServerEvents.VOICE_SCREEN_CONSUMER_STARTED)
       .subscribe({
         next: (event) => {
           if (event.channelId !== channelId) return;
           if (VoiceRuntime.findById(channelId) !== runtime) return;
+          if (
+            !runtime.ownsUser(ctx.user.id, ctx.voiceConnection) ||
+            runtime.getUser(ctx.user.id) !== member
+          )
+            return;
           observer.next(event);
         }
       });

@@ -55,6 +55,12 @@ export const reconnectSelector = (state: IRootState) => state.server.reconnect;
 export const reconnectingSelector = (state: IRootState) =>
   !!state.server.reconnect;
 
+export const serverUpdateStateSelector = (state: IRootState) =>
+  state.server.updateState;
+
+export const serverUpdateRequestedSelector = (state: IRootState) =>
+  state.server.updateRequested;
+
 export const serverNameSelector = (state: IRootState) =>
   state.server.publicSettings?.name;
 

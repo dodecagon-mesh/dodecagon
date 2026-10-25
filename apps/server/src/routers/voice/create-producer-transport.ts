@@ -7,7 +7,8 @@ const createProducerTransportRoute = rateLimitedProcedure(protectedProcedure, {
   windowMs: config.rateLimiters.voiceTransport.windowMs,
   logLabel: 'createProducerTransport'
 }).mutation(async ({ ctx }) => {
-  const { runtime } = await getCurrentVoiceRuntime(ctx);
+  const { runtime, assertCurrent } = await getCurrentVoiceRuntime(ctx);
+  assertCurrent();
 
   const params = await runtime.createProducerTransport(ctx.user.id);
 

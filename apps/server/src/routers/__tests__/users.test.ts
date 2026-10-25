@@ -6,7 +6,7 @@ import {
   ServerEvents,
   type TTempFile
 } from '@dodecagon/shared';
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { and, eq } from 'drizzle-orm';
 import jwt from 'jsonwebtoken';
 import {
@@ -18,6 +18,7 @@ import {
   uploadFile
 } from '../../__tests__/helpers';
 import { tdb } from '../../__tests__/setup';
+import * as serverQueries from '../../db/queries/server';
 import { getUserByToken } from '../../db/queries/users';
 import {
   channels,
@@ -419,6 +420,19 @@ describe('users router', () => {
     // should verify against the new password
     const isValid = await Bun.password.verify(newPassword, row!.password);
     expect(isValid).toBe(true);
+  });
+
+  test('temporary account lookup failures do not classify a valid token as revoked', async () => {
+    const { mockedToken } = await initTest();
+    const failure = new Error('Temporary settings lookup failure');
+    const lookup = spyOn(serverQueries, 'getSettings').mockRejectedValue(
+      failure
+    );
+    try {
+      await expect(getUserByToken(mockedToken)).rejects.toBe(failure);
+    } finally {
+      lookup.mockRestore();
+    }
   });
 
   test('should invalidate tokens issued before a password change', async () => {

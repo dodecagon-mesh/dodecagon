@@ -3,7 +3,6 @@ import { useStreamVolumeControl } from '@/components/voice-provider/hooks/use-st
 import { useCan } from '@/features/server/hooks';
 import type { TVoiceUser } from '@/features/server/types';
 import { useIsOwnUser } from '@/features/server/users/hooks';
-import { useSpeakingState } from '@/features/server/voice/hooks';
 import { Permission, PluginSlot } from '@dodecagon/shared';
 import { cn, HeadphonesOffIcon, MicOffIcon } from '@dodecagon/ui';
 import { SpeakerXMarkIcon, VideoCameraIcon } from '@heroicons/react/24/outline';
@@ -29,7 +28,6 @@ const VoiceUser = memo(
       type: 'user',
       userId: user.id
     });
-    const { isActivelySpeaking } = useSpeakingState(user.id);
     const can = useCan();
     const shouldShowMuteIndicator = isOwnChannel && !isOwnUser && isMuted;
     const canMove = !isOwnUser && can(Permission.MOVE_MEMBERS);
@@ -58,10 +56,7 @@ const VoiceUser = memo(
       >
         <UserAvatar
           userId={user.id}
-          className={cn(
-            'size-[18px] shrink-0',
-            isActivelySpeaking && 'border-2 border-success'
-          )}
+          className="size-[18px] shrink-0"
           showUserPopover={true}
           showStatusBadge={false}
         />

@@ -5,9 +5,17 @@ import {
 } from '@/features/app/actions';
 import { toggleDialog } from '@/features/dialogs/actions';
 import { memo, useCallback, useEffect } from 'react';
+import { isShortcutRecording } from './shortcuts';
 
 const HotkeysController = memo(() => {
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    setModifierKeysHeldMap({
+      Shift: e.shiftKey,
+      Control: e.ctrlKey,
+      Alt: e.altKey
+    });
+    if (isShortcutRecording(e)) return;
+
     if (e.key === 'F4') {
       togglePluginSlotDebug();
     }
@@ -20,12 +28,6 @@ const HotkeysController = memo(() => {
     if (e.key === 'Alt') {
       e.preventDefault();
     }
-
-    setModifierKeysHeldMap({
-      Shift: e.shiftKey,
-      Control: e.ctrlKey,
-      Alt: e.altKey
-    });
   }, []);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
@@ -45,12 +47,12 @@ const HotkeysController = memo(() => {
   }, []);
 
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', handleBlur);
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };

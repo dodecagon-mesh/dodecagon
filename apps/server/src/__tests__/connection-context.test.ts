@@ -1,5 +1,10 @@
+import { DisconnectCode } from '@dodecagon/shared';
 import { afterEach, describe, expect, test } from 'bun:test';
+import { createServer } from 'http';
+import type { AddressInfo } from 'net';
+import { WebSocket } from 'ws';
 import { config } from '../config';
+import { createWsServer } from '../utils/wss';
 import { createMockContext } from './context';
 import { getCaller, getMockedToken } from './helpers';
 import { findTestLog } from './setup';
@@ -187,4 +192,38 @@ describe('test log sink', () => {
       findTestLog('warn', 'Missing IP address in connection info')
     ).toBeDefined();
   });
+});
+
+test('invalid connection credentials close with an explicit terminal authentication code', async () => {
+  const server = createServer();
+  const sockets = await createWsServer(server);
+  const listening = Promise.withResolvers<void>();
+  server.listen(0, '127.0.0.1', listening.resolve);
+  await listening.promise;
+  const address = server.address() as AddressInfo;
+  const socket = new WebSocket(
+    `ws://127.0.0.1:${address.port}/?connectionParams=1`
+  );
+  try {
+    const closed = Promise.withResolvers<number>();
+    socket.once('error', closed.reject);
+    socket.once('close', closed.resolve);
+    socket.once('open', () => {
+      socket.send(
+        JSON.stringify({
+          method: 'connectionParams',
+          data: { token: 'invalid-token' }
+        })
+      );
+    });
+    expect(await closed.promise).toBe(DisconnectCode.AUTHENTICATION_FAILED);
+  } finally {
+    socket.terminate();
+    const socketsClosed = Promise.withResolvers<void>();
+    sockets.close(() => socketsClosed.resolve());
+    await socketsClosed.promise;
+    const serverClosed = Promise.withResolvers<void>();
+    server.close(() => serverClosed.resolve());
+    await serverClosed.promise;
+  }
 });

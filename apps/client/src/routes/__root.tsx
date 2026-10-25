@@ -1,3 +1,4 @@
+import { DevicesProvider } from '@/components/devices-provider';
 import { Routing } from '@/components/routing';
 import { hydrateAppFromStorage } from '@/features/app/slice';
 import { getRequestContext } from '@/features/server/request-context';
@@ -17,7 +18,8 @@ import {
   createRootRoute,
   HeadContent,
   Outlet,
-  Scripts
+  Scripts,
+  useRouterState
 } from '@tanstack/react-router';
 import { lazy, useEffect, useState } from 'react';
 import '../index.css';
@@ -48,6 +50,10 @@ export const Route = createRootRoute({
 
 function RootComponent() {
   const { language, resources, now } = Route.useLoaderData();
+  const isDesignSystem = useRouterState({
+    select: (state) =>
+      state.location.pathname.replace(/\/$/, '') === '/design-system'
+  });
   // the server renders every request with its own store, the browser keeps the
   // one instance for the whole session
   const [requestStore] = useState(() =>
@@ -82,11 +88,18 @@ function RootComponent() {
     <StoreProvider value={requestStore}>
       <I18nProvider value={instance}>
         <RenderClockProvider now={now}>
-          <ClientOnly>
-            <ClientShell />
-          </ClientOnly>
-          <Routing />
-          <Outlet />
+          {/* Routed controls and shell settings must share one discovery state. */}
+          {isDesignSystem ? (
+            <Outlet />
+          ) : (
+            <DevicesProvider>
+              <ClientOnly>
+                <ClientShell />
+              </ClientOnly>
+              <Routing />
+              <Outlet />
+            </DevicesProvider>
+          )}
         </RenderClockProvider>
       </I18nProvider>
     </StoreProvider>

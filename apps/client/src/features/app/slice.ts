@@ -1,4 +1,8 @@
 import {
+  normalizeShortcutOverrides,
+  type TShortcutOverrides
+} from '@/components/hotkeys-controller/shortcuts';
+import {
   getLocalStorageItemAsJSON,
   getLocalStorageItemAsNumber,
   getLocalStorageItemBool,
@@ -6,7 +10,7 @@ import {
   setLocalStorageItemBool
 } from '@/helpers/storage';
 import type { TDevices, TMessageJumpToTarget } from '@/types';
-import { produce } from 'immer';
+import { castDraft, produce } from 'immer';
 
 export interface TAppState {
   appLoading: boolean;
@@ -35,6 +39,7 @@ export interface TAppState {
   membersPanelOpen: boolean;
   pluginSlotDebug: boolean;
   modifierKeysHeldMap: Record<string, boolean>;
+  shortcutOverrides: TShortcutOverrides;
 }
 
 const initialState: TAppState = {
@@ -63,6 +68,7 @@ const initialState: TAppState = {
   voiceChatChannelId: undefined,
   membersPanelOpen: false,
   pluginSlotDebug: false,
+  shortcutOverrides: {},
   modifierKeysHeldMap: { Shift: false, Control: false, Alt: false }
 };
 
@@ -81,6 +87,7 @@ interface TAppStorageFlags {
   voiceChatChannelId: number | undefined;
   membersPanelOpen: boolean;
   pluginSlotDebug: boolean;
+  shortcutOverrides: TShortcutOverrides;
 }
 
 // the storage only exists in the browser and the first render has to look the
@@ -156,6 +163,9 @@ export const hydrateAppFromStorage = (): {
       pluginSlotDebug: getLocalStorageItemBool(
         LocalStorageKey.PLUGIN_SLOT_DEBUG,
         false
+      ),
+      shortcutOverrides: normalizeShortcutOverrides(
+        getLocalStorageItemAsJSON<unknown>(LocalStorageKey.SHORTCUT_OVERRIDES)
       )
     }
   };
@@ -207,6 +217,8 @@ const appSliceActions = {
     ({ type: 'app/setMembersPanelOpen', payload }) as const,
   setPluginSlotDebug: (payload: boolean) =>
     ({ type: 'app/setPluginSlotDebug', payload }) as const,
+  setShortcutOverrides: (payload: TShortcutOverrides) =>
+    ({ type: 'app/setShortcutOverrides', payload }) as const,
   setModifierKeysHeldMap: (payload: Record<string, boolean>) =>
     ({ type: 'app/setModifierKeysHeldMap', payload }) as const
 };
@@ -236,6 +248,7 @@ const appSliceReducer = (state: TAppState, action: TAppAction): TAppState =>
         draft.voiceChatChannelId = action.payload.voiceChatChannelId;
         draft.membersPanelOpen = action.payload.membersPanelOpen;
         draft.pluginSlotDebug = action.payload.pluginSlotDebug;
+        draft.shortcutOverrides = castDraft(action.payload.shortcutOverrides);
 
         // only one dock can be open on the right, the thread and the voice
         // chat replace the members panel, the thread replaces the voice chat
@@ -338,6 +351,11 @@ const appSliceReducer = (state: TAppState, action: TAppAction): TAppState =>
         break;
       case 'app/setPluginSlotDebug':
         draft.pluginSlotDebug = action.payload;
+        break;
+      case 'app/setShortcutOverrides':
+        draft.shortcutOverrides = castDraft(
+          normalizeShortcutOverrides(action.payload)
+        );
         break;
       case 'app/setModifierKeysHeldMap':
         draft.modifierKeysHeldMap = action.payload;

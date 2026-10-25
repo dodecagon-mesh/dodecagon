@@ -1,5 +1,6 @@
 import { Dialog } from '@/components/dialogs/dialogs';
 import { ServerScreen } from '@/components/server-screens/screens';
+import { shortcutBindingsSelector } from '@/features/app/selectors';
 import { openDialog, toggleDialog } from '@/features/dialogs/actions';
 import { dialogInfoSelector } from '@/features/dialogs/selectors';
 import { openServerScreen } from '@/features/server-screens/actions';
@@ -38,12 +39,12 @@ const ServerHotkeysController = memo(
 
     const handleKeyDown = useCallback(
       async (event: KeyboardEvent) => {
-        const shortcut = getShortcut(event);
+        const state = store.getState();
+        const shortcut = getShortcut(event, shortcutBindingsSelector(state));
         if (!shortcut) return;
 
         const isVoiceShortcut =
           shortcut.action === 'mute' || shortcut.action === 'deafen';
-        const state = store.getState();
         const settings = publicServerSettingsSelector(state);
         if (shortcut.action === 'search' && !settings?.enableSearch) return;
         const dialog = dialogInfoSelector(state);

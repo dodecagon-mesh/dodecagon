@@ -3,6 +3,7 @@ import type { CreateWSSContextFnOptions } from '@trpc/server/adapters/ws';
 import type { IncomingMessage } from 'http';
 import type WebSocket from 'ws';
 import { createContext } from '../utils/wss';
+import { getTestVoiceConnection } from './voice-connection';
 
 type TMockContextOptions = {
   customToken?: string;
@@ -44,6 +45,7 @@ const createMockContextOptions = async (
 const createMockContext = async (opts?: TMockContextOptions) => {
   const contextOpts = await createMockContextOptions(opts);
   const ctx = await createContext(contextOpts);
+  if (!opts?.socket) ctx.voiceConnection = getTestVoiceConnection(ctx.user.id);
 
   return ctx;
 };

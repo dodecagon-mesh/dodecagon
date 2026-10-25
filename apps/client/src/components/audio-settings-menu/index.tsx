@@ -132,6 +132,8 @@ const AudioSettingsMenu = memo(
 
     const handleDeviceChange = useCallback(
       (value: string) => {
+        // Removing an option can emit null; it is not a new user preference.
+        if (!value) return;
         saveDevices((current) => ({ ...current, [deviceKey]: value }));
       },
       [deviceKey, saveDevices]

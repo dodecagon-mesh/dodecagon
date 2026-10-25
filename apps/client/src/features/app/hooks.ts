@@ -21,6 +21,8 @@ import {
   notificationSoundsSelector,
   pluginSlotDebugSelector,
   selectedDmChannelIdSelector,
+  shortcutBindingsSelector,
+  shortcutOverridesSelector,
   threadSidebarDataSelector,
   voiceChatSidebarDataSelector
 } from './selectors';
@@ -91,3 +93,9 @@ export const useIsChannelMuted = (channelId: number) =>
   useStoreSelector((state: IRootState) =>
     isChannelMutedSelector(state, channelId)
   );
+
+export const useShortcutBindings = () =>
+  useStoreSelector(shortcutBindingsSelector);
+
+export const useShortcutOverrides = () =>
+  useStoreSelector(shortcutOverridesSelector);

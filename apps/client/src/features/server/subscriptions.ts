@@ -1,7 +1,11 @@
 import { logDebug } from '@/helpers/browser-logger';
-import { getTRPCClient } from '@/lib/trpc';
+import { cleanup, getTRPCClient } from '@/lib/trpc';
 import { type TPublicServerSettings } from '@dodecagon/shared';
-import { setPublicServerSettings } from './actions';
+import {
+  isAuthenticationFailure,
+  setPublicServerSettings,
+  setServerUpdateState
+} from './actions';
 import { subscribeToCategories } from './categories/subscriptions';
 import { subscribeToChannels } from './channels/subscriptions';
 import { subscribeToEmojis } from './emojis/subscriptions';
@@ -26,8 +30,23 @@ const subscribeToServer = () => {
     }
   );
 
+  const onUpdateStateSub = trpc.others.onServerUpdateState.subscribe(
+    undefined,
+    {
+      onData: setServerUpdateState,
+      onError: (error) => {
+        if (isAuthenticationFailure(error)) {
+          cleanup();
+          return;
+        }
+        console.error('onServerUpdateState subscription error:', error);
+      }
+    }
+  );
+
   return () => {
     onSettingsUpdateSub.unsubscribe();
+    onUpdateStateSub.unsubscribe();
   };
 };
 

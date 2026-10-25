@@ -266,14 +266,7 @@ body,
 }
 
 .voice-focused-media {
-  padding-bottom: 40px;
-}
-
-.voice-presentation .voice-focused-media {
-  padding-bottom: calc(
-    40px + var(--voice-chrome-visible, 0) *
-      (var(--voice-controls-clearance, 198px) - 40px)
-  );
+  padding-bottom: var(--voice-controls-clearance, 198px);
 }
 
 .voice-stage .voice-focused-media:not(:has(:fullscreen)) [data-voice-caption] {

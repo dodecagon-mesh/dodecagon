@@ -61,7 +61,8 @@ mock.module('@/features/server/voice/hooks', () => ({
 
 mock.module('@/features/app/hooks', () => ({
   useVoiceChatSidebar: () => ({ isOpen: false, channelId: 2 }),
-  usePluginSlotDebug: () => false
+  usePluginSlotDebug: () => false,
+  useShortcutBindings: () => []
 }));
 
 mock.module('@/features/server/hooks', () => ({
@@ -86,7 +87,7 @@ const { VoiceStageActions } = await import('../voice-stage-actions');
 
 const html = renderToStaticMarkup(
   <I18nextProvider i18n={i18n}>
-    <VoiceStageActions channelId={2} isActive channelName="General" />
+    <VoiceStageActions channelId={2} isActive />
   </I18nextProvider>
 );
 

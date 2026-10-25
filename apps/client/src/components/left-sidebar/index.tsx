@@ -1,5 +1,6 @@
 import { SidebarContextMenu } from '@/components/context-menus/sidebar';
 import { Dialog } from '@/components/dialogs/dialogs';
+import { useShortcutHint } from '@/components/hotkeys-controller/use-shortcut-hint';
 import { PluginSlotRenderer } from '@/components/plugin-slot-renderer';
 import { ResizableSidebar } from '@/components/resizable-sidebar';
 import { openDialog } from '@/features/dialogs/actions';
@@ -34,6 +35,7 @@ type TLeftSidebarProps = {
 
 const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
   const { t } = useTranslation('topbar');
+  const searchHint = useShortcutHint('search', t('searchContent'));
   const serverName = useServerName();
   const publicSettings = usePublicServerSettings();
 
@@ -52,7 +54,10 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
       defaultWidth={DEFAULT_WIDTH}
       edge="right"
       hasBorder={false}
-      className={cn('h-full bg-nav', className)}
+      className={cn(
+        'h-full bg-nav select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable=true]]:select-text',
+        className
+      )}
       data-testid={TestId.LEFT_SIDEBAR}
     >
       <SidebarContextMenu>
@@ -68,7 +73,7 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
           <div className="ml-auto flex items-center gap-1">
             <PluginSlotRenderer slotId={PluginSlot.TOPBAR_RIGHT} />
             {publicSettings?.enableSearch && (
-              <Tooltip content={t('searchContent')}>
+              <Tooltip content={searchHint}>
                 <IconButton
                   onClick={onSearchClick}
                   icon={MagnifyingGlassIcon}
@@ -76,6 +81,7 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
                   size="sm"
                   className="size-5 p-0 [&_svg]:size-5"
                   aria-label={t('searchContent')}
+                  aria-description={searchHint}
                   data-testid={TestId.SEARCH_BUTTON}
                 />
               </Tooltip>

@@ -28,11 +28,11 @@ import {
   writeMessageWindow
 } from '@/features/server/messages/database';
 import { scrollToVirtualMessage } from '@/features/server/messages/helpers';
+import { serverSliceActions } from '@/features/server/slice';
 import {
   addUserToVoiceChannel,
   joinVoice,
   leaveVoice,
-  removeUserFromVoiceChannel,
   setPinnedCard,
   updateOwnVoiceState
 } from '@/features/server/voice/actions';
@@ -133,7 +133,12 @@ const addVoiceParticipants = (sharingUserId?: number) => {
 
 const removeVoiceParticipants = () => {
   for (const userId of [1, 2, 3, 4]) {
-    removeUserFromVoiceChannel(userId, 2);
+    store.dispatch(
+      serverSliceActions.removeUserFromVoiceChannel({
+        userId: userId,
+        channelId: 2
+      })
+    );
   }
 };
 const marketplaceEntries = [
@@ -2051,11 +2056,10 @@ test('connection retry uses the approved surface and readable progress states', 
       store.dispatch(
         serverSliceActions.setReconnect({
           attempt: 2,
-          maxAttempts: 5,
           nextAttemptAt
         })
       );
-      const overlay = page.getByRole('alertdialog');
+      const overlay = page.getByRole('dialog', { name: 'Connection lost' });
       await expect.element(overlay).toBeVisible();
       await expect
         .element(page.getByText('Connection lost', { exact: true }))
@@ -2063,7 +2067,7 @@ test('connection retry uses the approved surface and readable progress states', 
       await expect
         .element(
           page.getByRole('button', {
-            name: 'Stop trying to reconnect',
+            name: 'Sign out and stop reconnecting',
             exact: true
           })
         )

@@ -7,6 +7,7 @@ const getCurrentVoiceRuntime = async (ctx: Context) => {
   const channelId = ctx.currentVoiceChannelId;
   const runtime = channelId ? VoiceRuntime.findById(channelId) : undefined;
   const mediaGeneration = runtime?.getNonVoiceMediaGeneration(ctx.user.id);
+  const member = runtime?.getUser(ctx.user.id);
 
   await ctx.needsPermission(Permission.JOIN_VOICE_CHANNELS);
 
@@ -20,7 +21,21 @@ const getCurrentVoiceRuntime = async (ctx: Context) => {
     message: 'Voice runtime not found for this channel'
   });
 
-  return { runtime, channelId, mediaGeneration };
+  const assertCurrent = () => {
+    invariant(
+      runtime.ownsUser(ctx.user.id, ctx.voiceConnection) &&
+        VoiceRuntime.findById(channelId) === runtime &&
+        runtime.getUser(ctx.user.id) === member &&
+        ctx.currentVoiceChannelId === channelId,
+      {
+        code: 'BAD_REQUEST',
+        message: 'User is not in this voice channel'
+      }
+    );
+  };
+  assertCurrent();
+
+  return { runtime, channelId, mediaGeneration, assertCurrent };
 };
 
 export { getCurrentVoiceRuntime };

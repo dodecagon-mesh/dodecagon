@@ -31,7 +31,7 @@ const produceRoute = rateLimitedProcedure(protectedProcedure, {
     })
   )
   .mutation(async ({ input, ctx }) => {
-    const { runtime, channelId, mediaGeneration } =
+    const { runtime, channelId, mediaGeneration, assertCurrent } =
       await getCurrentVoiceRuntime(ctx);
 
     const { channel, server } = voiceKindPermissions[input.kind];
@@ -41,6 +41,7 @@ const produceRoute = rateLimitedProcedure(protectedProcedure, {
     if (server) {
       await ctx.needsPermission(server);
     }
+    assertCurrent();
     runtime.assertMediaAllowed(ctx.user.id, input.kind, mediaGeneration);
 
     const producerTransport = runtime.getProducerTransport(ctx.user.id);
@@ -55,6 +56,12 @@ const produceRoute = rateLimitedProcedure(protectedProcedure, {
       rtpParameters: input.rtpParameters,
       appData: { kind: input.kind, userId: ctx.user.id }
     });
+    try {
+      assertCurrent();
+    } catch (error) {
+      producer.close();
+      throw error;
+    }
 
     runtime.addProducer(
       ctx.user.id,

@@ -16,7 +16,7 @@ const CardTheme = memo(
         hasVideoStream
           ? { backgroundColor: '#000000' }
           : {
-              backgroundColor: `color-mix(in srgb, ${profileColor} var(--voice-profile-tint,18%), var(--rail))`
+              backgroundColor: profileColor
             },
       [profileColor, hasVideoStream]
     );

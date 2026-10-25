@@ -11,6 +11,7 @@ type TControlToggleButtonProps = {
   enabled: boolean;
   enabledLabel: string;
   disabledLabel: string;
+  description?: string;
   enabledIcon: TIconComponent;
   disabledIcon: TIconComponent;
 
@@ -27,6 +28,7 @@ const ControlToggleButton = memo(
     enabled,
     enabledLabel,
     disabledLabel,
+    description,
     enabledIcon: EnabledIcon,
     disabledIcon: DisabledIcon,
     enabledClassName,
@@ -38,7 +40,7 @@ const ControlToggleButton = memo(
     const label = enabled ? enabledLabel : disabledLabel;
 
     return (
-      <Tooltip content={label}>
+      <Tooltip content={description ?? label}>
         <Button
           variant="ghost"
           size="icon"
@@ -53,6 +55,7 @@ const ControlToggleButton = memo(
           disabled={disabled && !keepFocusableWhenDisabled}
           aria-disabled={disabled || undefined}
           aria-label={label}
+          aria-description={description}
         >
           {enabled ? (
             <EnabledIcon className="size-5" />

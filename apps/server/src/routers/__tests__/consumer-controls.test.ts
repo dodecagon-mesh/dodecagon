@@ -5,6 +5,7 @@ import type { RtpParameters } from 'mediasoup/types';
 import { createMockContext } from '../../__tests__/context';
 import { getMockedToken, initTest } from '../../__tests__/helpers';
 import { tdb } from '../../__tests__/setup';
+import { getTestVoiceConnection } from '../../__tests__/voice-connection';
 import { rolePermissions } from '../../db/schema';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { pubsub } from '../../utils/pubsub';
@@ -29,8 +30,16 @@ const screenParameters: RtpParameters = {
 
 const join = async (overrides?: Partial<Context>, resume = true) => {
   const runtime = new VoiceRuntime(2);
-  runtime.addUser(1, { micMuted: false, soundMuted: false });
-  runtime.addUser(2, { micMuted: false, soundMuted: false });
+  runtime.addUser(
+    1,
+    { micMuted: false, soundMuted: false },
+    getTestVoiceConnection(1)
+  );
+  runtime.addUser(
+    2,
+    { micMuted: false, soundMuted: false },
+    getTestVoiceConnection(2)
+  );
   await runtime.init();
   const { caller } = await initTest(1, undefined, {
     currentVoiceChannelId: 2,
@@ -96,8 +105,16 @@ const controls: Array<'pauseConsumer' | 'resumeConsumer'> = [
 describe('screen consumer controls', () => {
   test('asks the presenter for a direct screen session when a viewer consumes', async () => {
     const runtime = new VoiceRuntime(2);
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
     await runtime.init();
     const { caller } = await initTest(1, undefined, {
       currentVoiceChannelId: 2
@@ -380,7 +397,11 @@ describe('screen consumer controls', () => {
             await caller.voice.updateState({ voiceOnlyMode: false });
           } else {
             runtime.removeUser(1);
-            runtime.addUser(1, { micMuted: false, soundMuted: false });
+            runtime.addUser(
+              1,
+              { micMuted: false, soundMuted: false },
+              getTestVoiceConnection(1)
+            );
             await runtime.createConsumerTransport(1);
           }
           await caller.voice.consume(input);
@@ -400,7 +421,9 @@ describe('screen consumer controls', () => {
           const error = await rejected;
           expect(replacement.closed).toBe(false);
           expect(replacement.paused).toBe(control === 'resumeConsumer');
-          expect(error).toMatchObject({ code: 'FORBIDDEN' });
+          expect(error).toMatchObject({
+            code: transition === 'mode cycle' ? 'FORBIDDEN' : 'BAD_REQUEST'
+          });
           expect(runtime.getConsumer(1, 2, StreamKind.SCREEN)).toBe(
             replacement
           );

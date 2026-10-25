@@ -4,7 +4,7 @@ import {
   STORAGE_MAX_FILES_PER_MESSAGE,
   type TTempFile
 } from '@dodecagon/shared';
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import {
   getCaller,
@@ -16,10 +16,45 @@ import { TEST_SECRET_TOKEN } from '../../__tests__/seed';
 import { tdb } from '../../__tests__/setup';
 import { getSettings } from '../../db/queries/server';
 import { activityLog, rolePermissions } from '../../db/schema';
+import { updater } from '../../helpers/updater';
 import { pluginManager } from '../../plugins';
 import { drainLoginsQueue } from '../../queues/logins';
 
 describe('others router', () => {
+  test('server update controls require MANAGE_UPDATES', async () => {
+    const { caller } = await initTest(2);
+    await expect(caller.others.updateServer()).rejects.toThrow(
+      'Insufficient permissions'
+    );
+    await expect(caller.others.getUpdate()).rejects.toThrow(
+      'Insufficient permissions'
+    );
+  });
+
+  test('server update rejects development and test installations without attempting a download', async () => {
+    const { caller } = await initTest(1);
+    expect(updater.canUpdate()).toBe(false);
+    const unsupportedFetch = Object.assign(
+      async () => {
+        throw new Error('Unsupported installations must not download updates');
+      },
+      { preconnect: fetch.preconnect }
+    );
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
+      unsupportedFetch
+    );
+    await expect(caller.others.updateServer()).rejects.toThrow('not supported');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test('update status reports metadata failures rather than pretending no update exists', async () => {
+    const { caller } = await initTest(1);
+    spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('unavailable', { status: 503 })
+    );
+    await expect(caller.others.getUpdate()).rejects.toThrow('503');
+  });
+
   test('authenticated control ping returns without media or database payloads', async () => {
     const { caller } = await initTest(1);
     expect(await caller.others.ping()).toBeNull();

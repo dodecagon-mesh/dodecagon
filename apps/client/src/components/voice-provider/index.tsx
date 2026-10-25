@@ -19,6 +19,7 @@ import {
 } from '@/helpers/audio-worklet/noise-gate-worklet';
 import { createNsChain } from '@/helpers/audio-worklet/ns-worklet';
 import { playSound } from '@/helpers/sounds';
+import { useDesktopVoiceState } from './hooks/use-desktop-voice-state';
 
 import {
   logVoice,
@@ -289,6 +290,12 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
   const webRtcSimulcastEnabled = useWebRtcSimulcastEnabled();
   const screenPublicationRef = useRef<symbol | undefined>(undefined);
   const ownVoiceState = useOwnVoiceState();
+  useDesktopVoiceState(
+    currentVoiceChannelId !== undefined &&
+      connectionStatus === ConnectionStatus.CONNECTED,
+    ownVoiceState.micMuted,
+    ownVoiceState.soundMuted
+  );
   const { devices, saveDevices } = useDevices();
   const voiceOnlyMode =
     !!devices.voiceOnlyMode || !!ownVoiceState.voiceOnlyMode;

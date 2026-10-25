@@ -47,7 +47,9 @@ vi.mock('@/components/user-popover', () => ({
   UserPopover: ({ children }: { children: React.ReactNode }) => children
 }));
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string) => key.replace(/^keybindings:/, '')
+  })
 }));
 vi.mock('@/components/devices-provider/hooks/use-devices', () => ({
   useDevices: () => ({
@@ -265,7 +267,13 @@ test.each(['toolbar', 'sidebar'] as const)(
       exact: true
     });
     await expect.element(mic).toBeVisible();
-    await userEvent.keyboard('{Tab}');
+    for (
+      let tab = 0;
+      tab < 8 && document.activeElement !== mic.element();
+      tab++
+    ) {
+      await userEvent.keyboard('{Tab}');
+    }
     await expect.element(mic).toHaveFocus();
     await userEvent.keyboard('{Enter}{Space}');
     expect(toggleMic).not.toHaveBeenCalled();

@@ -167,6 +167,7 @@ const VoiceCardContextMenu = memo(
               checked={isMuted}
               onCheckedChange={handleMuteCheckedChange}
               onSelect={handleMuteSelect}
+              className="[&>span:first-child]:rounded-xs [&>span:first-child]:border [&>span:first-child]:border-muted-foreground data-[checked]:[&>span:first-child]:border-primary data-[checked]:[&>span:first-child]:bg-primary data-[checked]:[&>span:first-child]:text-primary-foreground"
             >
               {t('muteStream')}
             </ContextMenuCheckboxItem>

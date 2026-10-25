@@ -1,3 +1,11 @@
+import {
+  SHORTCUTS,
+  normalizeShortcutOverrides,
+  validateShortcutBinding,
+  type TShortcutBinding,
+  type TShortcutId,
+  type TShortcutOverrides
+} from '@/components/hotkeys-controller/shortcuts';
 import { assertNotificationsPermission } from '@/helpers/assert-notifications-permission';
 import { getFileUrl, getUrlFromServer } from '@/helpers/get-file-url';
 import {
@@ -17,6 +25,8 @@ import {
   membersPanelOpenSelector,
   mutedChannelIdsSelector,
   pluginSlotDebugSelector,
+  shortcutBindingsSelector,
+  shortcutOverridesSelector,
   voiceChatChannelIdSelector,
   voiceChatSidebarDataSelector,
   voiceChatSidebarOpenSelector
@@ -331,3 +341,43 @@ export const togglePluginSlotDebug = () => {
 export const setModifierKeysHeldMap = (keysDown: Record<string, boolean>) => {
   store.dispatch(appSliceActions.setModifierKeysHeldMap(keysDown));
 };
+
+const persistShortcutOverrides = (overrides: TShortcutOverrides) => {
+  const normalized = normalizeShortcutOverrides(overrides);
+  store.dispatch(appSliceActions.setShortcutOverrides(normalized));
+  setLocalStorageItemAsJSON(LocalStorageKey.SHORTCUT_OVERRIDES, normalized);
+};
+
+export const setShortcutBinding = (
+  id: TShortcutId,
+  binding: TShortcutBinding | null
+) => {
+  const state = store.getState();
+  const error = validateShortcutBinding(
+    id,
+    binding,
+    shortcutBindingsSelector(state)
+  );
+  if (error) return error;
+  persistShortcutOverrides({
+    ...shortcutOverridesSelector(state),
+    [id]: binding
+  });
+};
+
+export const resetShortcutBinding = (id: TShortcutId) => {
+  const state = store.getState();
+  const shortcut = SHORTCUTS.find((entry) => entry.id === id);
+  if (!shortcut) return;
+  const error = validateShortcutBinding(
+    id,
+    shortcut,
+    shortcutBindingsSelector(state)
+  );
+  if (error) return error;
+  const overrides = { ...shortcutOverridesSelector(state) };
+  delete overrides[id];
+  persistShortcutOverrides(overrides);
+};
+
+export const resetAllShortcutBindings = () => persistShortcutOverrides({});

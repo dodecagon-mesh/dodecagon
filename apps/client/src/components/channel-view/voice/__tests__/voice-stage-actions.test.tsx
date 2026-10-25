@@ -49,14 +49,6 @@ describe('VoiceStageActions', () => {
     expect(html).toContain('aria-label="Open Voice Chat"');
   });
 
-  test('should identify the current channel without a redundant participants action', () => {
-    const html = renderVoiceStageActions('expanded');
-
-    expect(html).toContain('General');
-    expect(html).not.toContain('aria-label="Hide participants"');
-    expect(html).not.toContain('aria-label="Show participants"');
-  });
-
   test('should remove the viewers list when no demo is expanded', () => {
     const html = renderVoiceStageActions('unpinned');
 

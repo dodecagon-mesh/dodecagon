@@ -17,6 +17,7 @@ import type {
   TPluginPushEvent,
   TPublicServerSettings,
   TRelayDemandEvent,
+  TServerUpdateState,
   TVoiceUserState
 } from '@dodecagon/shared';
 import type { Unsubscribable } from '@trpc/server/observable';
@@ -68,10 +69,12 @@ type Events = {
     channelId: number;
     userId: number;
     state: TVoiceUserState;
+    sessionId: string;
   };
   [ServerEvents.USER_LEAVE_VOICE]: {
     channelId: number;
     userId: number;
+    sessionId: string;
   };
   [ServerEvents.USER_VOICE_STATE_UPDATE]: {
     channelId: number;
@@ -139,6 +142,7 @@ type Events = {
   [ServerEvents.ROLE_DELETE]: number;
 
   [ServerEvents.SERVER_SETTINGS_UPDATE]: TPublicServerSettings;
+  [ServerEvents.SERVER_UPDATE_STATE]: TServerUpdateState;
 
   [ServerEvents.CATEGORY_CREATE]: TCategory;
   [ServerEvents.CATEGORY_UPDATE]: TCategory;

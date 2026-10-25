@@ -11,6 +11,7 @@ import type WebSocket from 'ws';
 import { config } from '../config';
 import { captureError, shouldReportError } from '../helpers/sentry';
 import { logger } from '../logger';
+import type { TVoiceConnection } from '../runtimes/voice';
 import type { TConnectionInfo } from '../types';
 import { invariant } from './invariant';
 import { pubsub } from './pubsub';
@@ -27,6 +28,7 @@ export type Context = {
   userId: number;
   token: string;
   currentVoiceChannelId: number | undefined;
+  voiceConnection: TVoiceConnection;
   locale: TLocale;
   hasPermission: (
     targetPermission: Permission | Permission[]

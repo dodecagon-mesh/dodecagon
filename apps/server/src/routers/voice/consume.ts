@@ -19,8 +19,9 @@ const consumeRoute = rateLimitedProcedure(protectedProcedure, {
     })
   )
   .mutation(async ({ input, ctx }) => {
-    const { runtime, channelId, mediaGeneration } =
+    const { runtime, channelId, mediaGeneration, assertCurrent } =
       await getCurrentVoiceRuntime(ctx);
+    assertCurrent();
     runtime.assertMediaAllowed(ctx.user.id, input.kind, mediaGeneration);
 
     const producer = runtime.getProducer(input.kind, input.remoteId);
@@ -53,6 +54,12 @@ const consumeRoute = rateLimitedProcedure(protectedProcedure, {
       rtpCapabilities: input.rtpCapabilities,
       paused: getMediasoupKind(input.kind) === 'video'
     });
+    try {
+      assertCurrent();
+    } catch (error) {
+      consumer.close();
+      throw error;
+    }
 
     runtime.addConsumer(
       ctx.user.id,

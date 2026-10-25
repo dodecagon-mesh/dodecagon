@@ -1,5 +1,5 @@
 import { openDialog } from '@/features/dialogs/actions';
-import { joinServer } from '@/features/server/actions';
+import { isAuthenticationFailure, joinServer } from '@/features/server/actions';
 import { useForm } from '@/hooks/use-form';
 import * as trpc from '@/lib/trpc';
 import {
@@ -48,6 +48,11 @@ const ServerPasswordDialog = memo(
           }, 175);
         }
       } catch (error) {
+        if (isAuthenticationFailure(error)) {
+          trpc.cleanup?.();
+          close();
+          return;
+        }
         setTrpcErrors(error);
       } finally {
         setLoading(false);
@@ -57,7 +62,7 @@ const ServerPasswordDialog = memo(
     const onCancel = useCallback(() => {
       // the namespace import keeps the dialog loadable when a test run mocks
       // the trpc module without the cleanup export
-      trpc.cleanup?.();
+      trpc.cleanup?.({ invalidateCredentials: false });
       close();
     }, [close]);
 

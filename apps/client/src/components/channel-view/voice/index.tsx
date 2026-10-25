@@ -1,6 +1,5 @@
 import { useDevices } from '@/components/devices-provider/hooks/use-devices';
 import { useDemoVisibility } from '@/components/voice-provider/demo-visibility-context';
-import { useChannelById } from '@/features/server/channels/hooks';
 import { useVoiceUsersByChannelId } from '@/features/server/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import {
@@ -29,7 +28,6 @@ type TChannelProps = {
 
 const VoiceChannel = memo(({ channelId }: TChannelProps) => {
   const { t } = useTranslation('common');
-  const channel = useChannelById(channelId);
   const voiceUsers = useVoiceUsersByChannelId(channelId);
   const externalStreams = useVoiceChannelExternalStreamsList(channelId);
   const { pinnedCard, pinCard, unpinCard, isPinned } = usePinCardController();
@@ -98,7 +96,6 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
             onPin={pinCard}
             onUnpin={unpinCard}
             voiceUser={voiceUser}
-            showSpeakingOutline={isChatButtonVisible}
           />
         );
       }
@@ -163,8 +160,7 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
     hideOwnScreenShare,
     ownUserId,
     viewedRemoteDemos,
-    isAnyCardPinned,
-    isChatButtonVisible
+    isAnyCardPinned
   ]);
 
   if (voiceUsers.length === 0) {
@@ -188,11 +184,7 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
       data-controls-active={isChatButtonVisible}
       className="voice-stage group/voice-stage relative flex size-full flex-col overflow-hidden bg-black"
     >
-      <VoiceStageActions
-        channelId={channelId}
-        channelName={channel?.name}
-        isActive={isChatButtonVisible}
-      />
+      <VoiceStageActions channelId={channelId} isActive={isChatButtonVisible} />
       <div className="relative min-h-0 flex-1">
         <VoiceGrid
           pinnedCardId={pinnedCard?.id}

@@ -19,6 +19,7 @@ import type {
   TReadStateMap,
   TScreenViewersSnapshot,
   TServerInfo,
+  TServerUpdateState,
   TVoiceMap,
   TVoiceUserState
 } from '@dodecagon/shared';
@@ -30,6 +31,8 @@ export interface IServerState {
   connected: boolean;
   connecting: boolean;
   reconnect: TReconnectState | null;
+  updateState: TServerUpdateState;
+  updateRequested: boolean;
   disconnectInfo?: TDisconnectInfo;
   serverId?: string;
   categories: TCategory[];
@@ -82,6 +85,8 @@ const initialState: IServerState = {
   connected: false,
   connecting: false,
   reconnect: null,
+  updateState: null,
+  updateRequested: false,
   disconnectInfo: undefined,
   serverId: undefined,
   ownUserId: undefined,
@@ -159,6 +164,10 @@ const serverSliceActions = {
     ({ type: 'server/setConnected', payload }) as const,
   setReconnect: (payload: TReconnectState | null) =>
     ({ type: 'server/setReconnect', payload }) as const,
+  setUpdateState: (payload: TServerUpdateState) =>
+    ({ type: 'server/setUpdateState', payload }) as const,
+  setUpdateRequested: (payload: boolean) =>
+    ({ type: 'server/setUpdateRequested', payload }) as const,
   setInfo: (payload: TServerInfo | undefined) =>
     ({ type: 'server/setInfo', payload }) as const,
   setLoadingInfo: (payload: boolean) =>
@@ -335,10 +344,26 @@ const serverSliceReducer = (
       case 'server/setConnected': {
         draft.connected = action.payload;
         draft.connecting = false;
+        if (!action.payload) {
+          // A recovered account session is not permission to restart media capture.
+          draft.currentVoiceChannelId = undefined;
+          draft.voiceMoveTargetChannelId = undefined;
+          draft.ownVoiceState = initialState.ownVoiceState;
+          draft.pinnedCard = undefined;
+        }
         break;
       }
       case 'server/setReconnect': {
         draft.reconnect = action.payload;
+        break;
+      }
+      case 'server/setUpdateState': {
+        draft.updateState = action.payload;
+        draft.updateRequested = false;
+        break;
+      }
+      case 'server/setUpdateRequested': {
+        draft.updateRequested = action.payload;
         break;
       }
       case 'server/setInfo': {

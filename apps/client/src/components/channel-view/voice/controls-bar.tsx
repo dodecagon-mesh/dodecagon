@@ -1,5 +1,6 @@
 import { AudioSettingsMenu } from '@/components/audio-settings-menu';
 import { useDevices } from '@/components/devices-provider/hooks/use-devices';
+import { useShortcutHint } from '@/components/hotkeys-controller/use-shortcut-hint';
 import { Protect } from '@/components/protect';
 import { useIsCurrentVoiceChannelSelected } from '@/features/server/channels/hooks';
 import { useChannelCan } from '@/features/server/hooks';
@@ -22,6 +23,7 @@ import {
   VideoCameraSlashIcon
 } from '@heroicons/react/24/outline';
 import { memo, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ControlToggleButton } from './control-toggle-button';
 import { ReactionsButton } from './reactions-button';
 
@@ -31,6 +33,11 @@ type TControlsBarProps = {
 };
 
 const ControlsBar = memo(({ channelId, isActive }: TControlsBarProps) => {
+  const { t } = useTranslation('keybindings');
+  const unmuteHint = useShortcutHint('mute', t('unmuteMic'));
+  const muteHint = useShortcutHint('mute', t('muteMic'));
+  const undeafenHint = useShortcutHint('deafen', t('undeafen'));
+  const deafenHint = useShortcutHint('deafen', t('deafen'));
   const {
     toggleMic,
     toggleSound,
@@ -82,6 +89,7 @@ const ControlsBar = memo(({ channelId, isActive }: TControlsBarProps) => {
               enabled={ownVoiceState.micMuted}
               enabledLabel="Unmute"
               disabledLabel="Mute"
+              description={ownVoiceState.micMuted ? unmuteHint : muteHint}
               enabledIcon={MicOffIcon}
               disabledIcon={MicrophoneIcon}
               enabledClassName="bg-destructive/20 text-destructive hover:bg-destructive/30 hover:text-destructive"
@@ -125,6 +133,7 @@ const ControlsBar = memo(({ channelId, isActive }: TControlsBarProps) => {
               enabled={ownVoiceState.soundMuted}
               enabledLabel="Undeafen"
               disabledLabel="Deafen"
+              description={ownVoiceState.soundMuted ? undeafenHint : deafenHint}
               enabledIcon={HeadphonesOffIcon}
               disabledIcon={HeadphonesIcon}
               enabledClassName="bg-destructive/20 text-destructive hover:bg-destructive/30 hover:text-destructive"

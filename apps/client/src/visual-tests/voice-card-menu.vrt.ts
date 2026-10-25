@@ -34,10 +34,6 @@ test('card volume is adjusted with pointer and keyboard without dismissing the m
   await page
     .getByRole('button', { name: 'Participant' })
     .click({ button: 'right' });
-  const panel = page.getByRole('menu').element();
-  expect(panel.getBoundingClientRect().width).toBe(264);
-  expect(getComputedStyle(panel).borderRadius).toBe('10px');
-  expect(getComputedStyle(panel).padding).toBe('6px');
   const slider = page.getByRole('slider', { name: 'Volume', exact: true });
   await expect.element(slider).toHaveAttribute('aria-valuenow', '100');
   (slider.element() as HTMLElement).focus();

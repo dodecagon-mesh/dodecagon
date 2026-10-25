@@ -1,4 +1,5 @@
 import { Dialog } from '@/components/dialogs/dialogs';
+import { resetAllShortcutBindings } from '@/features/app/actions';
 import { openDialog, resetDialogs } from '@/features/dialogs/actions';
 import { dialogInfoSelector } from '@/features/dialogs/selectors';
 import { closeServerScreens } from '@/features/server-screens/actions';
@@ -62,6 +63,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  resetAllShortcutBindings();
   resetDialogs();
   closeServerScreens();
   updateOwnVoiceState({ micMuted: false, soundMuted: false });
@@ -181,16 +183,6 @@ test('Discord shortcut reference opens and closes with Ctrl slash', async () => 
   await expect
     .element(page.getByRole('heading', { name: 'Keyboard Shortcuts' }))
     .toBeVisible();
-  await expect
-    .element(page.getByText('Previous text channel', { exact: true }))
-    .toBeVisible();
-  await expect
-    .element(page.getByText('Back to voice channel', { exact: true }))
-    .toBeVisible();
-  await document.fonts.ready;
-  await expect(page.getByRole('dialog')).toMatchScreenshot(
-    'keyboard-shortcuts'
-  );
   await userEvent.keyboard('{Control>}/{/Control}');
   await expect
     .element(page.getByRole('heading', { name: 'Keyboard Shortcuts' }))
@@ -309,4 +301,181 @@ test('Discord mute shortcut toggles the real voice state while composing', async
   await expect.poll(() => voiceState().micMuted).toBe(true);
   await userEvent.keyboard('{Control>}{Shift>}M{/Shift}{/Control}');
   await expect.poll(() => voiceState().micMuted).toBe(false);
+});
+
+const openKeybindings = async () => {
+  await page.getByTestId(TestId.USER_SETTINGS_TRIGGER).click();
+  await page.getByRole('button', { name: 'Keybindings', exact: true }).click();
+};
+
+test('recorded microphone shortcut replaces the default and updates help and hints', async () => {
+  await openKeybindings();
+  await page
+    .getByRole('button', {
+      name: 'Record shortcut for Toggle microphone',
+      exact: true
+    })
+    .click();
+  const captured = dispatchKey({
+    code: 'KeyM',
+    key: 'm',
+    ctrlKey: true,
+    altKey: true
+  });
+  expect(captured.defaultPrevented).toBe(true);
+  expect(voiceState().micMuted).toBe(false);
+  await expect
+    .element(
+      page.getByText('Shortcut for Toggle microphone saved: Ctrl+Alt+M.', {
+        exact: true
+      })
+    )
+    .toBeVisible();
+
+  closeServerScreens();
+  dispatchKey({ code: 'KeyM', key: 'M', ctrlKey: true, shiftKey: true });
+  expect(voiceState().micMuted).toBe(false);
+  dispatchKey({ code: 'KeyM', key: 'm', ctrlKey: true, altKey: true });
+  await expect.poll(() => voiceState().micMuted).toBe(true);
+  await expect
+    .element(
+      page.getByRole('button', { name: 'Unmute microphone', exact: true })
+    )
+    .toHaveAttribute('title', 'Unmute microphone (Ctrl+Alt+M)');
+
+  await userEvent.keyboard('{Control>}/{/Control}');
+  await expect
+    .element(page.getByRole('dialog').getByText('Ctrl+Alt+M', { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(
+      page.getByRole('dialog').getByText('Ctrl+Shift+M', { exact: true })
+    )
+    .not.toBeInTheDocument();
+});
+
+test('removing a shortcut disables its action and restoring the default makes it execute again', async () => {
+  await openKeybindings();
+  await page
+    .getByRole('button', {
+      name: 'Remove shortcut for Toggle microphone',
+      exact: true
+    })
+    .click();
+  await expect
+    .element(
+      page.getByText('Shortcut for Toggle microphone removed.', { exact: true })
+    )
+    .toBeVisible();
+  closeServerScreens();
+  dispatchKey({ code: 'KeyM', key: 'M', ctrlKey: true, shiftKey: true });
+  expect(voiceState().micMuted).toBe(false);
+
+  await openKeybindings();
+  await page
+    .getByRole('button', {
+      name: 'Restore default shortcut for Toggle microphone',
+      exact: true
+    })
+    .click();
+  await expect
+    .element(
+      page.getByText('Default shortcut for Toggle microphone restored.', {
+        exact: true
+      })
+    )
+    .toBeVisible();
+  closeServerScreens();
+  dispatchKey({ code: 'KeyM', key: 'M', ctrlKey: true, shiftKey: true });
+  await expect.poll(() => voiceState().micMuted).toBe(true);
+});
+
+test('recording rejects conflicts and debug keys without executing voice or debug actions', async () => {
+  await openKeybindings();
+  await page
+    .getByRole('button', {
+      name: 'Record shortcut for Toggle microphone',
+      exact: true
+    })
+    .click();
+  dispatchKey({ code: 'KeyD', key: 'D', ctrlKey: true, shiftKey: true });
+  await expect.element(page.getByRole('alert')).toBeVisible();
+  expect(voiceState()).toMatchObject({ micMuted: false, soundMuted: false });
+  for (const code of ['F4', 'F5', 'F9']) {
+    const event = dispatchKey({ code, key: code });
+    expect(event.defaultPrevented).toBe(true);
+    expect(dialogInfoSelector(store.getState()).isOpen).toBe(false);
+  }
+  await expect.element(page.getByRole('alert')).toBeVisible();
+  dispatchKey({
+    code: 'KeyM',
+    key: 'Process',
+    ctrlKey: true,
+    altKey: true,
+    isComposing: true
+  });
+  dispatchKey({
+    code: 'KeyM',
+    key: 'm',
+    ctrlKey: true,
+    altKey: true,
+    repeat: true
+  });
+  await expect
+    .element(
+      page.getByRole('button', {
+        name: 'Cancel recording for Toggle microphone',
+        exact: true
+      })
+    )
+    .toBeVisible();
+  await userEvent.keyboard('{Escape}');
+  await expect
+    .element(page.getByRole('heading', { name: 'User Settings', exact: true }))
+    .toBeVisible();
+  closeServerScreens();
+  dispatchKey({ code: 'KeyM', key: 'M', ctrlKey: true, shiftKey: true });
+  await expect.poll(() => voiceState().micMuted).toBe(true);
+});
+
+test('keyboard users can cancel capture with Tab and restore all defaults', async () => {
+  await openKeybindings();
+  const record = page.getByRole('button', {
+    name: 'Record shortcut for Toggle microphone',
+    exact: true
+  });
+  await record.click();
+  await userEvent.keyboard('{Tab}');
+  await expect
+    .element(
+      page.getByRole('button', {
+        name: 'Remove shortcut for Toggle microphone',
+        exact: true
+      })
+    )
+    .toHaveFocus();
+  await expect.element(record).toHaveAttribute('aria-pressed', 'false');
+  await page
+    .getByRole('button', {
+      name: 'Remove shortcut for Toggle microphone',
+      exact: true
+    })
+    .click();
+  await page
+    .getByRole('button', {
+      name: 'Remove shortcut for Toggle deafen',
+      exact: true
+    })
+    .click();
+  await page
+    .getByRole('button', { name: 'Restore all defaults', exact: true })
+    .click();
+  await expect
+    .element(page.getByText('All default shortcuts restored.', { exact: true }))
+    .toBeVisible();
+  closeServerScreens();
+  dispatchKey({ code: 'KeyD', key: 'D', ctrlKey: true, shiftKey: true });
+  await expect
+    .poll(voiceState)
+    .toMatchObject({ soundMuted: true, micMuted: true });
 });

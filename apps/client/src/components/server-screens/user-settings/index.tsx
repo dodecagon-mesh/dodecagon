@@ -4,6 +4,7 @@ import { Permission, PluginSlot } from '@dodecagon/shared';
 import { HeadphonesIcon } from '@dodecagon/ui';
 import {
   BellIcon,
+  CommandLineIcon,
   CubeIcon,
   KeyIcon,
   PaintBrushIcon,
@@ -15,6 +16,7 @@ import type { TServerScreenBaseProps } from '../screens';
 import { SettingsShell } from '../settings-shell';
 import type { TSettingsEntry } from '../settings-shell/types';
 import { Devices } from './devices';
+import { Keybindings } from './keybindings';
 import { Notifications } from './notifications';
 import { Others } from './others';
 import { Password } from './password';
@@ -23,7 +25,7 @@ import { Profile } from './profile';
 type TUserSettingsProps = TServerScreenBaseProps & { initialEntryId?: string };
 
 const UserSettings = memo(({ close, initialEntryId }: TUserSettingsProps) => {
-  const { t } = useTranslation('settings');
+  const { t } = useTranslation(['settings', 'keybindings']);
   const can = useCan();
   const userSettingsPlugins = useUserSettingsPlugins();
 
@@ -52,6 +54,12 @@ const UserSettings = memo(({ close, initialEntryId }: TUserSettingsProps) => {
         label: t('notificationsTab'),
         icon: BellIcon,
         content: <Notifications />
+      },
+      {
+        id: 'keybindings',
+        label: t('keybindings:title'),
+        icon: CommandLineIcon,
+        content: <Keybindings />
       },
       {
         id: 'others',

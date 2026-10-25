@@ -1,6 +1,5 @@
 import { useScreenViewers } from '@/features/server/voice/hooks';
 import { cn } from '@/lib/utils';
-import { SpeakerWaveIcon } from '@heroicons/react/24/outline';
 import { memo, useMemo } from 'react';
 import {
   PinnedCardType,
@@ -11,12 +10,11 @@ import { VoiceChatButton } from './voice-chat-button';
 
 type TVoiceStageActionsProps = {
   channelId: number;
-  channelName?: string;
   isActive: boolean;
 };
 
 const VoiceStageActions = memo(
-  ({ channelId, channelName, isActive }: TVoiceStageActionsProps) => {
+  ({ channelId, isActive }: TVoiceStageActionsProps) => {
     const { pinnedCard } = usePinCardController();
     const screenViewers = useScreenViewers(channelId);
 
@@ -30,19 +28,7 @@ const VoiceStageActions = memo(
     }, [pinnedCard, screenViewers]);
 
     return (
-      <div className="relative z-10 flex h-10 shrink-0 items-center justify-between gap-3 bg-black px-3 text-white">
-        <div
-          className={cn(
-            'voice-chrome flex min-w-0 items-center gap-2',
-            isActive ? 'opacity-100' : 'opacity-0'
-          )}
-        >
-          <SpeakerWaveIcon
-            aria-hidden="true"
-            className="size-5 shrink-0 text-white/70"
-          />
-          <span className="truncate text-sm font-medium">{channelName}</span>
-        </div>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-end p-3 text-white">
         <div
           className={cn(
             'voice-chrome voice-chrome-interactive flex shrink-0 items-center gap-2 focus-within:pointer-events-auto focus-within:opacity-100 has-[[data-popup-open]]:opacity-100 has-[[aria-expanded=true]]:opacity-100',

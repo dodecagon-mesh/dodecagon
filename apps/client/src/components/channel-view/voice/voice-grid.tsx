@@ -112,7 +112,6 @@ const VoiceGrid = memo(
         <div
           className={cn(
             'relative size-full min-h-0 bg-black',
-            isPresentation && 'voice-presentation',
             (participantsHidden || !hasStrip) &&
               '[--voice-controls-clearance:66px]',
             className
@@ -120,25 +119,36 @@ const VoiceGrid = memo(
         >
           <div
             className={cn(
-              'voice-focused-media relative size-full [--voice-card-radius:0px] [--voice-card-border:0px] [--voice-caption-bottom:8px] [--voice-profile-tint:100%]',
+              'voice-focused-media relative size-full [--voice-card-radius:0px] [--voice-card-border:0px] [--voice-caption-bottom:8px]',
               FOCUSED_AVATAR_CLASS
             )}
           >
-            {focusedCard}
+            <div className="flex size-full items-center justify-center [container-type:size]">
+              <div
+                className={cn(
+                  'relative',
+                  isPresentation
+                    ? 'size-full'
+                    : 'aspect-video max-h-full w-[min(100%,calc(100cqh*16/9))]'
+                )}
+              >
+                {focusedCard}
+              </div>
+            </div>
             <div className="voice-chrome pointer-events-none absolute inset-x-0 top-0 h-[104px] bg-linear-to-b from-black/35 to-transparent" />
             <div className="voice-chrome pointer-events-none absolute inset-x-0 bottom-10 h-[124px] bg-linear-to-t from-black/75 to-transparent" />
           </div>
-          <div className="voice-chrome voice-chrome-interactive absolute inset-x-0 bottom-[82px] z-10 px-3">
+          <div className="absolute inset-x-0 bottom-[82px] z-10 px-3">
             {hasStrip && (
               <div
                 inert={participantsHidden}
                 aria-hidden={participantsHidden}
                 className={cn(
-                  'flex h-[104px] shrink-0 justify-center-safe gap-2 overflow-x-auto',
+                  'flex h-[108px] shrink-0 justify-center-safe gap-2 overflow-x-auto px-0.5',
                   'transition-[max-height,opacity] duration-200 ease-in-out motion-reduce:transition-none',
                   participantsHidden
-                    ? 'max-h-0 opacity-0'
-                    : 'max-h-[104px] opacity-100'
+                    ? 'max-h-0 py-0 opacity-0'
+                    : 'max-h-[108px] py-0.5 opacity-100'
                 )}
               >
                 {presentationPreview && (
@@ -155,10 +165,12 @@ const VoiceGrid = memo(
               </div>
             )}
             {hasStrip && onToggleParticipants && (
-              <ParticipantsPill
-                hidden={participantsHidden}
-                onToggle={onToggleParticipants}
-              />
+              <div className="voice-chrome voice-chrome-interactive">
+                <ParticipantsPill
+                  hidden={participantsHidden}
+                  onToggle={onToggleParticipants}
+                />
+              </div>
             )}
           </div>
         </div>
