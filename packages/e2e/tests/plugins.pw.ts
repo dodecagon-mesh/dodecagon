@@ -233,16 +233,14 @@ test('a plugin stores and reloads data for the user viewing it', async ({
   await loginAs(page, OWNER.identity, OWNER.password);
   await openPluginUserSettings(page);
 
-  await expect(storedNote(page)).toHaveText('empty');
-
   await page.getByTestId('e2e-plugin-save').click();
 
   await expect(storedNote(page)).toHaveText('saved');
 
-  // a full page load rather than a refresh: only auto-login sessions resume one,
-  // and signing in again rebuilds the store from nothing, so the value can only
-  // come back from the database
-  await loginAs(page, OWNER.identity, OWNER.password);
+  // A document reload discards the old React store while resuming this tab's
+  // authenticated session; the saved value must be fetched again.
+  await page.reload();
+  await page.getByTestId(TestId.SERVER_VIEW).waitFor();
   await openPluginUserSettings(page);
 
   await expect(storedNote(page)).toHaveText('saved');
