@@ -284,7 +284,8 @@ test('a failed exec restores the previous binary and releases the voice gate', a
       throw new Error('exec denied');
     });
     updater.start();
-    await fixture.settle();
+    // Wait for the reported failure, not merely entry into execve.
+    await fixture.settle(Infinity);
     expect(fixture.execve).toHaveBeenCalledTimes(1);
     expect(fixture.errors).toHaveBeenCalled();
     expect(await fs.readFile(fixture.binary, 'utf8')).toBe(
