@@ -234,6 +234,44 @@ body,
   height: 100%;
 }
 
+.voice-stage {
+  --voice-chrome-visible: 0;
+  --voice-chrome-pointer-events: none;
+}
+
+.voice-stage:is(
+  [data-controls-active='true'],
+  :has(:focus-visible),
+  :has([data-popup-open]:not([data-slot='tooltip-trigger'])),
+  :has([aria-expanded='true'])
+) {
+  --voice-chrome-visible: 1;
+  --voice-chrome-pointer-events: auto;
+}
+
+.voice-stage .voice-chrome {
+  opacity: var(--voice-chrome-visible);
+}
+
+.voice-stage .voice-chrome-interactive {
+  pointer-events: var(--voice-chrome-pointer-events);
+}
+
+.voice-focused-media {
+  padding-bottom: 40px;
+}
+
+.voice-presentation .voice-focused-media {
+  padding-bottom: calc(
+    40px + var(--voice-chrome-visible, 0) *
+      (var(--voice-controls-clearance, 198px) - 40px)
+  );
+}
+
+.voice-stage .voice-focused-media:not(:has(:fullscreen)) [data-voice-caption] {
+  opacity: var(--voice-chrome-visible);
+}
+
 :root {
   --scrollbar-width: 12px;
   --scrollbar-track: var(--nav);

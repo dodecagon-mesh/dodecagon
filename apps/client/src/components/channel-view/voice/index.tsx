@@ -8,11 +8,16 @@ import {
   useHideOwnScreenShare,
   useVoiceChannelExternalStreamsList
 } from '@/features/server/voice/hooks';
+import { ComputerDesktopIcon } from '@heroicons/react/24/outline';
 import { memo, useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ControlsBar } from './controls-bar';
 import { ExternalStreamCard } from './external-stream-card';
 import { useMouseActivity } from './hooks/use-mouse-activity';
-import { usePinCardController } from './hooks/use-pin-card-controller';
+import {
+  PinnedCardType,
+  usePinCardController
+} from './hooks/use-pin-card-controller';
 import { ScreenShareCard } from './screen-share-card';
 import { VoiceGrid } from './voice-grid';
 import { VoiceStageActions } from './voice-stage-actions';
@@ -23,6 +28,7 @@ type TChannelProps = {
 };
 
 const VoiceChannel = memo(({ channelId }: TChannelProps) => {
+  const { t } = useTranslation('common');
   const channel = useChannelById(channelId);
   const voiceUsers = useVoiceUsersByChannelId(channelId);
   const externalStreams = useVoiceChannelExternalStreamsList(channelId);
@@ -39,6 +45,23 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
   const handleToggleParticipants = useCallback(() => {
     setParticipantsHidden((hidden) => !hidden);
   }, []);
+  const presentationPreview = useMemo(() => {
+    if (pinnedCard?.type !== PinnedCardType.SCREEN_SHARE) return undefined;
+    const presenter = voiceUsers.find((user) => user.id === pinnedCard.userId);
+    if (!presenter) return undefined;
+
+    return (
+      <div className="relative flex size-full items-center justify-center rounded-lg bg-black text-white">
+        <ComputerDesktopIcon aria-hidden="true" className="size-8" />
+        <span className="absolute bottom-2 left-2 max-w-[calc(100%-16px)] truncate rounded bg-black/55 px-1 text-xs">
+          {presenter.name}
+        </span>
+        <span className="absolute right-2 top-2 rounded bg-danger-solid px-1 text-[10px] font-semibold">
+          {t('live')}
+        </span>
+      </div>
+    );
+  }, [pinnedCard, voiceUsers, t]);
 
   const cards = useMemo(() => {
     const cards: React.ReactNode[] = [];
@@ -75,8 +98,6 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
             onPin={pinCard}
             onUnpin={unpinCard}
             voiceUser={voiceUser}
-            // the speaking highlight follows the overlay chrome: it is gone
-            // before the chat button and the call toolbar fade out
             showSpeakingOutline={isChatButtonVisible}
           />
         );
@@ -164,7 +185,8 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
   return (
     <div
       ref={stageRef}
-      className="group/voice-stage relative flex size-full flex-col overflow-hidden bg-rail"
+      data-controls-active={isChatButtonVisible}
+      className="voice-stage group/voice-stage relative flex size-full flex-col overflow-hidden bg-black"
     >
       <VoiceStageActions
         channelId={channelId}
@@ -174,6 +196,8 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
       <div className="relative min-h-0 flex-1">
         <VoiceGrid
           pinnedCardId={pinnedCard?.id}
+          isPresentation={pinnedCard?.type === PinnedCardType.SCREEN_SHARE}
+          presentationPreview={presentationPreview}
           tileAspectRatio={16 / 9}
           participantsHidden={participantsHidden}
           onToggleParticipants={handleToggleParticipants}

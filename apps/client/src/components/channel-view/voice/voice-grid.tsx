@@ -8,6 +8,8 @@ type TVoiceGridProps = {
   pinnedCardId?: string;
   tileAspectRatio?: number;
   participantsHidden?: boolean;
+  isPresentation?: boolean;
+  presentationPreview?: ReactNode;
   onToggleParticipants?: () => void;
   className?: string;
 };
@@ -22,6 +24,8 @@ const VoiceGrid = memo(
     pinnedCardId,
     tileAspectRatio,
     participantsHidden = false,
+    isPresentation = false,
+    presentationPreview,
     onToggleParticipants,
     className
   }: TVoiceGridProps) => {
@@ -105,18 +109,26 @@ const VoiceGrid = memo(
       const hasStrip = stripCards.length > 0;
 
       return (
-        <div className={cn('relative size-full min-h-0 bg-rail', className)}>
+        <div
+          className={cn(
+            'relative size-full min-h-0 bg-black',
+            isPresentation && 'voice-presentation',
+            (participantsHidden || !hasStrip) &&
+              '[--voice-controls-clearance:66px]',
+            className
+          )}
+        >
           <div
             className={cn(
-              'relative size-full [--voice-card-radius:0px] [--voice-card-border:0px] [--voice-caption-bottom:52px] [--voice-profile-tint:100%]',
+              'voice-focused-media relative size-full [--voice-card-radius:0px] [--voice-card-border:0px] [--voice-caption-bottom:8px] [--voice-profile-tint:100%]',
               FOCUSED_AVATAR_CLASS
             )}
           >
             {focusedCard}
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-[104px] bg-linear-to-b from-black/35 to-transparent" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[164px] bg-linear-to-t from-black/75 to-transparent" />
+            <div className="voice-chrome pointer-events-none absolute inset-x-0 top-0 h-[104px] bg-linear-to-b from-black/35 to-transparent" />
+            <div className="voice-chrome pointer-events-none absolute inset-x-0 bottom-10 h-[124px] bg-linear-to-t from-black/75 to-transparent" />
           </div>
-          <div className="absolute inset-x-0 bottom-[82px] z-10 px-3">
+          <div className="voice-chrome voice-chrome-interactive absolute inset-x-0 bottom-[82px] z-10 px-3">
             {hasStrip && (
               <div
                 inert={participantsHidden}
@@ -129,6 +141,11 @@ const VoiceGrid = memo(
                     : 'max-h-[104px] opacity-100'
                 )}
               >
+                {presentationPreview && (
+                  <div className="h-[104px] w-[187px] shrink-0">
+                    {presentationPreview}
+                  </div>
+                )}
                 {stripCards.map((card, index) => (
                   // compact thumbnails remain separate from the focused shell
                   <div key={index} className="h-[104px] w-[187px] shrink-0">

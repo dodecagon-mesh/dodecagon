@@ -73,8 +73,17 @@ const ToolbarStage = () => {
 
   return createElement(
     'div',
-    { ref: stageRef, className: 'flex size-full flex-col overflow-hidden' },
-    createElement(VoiceGrid, { pinnedCardId: 'share', children: cards }),
+    {
+      ref: stageRef,
+      'data-controls-active': isVisible,
+      className:
+        'voice-stage group/voice-stage relative flex size-full flex-col overflow-hidden'
+    },
+    createElement(VoiceGrid, {
+      pinnedCardId: 'share',
+      children: cards,
+      isPresentation: true
+    }),
     createElement(ControlsBar, { channelId: 1, isActive: isVisible })
   );
 };
@@ -108,18 +117,15 @@ const elements = () => {
     '[data-card="participant"]'
   )!;
   const share = host!.querySelector<HTMLElement>('[data-card="share"]')!;
+  const stage = host!.querySelector<HTMLElement>('.voice-stage')!;
 
-  return { toolbar, footer, participant, share };
+  return { toolbar, footer, participant, share, stage };
 };
 
-const rectangles = () => {
-  const { share, participant, footer, toolbar } = elements();
-
-  return [share, participant, footer, toolbar].map((element) => {
-    const rect = element.getBoundingClientRect();
-
-    return rect.toJSON();
-  });
+const waitForRender = () => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  return promise;
 };
 
 const reveal = async () => {
@@ -162,30 +168,103 @@ test.each([1188, 375])(
   }
 );
 
-test('idle hiding and pointer reveal preserve content and footer rectangles', async () => {
+test('leaving the stage hides controls immediately and expands the presentation', async () => {
   await render();
   await reveal();
-  const { toolbar, footer, participant } = elements();
-  const before = rectangles();
-  await expect
-    .poll(() => getComputedStyle(footer).opacity, { timeout: 4000 })
-    .toBe('0');
+  const { toolbar, footer, share, stage } = elements();
+  const before = footer.getBoundingClientRect().toJSON();
+  stage.dispatchEvent(new PointerEvent('pointerleave'));
+  await waitForRender();
+  expect(getComputedStyle(footer).opacity).toBe('0');
   expect(getComputedStyle(toolbar).pointerEvents).toBe('none');
-  expect(rectangles()).toEqual(before);
-  const screenshot = page.elementLocator(host!);
-  await screenshot.screenshot({
-    path: '.vitest/attachments/dod21-toolbar-hidden.png'
-  });
-  const target = page.elementLocator(participant);
+  expect(footer.getBoundingClientRect().toJSON()).toEqual(before);
+  const target = page.elementLocator(share);
   await target.hover();
   await expect.poll(() => getComputedStyle(footer).opacity).toBe('1');
-  expect(rectangles()).toEqual(before);
+  expect(footer.getBoundingClientRect().toJSON()).toEqual(before);
+});
+
+test('mouse focus does not keep controls or scrims visible after pointer exit', async () => {
+  await render();
+  await reveal();
+  const mute = page.getByRole('button', { name: 'Mute', exact: true });
+  await mute.click();
+  const { stage, footer } = elements();
+  expect(mute.element().matches(':focus-visible')).toBe(false);
+  stage.dispatchEvent(new PointerEvent('pointerleave'));
+  await waitForRender();
+  expect(getComputedStyle(footer).opacity).toBe('0');
+  expect(
+    getComputedStyle(stage.querySelector<HTMLElement>('.bg-linear-to-t')!)
+      .opacity
+  ).toBe('0');
+});
+
+test('a touch tap keeps controls reachable until the next outside tap', async () => {
+  await render(375);
+  const { stage, footer } = elements();
+  stage.dispatchEvent(
+    new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })
+  );
+  stage.dispatchEvent(
+    new PointerEvent('pointerleave', { pointerType: 'touch' })
+  );
+  await waitForRender();
+  expect(getComputedStyle(footer).opacity).toBe('1');
+  document.body.dispatchEvent(
+    new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })
+  );
+  await waitForRender();
+  expect(getComputedStyle(footer).opacity).toBe('0');
+});
+
+test('focused scrims follow controls through pointer and keyboard visibility', async () => {
+  await render();
+  const scrims = host!.querySelectorAll<HTMLElement>(
+    '.bg-linear-to-b, .bg-linear-to-t'
+  );
+  const { footer, stage } = elements();
+  for (const scrim of scrims) {
+    expect(getComputedStyle(scrim).opacity).toBe('0');
+  }
+  await reveal();
+  for (const scrim of scrims) {
+    expect(getComputedStyle(scrim).opacity).toBe('1');
+  }
+  stage.dispatchEvent(new PointerEvent('pointerleave'));
+  await waitForRender();
+  for (const scrim of scrims) {
+    expect(getComputedStyle(scrim).opacity).toBe('0');
+  }
+  await userEvent.tab();
+  expect(getComputedStyle(footer).opacity).toBe('1');
+  for (const scrim of scrims) {
+    expect(getComputedStyle(scrim).opacity).toBe('1');
+  }
+});
+
+test('visible presentation controls reserve a separate strip and hidden controls release it', async () => {
+  await render();
+  const { share, participant, stage } = elements();
+  const hiddenHeight = share.getBoundingClientRect().height;
+  await reveal();
+  const media = share.getBoundingClientRect();
+  const thumbnail = participant.getBoundingClientRect();
+  expect(media.bottom).toBeLessThanOrEqual(thumbnail.top - 8);
+  expect(media.height).toBeLessThan(hiddenHeight);
+  stage.dispatchEvent(new PointerEvent('pointerleave'));
+  await waitForRender();
+  expect(share.getBoundingClientRect().height).toBe(hiddenHeight);
+  expect(
+    getComputedStyle(participant.parentElement!.parentElement!.parentElement!)
+      .opacity
+  ).toBe('0');
 });
 
 test('Tab reveals hidden controls and keeps disabled microphone settings keyboard reachable', async () => {
   state.canSpeak = false;
   await render();
-  const { toolbar, footer } = elements();
+  const { toolbar, footer, stage } = elements();
   expect(getComputedStyle(footer).opacity).toBe('0');
   await userEvent.tab();
   const mute = page.getByRole('button', { name: 'Mute', exact: true });
@@ -195,14 +274,15 @@ test('Tab reveals hidden controls and keeps disabled microphone settings keyboar
   expect(getComputedStyle(mute.element()).boxShadow).not.toBe('none');
   await expect.element(mute).toHaveAttribute('aria-disabled', 'true');
   await userEvent.keyboard('{ArrowRight}');
-  await new Promise((resolve) => setTimeout(resolve, 2700));
+  stage.dispatchEvent(new PointerEvent('pointerleave'));
+  await waitForRender();
   expect(getComputedStyle(footer).opacity).toBe('1');
   await expect.element(mute).toHaveFocus();
   await userEvent.keyboard('{Shift>}{F10}{/Shift}');
   await expect
     .element(page.getByRole('dialog', { name: 'Microphone settings' }))
     .toBeVisible();
-  await new Promise((resolve) => setTimeout(resolve, 2700));
+  await waitForRender();
   expect(getComputedStyle(footer).opacity).toBe('1');
   await userEvent.keyboard('{Escape}');
   await expect.element(mute).toHaveFocus();
@@ -217,7 +297,7 @@ test('Tab reveals hidden controls and keeps disabled microphone settings keyboar
 test('reaction popover holds the toolbar visible while focus is portaled and restores focus on Escape', async () => {
   await render();
   await reveal();
-  const { toolbar, footer } = elements();
+  const { toolbar, footer, stage } = elements();
   const reaction = page.getByRole('button', {
     name: 'Send a reaction',
     exact: true
@@ -229,7 +309,8 @@ test('reaction popover holds the toolbar visible while focus is portaled and res
   await userEvent.keyboard('{Enter}');
   await expect.element(page.getByRole('dialog')).toBeVisible();
   expect(toolbar.contains(document.activeElement)).toBe(false);
-  await new Promise((resolve) => setTimeout(resolve, 2700));
+  stage.dispatchEvent(new PointerEvent('pointerleave'));
+  await waitForRender();
   expect(getComputedStyle(footer).opacity).toBe('1');
   expect(getComputedStyle(toolbar).pointerEvents).toBe('auto');
   await userEvent.keyboard('{Escape}');
