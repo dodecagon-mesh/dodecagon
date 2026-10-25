@@ -1,5 +1,9 @@
 import { store } from '@/features/store';
 import { UserStatus, type TJoinedPublicUser } from '@dodecagon/shared';
+import {
+  reconcileUserMessages,
+  reportMessageDatabaseError
+} from '../messages/database';
 import { serverSliceActions } from '../slice';
 import { userByIdSelector } from './selectors';
 
@@ -16,11 +20,15 @@ export const updateUser = (
 
 export const wipeUser = (userId: number) => {
   store.dispatch(serverSliceActions.wipeUser({ userId }));
+  reconcileUserMessages(store, userId).catch(reportMessageDatabaseError);
 };
 
 export const reassignUser = (userId: number, targetUser: number) => {
   store.dispatch(
     serverSliceActions.reassignUser({ userId, deletedUserId: targetUser })
+  );
+  reconcileUserMessages(store, userId, targetUser).catch(
+    reportMessageDatabaseError
   );
 };
 

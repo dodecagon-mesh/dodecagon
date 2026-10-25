@@ -1,348 +1,272 @@
-import { useStoreSelector, type IRootState } from '@/features/store';
-import { getTRPCClient } from '@/lib/trpc';
+import { useStoreSelector } from '@/features/store';
+import { useStore } from '@/features/store-context';
+import { logDebug } from '@/helpers/browser-logger';
+import { getTrpcError } from '@dodecagon/shared';
+import { eq } from '@tanstack/db';
+import { isCancelledError, QueryObserver } from '@tanstack/query-core';
+import { useLiveQuery } from '@tanstack/react-db';
 import {
-  DEFAULT_MESSAGES_LIMIT,
-  type TJoinedMessage,
-  type TMessagesCursor
-} from '@dodecagon/shared';
-import { isSameDay } from 'date-fns';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore
+} from 'react';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import {
-  addMessages,
-  addThreadMessages,
-  clearThreadMessages,
-  setChannelMessages,
-  trimChannelMessages
-} from './actions';
+  ensureMessageWindow,
+  getMessageCollection,
+  getMessageDatabase,
+  getMessageQueryClient,
+  getMessageWindow,
+  getMessageWindowRequestState,
+  getThreadChannelId,
+  jumpToMessage,
+  loadMoreMessages,
+  returnToPresent as restorePresent,
+  type TMessageWindow,
+  type TMessageWindowState
+} from './database';
 import {
   findMessageElement,
   highlightMessageElement,
+  nextFrame,
+  scrollToVirtualMessage,
   waitForMessageElement
 } from './helpers';
-import {
-  isChannelDetachedSelector,
-  messagesByChannelIdSelector,
-  parentMessageByIdSelector,
-  threadMessagesByParentIdSelector
-} from './selectors';
 
-export const useMessagesByChannelId = (channelId: number) =>
-  useStoreSelector((state: IRootState) =>
-    messagesByChannelIdSelector(state, channelId)
-  );
-
-export type TMessageGroup = {
-  key: string;
-  messages: TJoinedMessage[];
+const EMPTY_WINDOW_STATE: TMessageWindowState = {
+  initialized: false,
+  cursor: null,
+  hasMore: true,
+  detached: false
 };
 
-const useGroupedMessages = (messages: TJoinedMessage[]) =>
-  useMemo(() => {
-    const grouped: TMessageGroup[] = [];
+export const useMessagesByChannelId = (channelId: number) => {
+  const currentStore = useStore();
+  useStoreSelector((state) => state.server.serverId);
+  useStoreSelector((state) => state.server.ownUserId);
+  const collection = getMessageCollection(currentStore, channelId);
+  return useLiveQuery({
+    client: getMessageDatabase(currentStore),
+    query: (q) =>
+      q
+        .from({ message: collection })
+        .orderBy(({ message }) => message.createdAt, 'asc')
+        .orderBy(({ message }) => message.id, 'asc')
+  }).data;
+};
 
-    for (const message of messages) {
-      const lastGroup = grouped[grouped.length - 1];
-
-      if (!lastGroup) {
-        grouped.push({
-          key: `${message.id}`,
-          messages: [message]
-        });
-
-        continue;
-      }
-
-      const lastMessage = lastGroup.messages[lastGroup.messages.length - 1];
-
-      const hasInlineReply =
-        !!message.replyToMessageId || !!lastMessage.replyToMessageId;
-
-      // if either the current or the last message is a reply, they should be in different groups to show the reply context clearly
-      if (hasInlineReply) {
-        grouped.push({
-          key: `${message.id}`,
-          messages: [message]
-        });
-
-        continue;
-      }
-
-      const sameAuthor = message.pluginId
-        ? lastMessage.pluginId === message.pluginId
-        : lastMessage.userId === message.userId;
-
-      if (!sameAuthor) {
-        grouped.push({
-          key: `${message.id}`,
-          messages: [message]
-        });
-
-        continue;
-      }
-
-      const lastDate = lastMessage.createdAt;
-      const currentDate = message.createdAt;
-      const timeDifference = Math.abs(currentDate - lastDate) / 1000 / 60;
-
+const useMessageWindow = (kind: 'channel' | 'thread', id: number) => {
+  const { t } = useTranslation('common');
+  const reportError = useCallback(
+    (error: unknown) => {
       if (
-        timeDifference < 1 &&
-        isSameDay(new Date(currentDate), new Date(lastDate))
-      ) {
-        lastGroup.messages.push(message);
-
-        continue;
-      }
-
-      grouped.push({
-        key: `${message.id}`,
-        messages: [message]
-      });
-    }
-
-    return grouped;
-  }, [messages]);
-
-type TFetchPage = (
-  cursor: TMessagesCursor | null
-) => Promise<{ nextCursor: TMessagesCursor | null }>;
-
-// fetch a page of channel messages from the server
-const fetchChannelMessagesPage = async (input: {
-  channelId: number;
-  cursor: TMessagesCursor | null;
-  limit: number;
-  targetMessageId?: number;
-}) => {
-  const trpcClient = getTRPCClient();
-
-  return trpcClient.messages.get.query(input);
-};
-
-// reverse (newest-first -> oldest-first) and store messages
-// messages are merged chronologically by the reducer regardless of which end a page came
-// from, so there is no ordering option to pass here
-const storeChannelMessages = (channelId: number, rawPage: TJoinedMessage[]) => {
-  const page = [...rawPage].reverse();
-
-  addMessages(channelId, page);
-};
-
-const usePaginatedMessages = (
-  messages: TJoinedMessage[],
-  fetchPage: TFetchPage,
-  options?: { initialLoading?: boolean }
-) => {
-  const [fetching, setFetching] = useState(false);
-  const [loading, setLoading] = useState(
-    options?.initialLoading ?? messages.length === 0
-  );
-  const [cursor, setCursor] = useState<TMessagesCursor | null>(null);
-  const [hasMore, setHasMore] = useState(true);
-
-  const fetchMessages = useCallback(
-    async (cursorToFetch: TMessagesCursor | null) => {
-      setFetching(true);
-
-      try {
-        const { nextCursor } = await fetchPage(cursorToFetch);
-
-        setCursor(nextCursor);
-        setHasMore(nextCursor !== null);
-      } finally {
-        setFetching(false);
-        setLoading(false);
-      }
+        isCancelledError(error) ||
+        (error instanceof DOMException && error.name === 'AbortError')
+      )
+        return;
+      logDebug('Message history request failed', error);
+      toast.error(getTrpcError(error, t('errorLabel')));
     },
-    [fetchPage]
+    [t]
   );
+  const currentStore = useStore();
+  const connected = useStoreSelector((state) => state.server.connected);
+  const serverId = useStoreSelector((state) => state.server.serverId);
+  const ownUserId = useStoreSelector((state) => state.server.ownUserId);
+  const threadChannelId = useStoreSelector(
+    (state) => state.app.threadChannelId
+  );
+  const channelId =
+    kind === 'channel'
+      ? id
+      : (getThreadChannelId(currentStore, id) ?? threadChannelId ?? 0);
+  const window = getMessageWindow(
+    currentStore,
+    channelId,
+    kind === 'thread' ? id : undefined
+  );
+  const queryClient = getMessageQueryClient(currentStore);
+  const messages = useLiveQuery({
+    client: getMessageDatabase(currentStore),
+    query: (q) =>
+      q
+        .from({ message: window.collection })
+        .orderBy(({ message }) => message.createdAt, 'asc')
+        .orderBy(({ message }) => message.id, 'asc')
+  }).data;
+  const subscribe = useCallback(
+    (listener: () => void) =>
+      queryClient.getQueryCache().subscribe((event) => {
+        if (
+          event.query.queryKey.length >= window.key.length &&
+          window.key.every(
+            (value, index) => event.query.queryKey[index] === value
+          )
+        )
+          listener();
+      }),
+    [queryClient, window]
+  );
+  const metadata = useMemo(
+    () =>
+      new QueryObserver<TMessageWindowState>(queryClient, {
+        queryKey: window.stateKey,
+        enabled: false
+      }),
+    [queryClient, window]
+  );
+  const subscribeMetadata = useCallback(
+    (listener: () => void) => metadata.subscribe(listener),
+    [metadata]
+  );
+  const getSnapshot = useCallback(
+    () => metadata.getCurrentResult().data ?? EMPTY_WINDOW_STATE,
+    [metadata]
+  );
+  const page = useSyncExternalStore(
+    subscribeMetadata,
+    getSnapshot,
+    getSnapshot
+  );
+  const getFetching = useCallback(
+    () => queryClient.isFetching({ queryKey: window.key }) > 0,
+    [queryClient, window]
+  );
+  const fetching = useSyncExternalStore(subscribe, getFetching, getFetching);
+  useEffect(() => {
+    if (connected) ensureMessageWindow(currentStore, window).catch(reportError);
+  }, [currentStore, window, connected, serverId, ownUserId, reportError]);
 
   const loadMore = useCallback(async () => {
-    if (fetching || !hasMore) return;
-
-    await fetchMessages(cursor);
-  }, [fetching, hasMore, cursor, fetchMessages]);
-
-  const isEmpty = useMemo(
-    () => !messages.length && !fetching,
-    [messages.length, fetching]
-  );
-
-  const groupedMessages = useGroupedMessages(messages);
-
-  const reset = useCallback(() => {
-    setCursor(null);
-    setHasMore(true);
-    setLoading(true);
-  }, []);
-
-  const applyCursor = useCallback((nextCursor: TMessagesCursor | null) => {
-    setCursor(nextCursor);
-    setHasMore(nextCursor !== null);
-  }, []);
+    try {
+      await loadMoreMessages(currentStore, window);
+    } catch (error) {
+      reportError(error);
+    }
+  }, [currentStore, window, reportError]);
 
   return {
-    fetching,
-    loading,
-    hasMore,
-    messages,
-    loadMore,
-    cursor,
-    groupedMessages,
-    isEmpty,
-    fetchMessages,
-    applyCursor,
-    reset
+    currentStore,
+    window,
+    reportError,
+    paginated: {
+      fetching,
+      loading: getMessageWindowRequestState(currentStore, window).loading,
+      hasMore: page.hasMore,
+      cursor: page.cursor,
+      messages,
+      loadMore,
+      isEmpty: !messages.length && !fetching && page.initialized,
+      detachedFromPresent: page.detached
+    }
   };
 };
 
 export const useMessages = (channelId: number) => {
-  const messages = useMessagesByChannelId(channelId);
-  const inited = useRef(false);
-  const detachedFromPresent = useStoreSelector((state: IRootState) =>
-    isChannelDetachedSelector(state, channelId)
+  const { currentStore, window, reportError, paginated } = useMessageWindow(
+    'channel',
+    channelId
   );
-
-  const fetchPage = useCallback(
-    async (cursorToFetch: TMessagesCursor | null) => {
-      const { messages: rawPage, nextCursor } = await fetchChannelMessagesPage({
-        channelId,
-        cursor: cursorToFetch,
-        limit: DEFAULT_MESSAGES_LIMIT
-      });
-
-      storeChannelMessages(channelId, rawPage);
-
-      return { nextCursor };
-    },
-    [channelId]
-  );
-
-  const paginated = usePaginatedMessages(messages, fetchPage);
-
+  const activeWindow = useRef<TMessageWindow | undefined>(window);
+  activeWindow.current = window;
   useEffect(() => {
-    if (inited.current) return;
-
-    paginated.fetchMessages(null);
-
-    inited.current = true;
-  }, [paginated]);
-
-  useEffect(() => () => trimChannelMessages(channelId), [channelId]);
-
-  const { applyCursor } = paginated;
+    activeWindow.current = window;
+    return () => {
+      activeWindow.current = undefined;
+    };
+  }, [window]);
 
   const scrollToMessage = useCallback(
     async (messageId: number, highlightTime = 4000) => {
-      // check if the message is already rendered in the messages container
-      const existing = findMessageElement(messageId);
-
-      if (existing) {
-        highlightMessageElement(existing, highlightTime);
-
-        return;
-      }
-
-      const {
-        messages: rawPage,
-        nextCursor,
-        hasNewer
-      } = await fetchChannelMessagesPage({
-        channelId,
-        cursor: null,
-        limit: DEFAULT_MESSAGES_LIMIT,
-        targetMessageId: messageId
-      });
-
-      if (hasNewer) {
-        // the window stops short of the newest message, so merging it into the channel's
-        // existing list would put a gap in the middle of what is rendered. replace instead and
-        // let the banner offer the way back to the present
-        setChannelMessages(channelId, [...rawPage].reverse(), true);
-        applyCursor(nextCursor);
-      } else if (detachedFromPresent) {
-        // this window does reach the present, but the list it would merge into is an older
-        // detached window, so merging splices two disjoint stretches of history together and
-        // leaves the channel detached with no way back. replace and reattach instead
-        setChannelMessages(channelId, [...rawPage].reverse(), false);
-        applyCursor(nextCursor);
-      } else {
-        storeChannelMessages(channelId, rawPage);
-      }
-
-      const element = await waitForMessageElement(messageId);
-
-      if (element) {
-        highlightMessageElement(element, highlightTime);
+      try {
+        // a loaded message may be outside the virtual DOM; mount it before deciding to fetch
+        const existing =
+          (await scrollToVirtualMessage(channelId, messageId)) ??
+          findMessageElement(messageId);
+        if (activeWindow.current !== window) return;
+        if (existing) {
+          await highlightMessageElement(existing, highlightTime);
+          return;
+        }
+        const applied = await jumpToMessage(currentStore, window, messageId);
+        if (!applied || activeWindow.current !== window) return;
+        await nextFrame();
+        await nextFrame();
+        if (activeWindow.current !== window) return;
+        const element =
+          (await scrollToVirtualMessage(channelId, messageId)) ??
+          (await waitForMessageElement(messageId));
+        if (element && activeWindow.current === window) {
+          await highlightMessageElement(element, highlightTime);
+        }
+      } catch (error) {
+        reportError(error);
       }
     },
-    [channelId, applyCursor, detachedFromPresent]
+    [currentStore, window, channelId, reportError]
   );
 
   const returnToPresent = useCallback(async () => {
-    const { messages: rawPage, nextCursor } = await fetchChannelMessagesPage({
-      channelId,
-      cursor: null,
-      limit: DEFAULT_MESSAGES_LIMIT
-    });
-
-    setChannelMessages(channelId, [...rawPage].reverse(), false);
-    applyCursor(nextCursor);
-  }, [channelId, applyCursor]);
+    try {
+      await restorePresent(currentStore, window);
+    } catch (error) {
+      reportError(error);
+    }
+  }, [currentStore, window, reportError]);
 
   return {
     ...paginated,
     scrollToMessage,
-    detachedFromPresent,
     returnToPresent
   };
 };
 
-export const useThreadMessagesByParentId = (parentMessageId: number) =>
-  useStoreSelector((state: IRootState) =>
-    threadMessagesByParentIdSelector(state, parentMessageId)
+export const useThreadMessagesByParentId = (parentMessageId: number) => {
+  const currentStore = useStore();
+  const sidebarChannelId = useStoreSelector(
+    (state) => state.app.threadChannelId
   );
+  const channelId =
+    getThreadChannelId(currentStore, parentMessageId) ?? sidebarChannelId ?? 0;
+  const collection = getMessageCollection(
+    currentStore,
+    channelId,
+    parentMessageId
+  );
+  return useLiveQuery({
+    client: getMessageDatabase(currentStore),
+    query: (q) =>
+      q
+        .from({ message: collection })
+        .orderBy(({ message }) => message.createdAt, 'asc')
+        .orderBy(({ message }) => message.id, 'asc')
+  }).data;
+};
 
 export const useThreadMessages = (parentMessageId: number) => {
-  const messages = useThreadMessagesByParentId(parentMessageId);
-
-  const fetchPage = useCallback(
-    async (cursorToFetch: TMessagesCursor | null) => {
-      const trpcClient = getTRPCClient();
-
-      const { messages: page, nextCursor } =
-        await trpcClient.messages.getThread.query({
-          parentMessageId,
-          cursor: cursorToFetch,
-          limit: DEFAULT_MESSAGES_LIMIT
-        });
-
-      addThreadMessages(parentMessageId, page);
-
-      return { nextCursor };
-    },
-    [parentMessageId]
-  );
-
-  const paginated = usePaginatedMessages(messages, fetchPage, {
-    initialLoading: true
-  });
-
-  // fetch fresh data every time the thread is opened
-  useEffect(() => {
-    clearThreadMessages(parentMessageId);
-    paginated.reset();
-    paginated.fetchMessages(null);
-  }, [parentMessageId]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  const { paginated } = useMessageWindow('thread', parentMessageId);
   return paginated;
 };
 
 export const useParentMessage = (
   messageId: number | undefined,
   channelId: number | undefined
-) =>
-  useStoreSelector((state: IRootState) =>
-    messageId && channelId
-      ? parentMessageByIdSelector(state, messageId, channelId)
-      : undefined
-  );
+) => {
+  const currentStore = useStore();
+  useStoreSelector((state) => state.server.serverId);
+  useStoreSelector((state) => state.server.ownUserId);
+  const collection = getMessageCollection(currentStore, channelId ?? 0);
+  return useLiveQuery({
+    client: getMessageDatabase(currentStore),
+    query: (q) =>
+      messageId !== undefined && channelId !== undefined
+        ? q
+            .from({ message: collection })
+            .where(({ message }) => eq(message.id, messageId))
+            .findOne()
+        : undefined
+  }).data;
+};

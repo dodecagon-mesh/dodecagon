@@ -12,6 +12,8 @@ type TMessagesGroupComparatorProps = {
   editingMessageId?: number;
   onEditComplete?: () => void;
   compact?: boolean;
+  continuation?: boolean;
+  continues?: boolean;
 };
 
 const groupContainsMessageId = (
@@ -35,7 +37,10 @@ const areGroupsEqual = (
     prevProps.disableFiles !== nextProps.disableFiles ||
     prevProps.disableReactions !== nextProps.disableReactions ||
     prevProps.onReplyMessageSelect !== nextProps.onReplyMessageSelect ||
-    prevProps.compact !== nextProps.compact
+    prevProps.compact !== nextProps.compact ||
+    prevProps.continuation !== nextProps.continuation ||
+    prevProps.continues !== nextProps.continues ||
+    prevProps.onEditComplete !== nextProps.onEditComplete
   ) {
     return false;
   }

@@ -23,6 +23,12 @@ import {
   setSelectedChannelId
 } from '@/features/server/channels/actions';
 import {
+  getMessageQueryClient,
+  getMessageWindow,
+  writeMessageWindow
+} from '@/features/server/messages/database';
+import { scrollToVirtualMessage } from '@/features/server/messages/helpers';
+import {
   addUserToVoiceChannel,
   joinVoice,
   leaveVoice,
@@ -30,6 +36,7 @@ import {
   setPinnedCard,
   updateOwnVoiceState
 } from '@/features/server/voice/actions';
+import { store } from '@/features/store';
 import { clearVoiceDebugEvents } from '@/helpers/voice-debug';
 import * as trpc from '@/lib/trpc';
 import {
@@ -2073,8 +2080,6 @@ test('connection retry uses the approved surface and readable progress states', 
 });
 
 test('same-author messages across midnight retain both date separators', async () => {
-  const { setChannelMessages } =
-    await import('@/features/server/messages/actions');
   const client = trpc.getTRPCClient();
   const original = await client.messages.get.query({
     channelId: 1,
@@ -2083,7 +2088,8 @@ test('same-author messages across midnight retain both date separators', async (
   });
   const template = original.messages[0];
   try {
-    setChannelMessages(
+    await writeMessageWindow(
+      store,
       1,
       [
         {
@@ -2116,11 +2122,11 @@ test('same-author messages across midnight retain both date separators', async (
         (el) => el.getAttribute('datetime')
       )
     ).toEqual(['2026-10-08T23:59:50.000Z', '2026-10-09T00:00:10.000Z']);
-    setChannelMessages(1, [...original.messages].reverse(), true);
+    await writeMessageWindow(store, 1, [...original.messages].reverse(), true);
     await waitForRender();
     expect(document.querySelector('[data-channel-welcome]')).toBeNull();
   } finally {
-    setChannelMessages(1, [...original.messages].reverse(), false);
+    await writeMessageWindow(store, 1, [...original.messages].reverse(), false);
   }
 });
 
@@ -2275,12 +2281,6 @@ test('paginated history suppresses welcome until the oldest page and keeps uniqu
       .element(page.getByText('Latest paginated message', { exact: true }))
       .toBeVisible();
     expect(document.querySelector('[data-channel-welcome]')).toBeNull();
-    expect(
-      Array.from(
-        document.querySelectorAll('[data-message-date]'),
-        (el) => el.textContent
-      )
-    ).toEqual(['October 8th, 2026', 'Today']);
     await waitForRender();
     await waitForRender();
     const container = document.querySelector<HTMLElement>(
@@ -2309,15 +2309,25 @@ test('paginated history suppresses welcome until the oldest page and keeps uniqu
         page.getByText('Welcome to #pagination-regression', { exact: true })
       )
       .toBeVisible();
+    await expect
+      .element(page.getByText('October 7th, 2026', { exact: true }))
+      .toBeVisible();
+    await expect
+      .element(page.getByText('October 8th, 2026', { exact: true }))
+      .toBeVisible();
+    await scrollToVirtualMessage(channelId, recent[25].id);
+    await expect
+      .element(page.getByText('Today', { exact: true }))
+      .toBeVisible();
     expect(
-      Array.from(
-        document.querySelectorAll('[data-message-date]'),
-        (el) => el.textContent
+      Array.from(container.querySelectorAll('[data-message-date]')).filter(
+        (element) => element.textContent === 'Today'
       )
-    ).toEqual(['October 7th, 2026', 'October 8th, 2026', 'Today']);
-    expect(
-      document.querySelector('[data-messages-container]')!.textContent
-    ).toContain('Oldest paginated message');
+    ).toHaveLength(1);
+    await scrollToVirtualMessage(channelId, older.id);
+    await expect
+      .element(page.getByText('Oldest paginated message', { exact: true }))
+      .toBeVisible();
   } finally {
     vi.mocked(trpc.getTRPCClient).mockReturnValue(client);
     setSelectedChannelId(1);
@@ -2371,23 +2381,7 @@ test('warm A-B-A switching shows cached messages before delayed revalidation', a
     type: ChannelType.TEXT,
     categoryId: 1
   });
-  const template = originalA.messages[0];
-  const makeCachedMessages = (
-    channelId: number,
-    idOffset: number,
-    label: string
-  ) =>
-    Array.from({ length: 24 }, (_, index) => ({
-      ...template,
-      id: idOffset + index,
-      channelId,
-      content: `Warm ${label} marker ${index + 1}`,
-      createdAt: Date.UTC(2026, 9, 9, 12, index * 2)
-    }));
-  const cachedA = makeCachedMessages(1, 920001, 'A');
-  const cachedB = makeCachedMessages(bChannelId, 920101, 'B');
-  const { setChannelMessages } =
-    await import('@/features/server/messages/actions');
+  let aMessageId: number | undefined;
   const { promise: delayedARequest, resolve: noteARequest } =
     Promise.withResolvers<void>();
   const { promise: releaseDelayedA, resolve: releaseARequest } =
@@ -2435,11 +2429,33 @@ test('warm A-B-A switching shows cached messages before delayed revalidation', a
   let releaseTimer: number | undefined;
   let networkReleasedAt = Number.POSITIVE_INFINITY;
   try {
-    setChannelMessages(1, cachedA, false);
-    setChannelMessages(bChannelId, cachedB, false);
+    aMessageId = await client.messages.send.mutate({
+      clientRequestId: crypto.randomUUID(),
+      channelId: 1,
+      content: 'Warm A marker 24',
+      files: []
+    });
+    const bMessageId = await client.messages.send.mutate({
+      clientRequestId: crypto.randomUUID(),
+      channelId: bChannelId,
+      content: 'Warm B marker 24',
+      files: []
+    });
+    const cachedA = [
+      await client.messages.getOne.query({ messageId: aMessageId })
+    ];
+    const cachedB = [
+      await client.messages.getOne.query({ messageId: bMessageId })
+    ];
+    await writeMessageWindow(store, 1, cachedA, false);
+    await writeMessageWindow(store, bChannelId, cachedB, false);
     await expect
       .element(page.getByText('Warm A marker 24', { exact: true }))
       .toBeVisible();
+    await getMessageQueryClient(store).invalidateQueries({
+      queryKey: getMessageWindow(store, bChannelId).rowsKey,
+      refetchType: 'none'
+    });
 
     await page
       .getByTestId(TestId.CHANNEL_ITEM)
@@ -2453,6 +2469,10 @@ test('warm A-B-A switching shows cached messages before delayed revalidation', a
     expect(document.body.textContent).not.toContain('Warm A marker 24');
 
     delayNextARequest = true;
+    await getMessageQueryClient(store).invalidateQueries({
+      queryKey: getMessageWindow(store, 1).rowsKey,
+      refetchType: 'none'
+    });
     const switchStartedAt = performance.now();
     releaseTimer = window.setTimeout(() => {
       networkReleasedAt = performance.now();
@@ -2522,10 +2542,18 @@ test('warm A-B-A switching shows cached messages before delayed revalidation', a
     releaseARequest();
     if (delayedARequestStarted) await delayedAResponseFinished;
     vi.mocked(trpc.getTRPCClient).mockReturnValue(client);
+    if (aMessageId !== undefined) {
+      await client.messages.delete.mutate({ messageId: aMessageId });
+    }
     setSelectedChannelId(1);
     await waitForRender();
-    setChannelMessages(1, [...originalA.messages].reverse(), false);
-    setChannelMessages(bChannelId, [], false);
+    await writeMessageWindow(
+      store,
+      1,
+      [...originalA.messages].reverse(),
+      false
+    );
+    await writeMessageWindow(store, bChannelId, [], false);
     await client.channels.delete.mutate({ channelId: bChannelId });
     await waitForRender();
   }

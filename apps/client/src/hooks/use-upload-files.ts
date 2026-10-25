@@ -1,6 +1,10 @@
 import { useChannelById } from '@/features/server/channels/hooks';
 import { useCan, usePublicServerSettings } from '@/features/server/hooks';
-import { uploadFile, type TUploadProgress } from '@/helpers/upload-file';
+import {
+  uploadFile,
+  type TUploadedAttachment,
+  type TUploadProgress
+} from '@/helpers/upload-file';
 import { isPreviewable, Permission, type TTempFile } from '@dodecagon/shared';
 import {
   useCallback,
@@ -30,8 +34,8 @@ const useUploadFiles = (
 ) => {
   const { t } = useTranslation('common');
 
-  const [files, setFiles] = useState<TTempFile[]>([]);
-  const filesRef = useRef<TTempFile[]>([]);
+  const [files, setFiles] = useState<TUploadedAttachment[]>([]);
+  const filesRef = useRef<TUploadedAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<TDisplayItem[]>([]);
   const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
@@ -239,7 +243,7 @@ const useUploadFiles = (
         );
 
         // add to files immediately so it appears right away
-        setFiles((prev) => [...prev, result]);
+        setFiles((prev) => [...prev, { ...result, sourceFile: file }]);
       });
 
       await Promise.all(uploadPromises);

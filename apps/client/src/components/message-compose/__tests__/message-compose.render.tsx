@@ -90,6 +90,12 @@ mock.module('@/components/plugin-slot-renderer', () => ({
   PluginSlotRenderer: () => null
 }));
 
+mock.module('@/components/channel-view/text/use-draft-messages', () => ({
+  getDraftMessage: () => 'hello',
+  setDraftMessage: noop,
+  flushDraftMessages: noop
+}));
+
 const i18n = i18next.createInstance();
 
 await i18n.init({
@@ -105,9 +111,8 @@ const html = renderToStaticMarkup(
   <I18nextProvider i18n={i18n}>
     <MessageCompose
       channelId={1}
-      message="hello"
-      onMessageChange={noop}
-      onSend={async () => true}
+      draftKey="render-test"
+      onSend={() => true}
       onTyping={noop}
       typingUsers={[]}
     />

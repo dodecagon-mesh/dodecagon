@@ -28,7 +28,12 @@ import {
   ownUserRoleIdsSelector,
   userByIdSelector
 } from '../users/selectors';
-import { threadMessagesMapSelector } from './selectors';
+import {
+  deleteSyncedMessage,
+  reportMessageDatabaseError,
+  writeMessageReplyCount,
+  writeSyncedMessage
+} from './database';
 
 const sendBrowserNotification = (
   message: TJoinedMessage,
@@ -68,20 +73,6 @@ const typingTimeouts: { [key: string]: NodeJS.Timeout } = {};
 const getTypingKey = (channelId: number, userId: number) =>
   `${channelId}-${userId}`;
 
-export const setChannelMessages = (
-  channelId: number,
-  messages: TJoinedMessage[],
-  detached: boolean
-) => {
-  store.dispatch(
-    serverSliceActions.setChannelMessages({ channelId, messages, detached })
-  );
-};
-
-export const trimChannelMessages = (channelId: number) => {
-  store.dispatch(serverSliceActions.trimChannelMessages(channelId));
-};
-
 export const addMessages = (
   channelId: number,
   messages: TJoinedMessage[],
@@ -90,36 +81,8 @@ export const addMessages = (
   const rootMessages = messages.filter((m) => !m.parentMessageId);
   const threadReplies = messages.filter((m) => !!m.parentMessageId);
 
-  if (rootMessages.length > 0) {
-    store.dispatch(
-      serverSliceActions.addMessages({
-        channelId,
-        messages: rootMessages,
-        isLive: isSubscriptionMessage
-      })
-    );
-  }
-
-  const repliesByParent = new Map<number, TJoinedMessage[]>();
-
-  for (const reply of threadReplies) {
-    const parentId = reply.parentMessageId!;
-
-    if (!repliesByParent.has(parentId)) {
-      repliesByParent.set(parentId, []);
-    }
-
-    repliesByParent.get(parentId)!.push(reply);
-  }
-
-  for (const [parentMessageId, replies] of repliesByParent) {
-    store.dispatch(
-      serverSliceActions.addThreadMessages({
-        parentMessageId,
-        messages: replies
-      })
-    );
-  }
+  for (const message of messages)
+    writeSyncedMessage(store, message).catch(reportMessageDatabaseError);
 
   rootMessages.forEach((message) => {
     if (message.userId) {
@@ -207,56 +170,16 @@ export const addMessages = (
   }
 };
 
-export const updateMessage = (channelId: number, message: TJoinedMessage) => {
-  if (message.parentMessageId) {
-    store.dispatch(
-      serverSliceActions.updateThreadMessage({
-        parentMessageId: message.parentMessageId,
-        message
-      })
-    );
-  } else {
-    store.dispatch(serverSliceActions.updateMessage({ channelId, message }));
-  }
-};
-
-export const deleteMessage = (channelId: number, messageId: number) => {
-  // delete from both maps, the message could be a thread reply or root
-  store.dispatch(serverSliceActions.deleteMessage({ channelId, messageId }));
-
-  const state = store.getState();
-  const threadMessagesMap = threadMessagesMapSelector(state);
-
-  for (const parentId in threadMessagesMap) {
-    const threadMessages = threadMessagesMap[parentId];
-
-    if (threadMessages?.some((m) => m.id === messageId)) {
-      store.dispatch(
-        serverSliceActions.deleteThreadMessage({
-          parentMessageId: Number(parentId),
-          messageId
-        })
-      );
-
-      break;
-    }
-  }
-};
-
-export const addThreadMessages = (
-  parentMessageId: number,
-  messages: TJoinedMessage[]
-) => {
-  store.dispatch(
-    serverSliceActions.addThreadMessages({
-      parentMessageId,
-      messages
-    })
+export const updateMessage = (message: TJoinedMessage) => {
+  writeSyncedMessage(store, message, 'update').catch(
+    reportMessageDatabaseError
   );
 };
 
-export const clearThreadMessages = (parentMessageId: number) => {
-  store.dispatch(serverSliceActions.clearThreadMessages(parentMessageId));
+export const deleteMessage = (channelId: number, messageId: number) => {
+  deleteSyncedMessage(store, channelId, messageId).catch(
+    reportMessageDatabaseError
+  );
 };
 
 export const addTypingUser = (
@@ -315,7 +238,7 @@ export const updateReplyCount = (
   messageId: number,
   replyCount: number
 ) => {
-  store.dispatch(
-    serverSliceActions.updateReplyCount({ channelId, messageId, replyCount })
+  writeMessageReplyCount(store, channelId, messageId, replyCount).catch(
+    reportMessageDatabaseError
   );
 };

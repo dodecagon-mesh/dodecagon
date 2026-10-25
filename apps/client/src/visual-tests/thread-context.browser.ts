@@ -5,10 +5,10 @@ import { ParentMessagePreview } from '@/components/thread-sidebar/parent-message
 import { closeThreadSidebar, openThreadSidebar } from '@/features/app/actions';
 import { setSelectedChannelId } from '@/features/server/channels/actions';
 import {
-  messagesByChannelIdSelector,
-  threadMessagesByParentIdSelector
-} from '@/features/server/messages/selectors';
-import { serverSliceActions } from '@/features/server/slice';
+  readMessages,
+  writeMessageWindow,
+  writeSyncedMessage
+} from '@/features/server/messages/database';
 import { store } from '@/features/store';
 import { LocalStorageKey } from '@/helpers/storage';
 import { getTRPCClient } from '@/lib/trpc';
@@ -62,8 +62,7 @@ const openThread = async (message: TJoinedMessage) => {
   openThreadSidebar(message.id, message.channelId);
   await expect
     .poll(() => {
-      const state = store.getState();
-      return threadMessagesByParentIdSelector(state, message.id).length;
+      return readMessages(store, 1, message.id).length;
     })
     .toBeGreaterThan(0);
   await settle();
@@ -75,13 +74,13 @@ const renderFixture = async (
   message = parent,
   threadReplies = replies
 ) => {
-  store.dispatch(serverSliceActions.updateMessage({ channelId: 1, message }));
-  store.dispatch(serverSliceActions.clearThreadMessages(message.id));
-  store.dispatch(
-    serverSliceActions.addThreadMessages({
-      parentMessageId: message.id,
-      messages: threadReplies
-    })
+  await writeSyncedMessage(store, message);
+  await writeMessageWindow(
+    store,
+    message.channelId,
+    threadReplies,
+    false,
+    message.id
   );
   fixtureHost = document.createElement('div');
   fixtureHost.style.cssText =
@@ -207,9 +206,8 @@ test('the authoritative 137 reply count survives loading another real page', asy
   const thread = await openThread(paginationParent);
   const count = thread.querySelector('[data-thread-reply-count]');
   expect(count?.textContent).toBe('137 replies');
-  const state = store.getState();
   expect(
-    threadMessagesByParentIdSelector(state, paginationParent.id).length
+    readMessages(store, 1, paginationParent.id).length
   ).toBeGreaterThanOrEqual(50);
   const scroller = thread.querySelector<HTMLElement>('[data-thread-messages]')!;
   await expect
@@ -220,9 +218,7 @@ test('the authoritative 137 reply count survives loading another real page', asy
   await page.elementLocator(scroller).wheel({ delta: { y: -10_000 } });
   await expect
     .poll(() => {
-      const nextState = store.getState();
-      return threadMessagesByParentIdSelector(nextState, paginationParent.id)
-        .length;
+      return readMessages(store, 1, paginationParent.id).length;
     })
     .toBeGreaterThanOrEqual(100);
   expect(count?.textContent).toBe('137 replies');
@@ -231,11 +227,7 @@ test('the authoritative 137 reply count survives loading another real page', asy
 test('baseline pagination probe records oldest-first loading and the scroll position', async () => {
   const thread = await openThread(paginationParent);
   const scroller = thread.querySelector<HTMLElement>('.overflow-y-auto')!;
-  const state = store.getState();
-  const firstPage = threadMessagesByParentIdSelector(
-    state,
-    paginationParent.id
-  );
+  const firstPage = readMessages(store, 1, paginationParent.id);
   expect(firstPage.length).toBeGreaterThanOrEqual(50);
   expect(firstPage[0].content).toContain('Pagination reply 001.');
   expect(firstPage[49].content).toContain('Pagination reply 050.');
@@ -247,17 +239,11 @@ test('baseline pagination probe records oldest-first loading and the scroll posi
   await page.elementLocator(scroller).wheel({ delta: { y: -10_000 } });
   await expect
     .poll(() => {
-      const nextState = store.getState();
-      return threadMessagesByParentIdSelector(nextState, paginationParent.id)
-        .length;
+      return readMessages(store, 1, paginationParent.id).length;
     })
     .toBeGreaterThanOrEqual(100);
   await settle();
-  const nextState = store.getState();
-  const loaded = threadMessagesByParentIdSelector(
-    nextState,
-    paginationParent.id
-  );
+  const loaded = readMessages(store, 1, paginationParent.id);
   console.info('thread pagination probe', {
     first: loaded[0].content,
     last: loaded[loaded.length - 1].content,
@@ -367,9 +353,11 @@ test('opening from the message and sending a reply preserves parent context and 
       })
       .toBe(parent.id);
     expect(rootMessage.isConnected).toBe(true);
-    expect(thread.querySelector('[data-thread-reply-count]')?.textContent).toBe(
-      '3 replies'
-    );
+    await expect
+      .poll(
+        () => thread.querySelector('[data-thread-reply-count]')?.textContent
+      )
+      .toBe('3 replies');
     await expect.poll(() => editor.textContent).toBe('');
     const close = page.getByRole('button', {
       name: 'Close thread',
@@ -396,8 +384,7 @@ test('opening from the message and sending a reply preserves parent context and 
     await expect
       .element(page.getByRole('heading', { name: 'Thread in #general' }))
       .not.toBeInTheDocument();
-    const currentState = store.getState();
-    expect(messagesByChannelIdSelector(currentState, 1)).toContainEqual(
+    expect(readMessages(store, 1)).toContainEqual(
       expect.objectContaining({ id: parent.id })
     );
   } finally {

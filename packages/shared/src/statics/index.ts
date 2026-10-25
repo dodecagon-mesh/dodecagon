@@ -7,6 +7,8 @@ export * from './upload';
 
 export const DEFAULT_MESSAGES_LIMIT = 100;
 export const MESSAGE_MAX_LENGTH = 10_000;
+export const TEMPORARY_ATTACHMENT_EXPIRED_MESSAGE =
+  'Temporary attachment expired.';
 
 // a reaction is either a unicode emoji (long ZWJ sequences included) or the
 // name of a custom server emoji, which add-emoji caps at 32

@@ -48,13 +48,17 @@ import { toast } from 'sonner';
 
 import { useMessageAuthorName } from '../channel-view/text/hooks/use-message-author-name';
 import { PreviewFile } from '../channel-view/text/preview-file';
+import {
+  flushDraftMessages,
+  getDraftMessage,
+  setDraftMessage
+} from '../channel-view/text/use-draft-messages';
 import { UsersTypingIndicator } from '../channel-view/text/users-typing';
 
 type TMessageComposeProps = {
   channelId: number;
-  message: string;
-  onMessageChange: (value: string) => void;
-  onSend: (message: string, files: TTempFile[]) => Promise<boolean>;
+  draftKey: string;
+  onSend: (message: string, files: TTempFile[]) => boolean;
   onTyping: () => void;
   typingUsers: TJoinedPublicUser[];
   showPluginSlot?: boolean;
@@ -69,15 +73,13 @@ type TMessageComposeProps = {
 };
 
 type TMessageComposeHandle = {
-  clearFiles: () => void;
   focus: () => void;
 };
 
 const MessageCompose = memo(
   ({
     channelId,
-    message,
-    onMessageChange,
+    draftKey,
     onSend,
     onTyping,
     typingUsers,
@@ -92,10 +94,10 @@ const MessageCompose = memo(
     ref
   }: TMessageComposeProps) => {
     const { t } = useTranslation('common');
-    const sendingRef = useRef(false);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const tiptapRef = useRef<TTiptapInputHandle>(null);
-    const [sending, setSending] = useState(false);
+    const [message, setMessage] = useState(() => getDraftMessage(draftKey));
+    const messageRef = useRef(message);
     const can = useCan();
     const channelCan = useChannelCan(channelId);
     const channel = useChannelById(channelId);
@@ -158,16 +160,27 @@ const MessageCompose = memo(
 
     useImperativeHandle(
       ref,
-      () => ({ clearFiles, focus: () => tiptapRef.current?.focus() }),
-      [clearFiles]
+      () => ({ focus: () => tiptapRef.current?.focus() }),
+      []
     );
 
-    const handleSend = useCallback(async () => {
+    useEffect(() => flushDraftMessages, [draftKey]);
+
+    const onMessageChange = useCallback(
+      (value: string) => {
+        messageRef.current = value;
+        setMessage(value);
+        setDraftMessage(draftKey, value);
+      },
+      [draftKey]
+    );
+
+    const handleSend = useCallback(() => {
+      const message = messageRef.current;
       if (
         (isEmptyMessage(message) && !files.length) ||
         !canSendMessages ||
-        uploading ||
-        sendingRef.current
+        uploading
       ) {
         return;
       }
@@ -178,18 +191,21 @@ const MessageCompose = memo(
         return;
       }
 
-      setSending(true);
-      sendingRef.current = true;
-
-      const success = await onSend(message, files);
-
-      sendingRef.current = false;
-      setSending(false);
-
-      if (success) {
-        clearFiles();
-      }
-    }, [message, files, canSendMessages, uploading, onSend, clearFiles, t]);
+      if (!onSend(message, files)) return;
+      // ownership of these temporary files transfers to the immutable queued message
+      clearFiles();
+      tiptapRef.current?.clear();
+      onMessageChange('');
+      flushDraftMessages();
+    }, [
+      files,
+      canSendMessages,
+      uploading,
+      onSend,
+      clearFiles,
+      onMessageChange,
+      t
+    ]);
 
     const focusInputOnBackdropClick = useCallback(
       (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -325,7 +341,6 @@ const MessageCompose = memo(
                 onTyping={onTyping}
                 onArrowUp={onArrowUp}
                 disabled={!canSendMessages}
-                readOnly={sending}
                 commands={pluginCommands}
               />
             </div>
@@ -362,7 +377,7 @@ const MessageCompose = memo(
                   className="size-8 p-2"
                   aria-label={t('sendMessage')}
                   onClick={handleSend}
-                  disabled={uploading || sending || !canSendMessages}
+                  disabled={uploading || !canSendMessages}
                 >
                   <PaperAirplaneIcon className="h-4 w-4" />
                 </Button>

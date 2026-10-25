@@ -1,22 +1,17 @@
+import { getChannelDraftKey } from '@/components/channel-view/text/use-draft-messages';
 import {
   MessageCompose,
   type TMessageComposeHandle
 } from '@/components/message-compose';
-import { SoundType } from '@/features/server/types';
-import { playSound } from '@/helpers/sounds';
-
+import { enqueueMessage } from '@/features/server/messages/delivery';
 import { useTypingSignal } from '@/hooks/use-typing-signal';
-import { getTRPCClient } from '@/lib/trpc';
 import type { TReplyTarget } from '@/types';
-import type { TJoinedPublicUser } from '@dodecagon/shared';
-import {
-  getTrpcError,
-  prepareMessageHtml,
-  type TJoinedMessage
+import type {
+  TJoinedMessage,
+  TJoinedPublicUser,
+  TTempFile
 } from '@dodecagon/shared';
-import { memo, useCallback, useMemo, useState, type Ref } from 'react';
-import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { memo, useCallback, useMemo, type Ref } from 'react';
 
 type TThreadComposeProps = {
   parentMessageId: number;
@@ -26,7 +21,6 @@ type TThreadComposeProps = {
   onCancelReply?: () => void;
   onArrowUp?: () => void;
   ref?: Ref<TMessageComposeHandle>;
-
   onResize?: () => void;
 };
 
@@ -39,77 +33,54 @@ const ThreadCompose = memo(
     onCancelReply,
     onArrowUp,
     ref,
-
     onResize
   }: TThreadComposeProps) => {
-    const [newMessage, setNewMessage] = useState('');
-
     const replyTarget = useMemo<TReplyTarget | undefined>(() => {
-      if (!replyingToMessage) {
-        return undefined;
-      }
-
-      if (replyingToMessage.pluginId) {
+      if (!replyingToMessage) return undefined;
+      if (replyingToMessage.pluginId)
         return { userId: null, pluginId: replyingToMessage.pluginId };
-      }
-
       return { userId: replyingToMessage.userId, pluginId: null };
     }, [replyingToMessage]);
-
-    const { t } = useTranslation();
-
     const sendTypingSignal = useTypingSignal(channelId, parentMessageId);
-
+    const draftKey = getChannelDraftKey(channelId, parentMessageId);
     const onSend = useCallback(
-      async (message: string, files: { id: string }[]) => {
-        sendTypingSignal.cancel();
-
-        const trpc = getTRPCClient();
-
-        try {
-          await trpc.messages.send.mutate({
-            content: prepareMessageHtml(message),
-            channelId,
-            files: files.map((f) => f.id),
-            parentMessageId,
-            replyToMessageId: replyingToMessage?.id
-          });
-
-          playSound(SoundType.MESSAGE_SENT);
-        } catch (error) {
-          toast.error(getTrpcError(error, t('failedSendReply')));
-          return false;
+      (message: string, files: TTempFile[]) => {
+        const accepted = enqueueMessage({
+          channelId,
+          message,
+          files,
+          parentMessageId,
+          replyToMessageId: replyingToMessage?.id
+        });
+        if (accepted) {
+          sendTypingSignal.cancel();
+          onCancelReply?.();
         }
-
-        setNewMessage('');
-        onCancelReply?.();
-        return true;
+        return accepted;
       },
       [
         channelId,
-        sendTypingSignal,
         parentMessageId,
         replyingToMessage?.id,
-        onCancelReply,
-        t
+        sendTypingSignal,
+        onCancelReply
       ]
     );
 
     return (
       <MessageCompose
+        key={draftKey}
         ref={ref}
         channelId={channelId}
-        message={newMessage}
-        onMessageChange={setNewMessage}
+        draftKey={draftKey}
         onSend={onSend}
         onTyping={sendTypingSignal}
         typingUsers={typingUsers}
         replyTarget={replyTarget}
         onCancelReply={onCancelReply}
         onArrowUp={onArrowUp}
-
         onResize={onResize}
-        isThread={true}
+        isThread
       />
     );
   }

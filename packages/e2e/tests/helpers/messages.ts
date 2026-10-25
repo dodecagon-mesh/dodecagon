@@ -24,6 +24,9 @@ const getMockMessageNumbers = async (page: Page): Promise<number[]> =>
     .filter((value): value is string => !!value)
     .map(Number);
 
+const getLoadedMessageCount = async (page: Page): Promise<number> =>
+  Number(await page.locator('[data-messages-container]').getAttribute('data-loaded-message-count'));
+
 // the first page ends at the channel's newest mock message, so its presence is the signal
 // that the channel has finished loading rather than an arbitrary wait
 const waitForNewestMockMessage = async (
@@ -43,8 +46,13 @@ const waitForNewestMockMessage = async (
     .toBeGreaterThanOrEqual(newest);
 };
 
-const sendMessage = async (page: Page, content: string) => {
+const sendMessage = async (
+  page: Page,
+  content: string,
+  options: { waitForVisible?: boolean } = {}
+) => {
   const editor = composeEditor(page);
+  const loadedBefore = await getLoadedMessageCount(page);
 
   await expect(editor).toBeVisible();
   await editor.click();
@@ -53,24 +61,20 @@ const sendMessage = async (page: Page, content: string) => {
   await editor.pressSequentially(content);
   await expect(editor).toContainText(content);
 
-  // the compose reads its content from react state, not from the dom, so an enter that lands
-  // before that state catches up is dropped with no error and no newline. pressing until the
-  // editor clears is what makes a freshly mounted view (a dm just opened) deterministic
-  await expect
-    .poll(async () => {
-      await editor.press('Enter');
+  await editor.press('Enter');
+  await expect(editor).toHaveText('');
 
-      return (await editor.innerText()).includes(content);
-    })
-    .toBe(false);
-
-  // the editor clearing is the send being accepted, the message appearing is the server
-  // having taken it. waiting for both keeps the caller off a fixed delay
-  await expect(messageByText(page, content)).toHaveCount(1);
+  if (options.waitForVisible !== false) {
+    await expect(messageByText(page, content)).toHaveCount(1);
+  } else {
+    await expect.poll(() => getLoadedMessageCount(page)).toBeGreaterThan(loadedBefore);
+    await expect(page.locator('[data-message-delivery="sending"]')).toHaveCount(0);
+  }
 };
 
 export {
   getMockMessageNumbers,
+  getLoadedMessageCount,
   messageByText,
   messageItems,
   LIVE_MESSAGES_NEWEST,

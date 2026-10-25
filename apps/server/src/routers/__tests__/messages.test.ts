@@ -2436,7 +2436,7 @@ describe('messages router', () => {
         content: 'Intruding DM',
         files: []
       })
-    ).rejects.toThrow('Insufficient channel permissions');
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   test('should throw when non-participant tries to signal typing in direct messages', async () => {

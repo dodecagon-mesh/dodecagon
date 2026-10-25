@@ -109,9 +109,8 @@ export const joinServer = async (handshakeHash: string, password?: string) => {
     logDebug('failed to unsubscribe stale subscriptions', error);
   }
 
-  unsubscribeFromServer = initSubscriptions();
-
   store.dispatch(serverSliceActions.setInitialData(data));
+  unsubscribeFromServer = initSubscriptions();
 
   setPluginCommands(data.commands);
   setPluginCapabilityAccess(data.pluginCapabilityAccess);

@@ -9,19 +9,26 @@ import {
   MessageSaveType,
   Permission,
   PluginCapabilityType,
+  sha256,
   STORAGE_MAX_FILES_PER_MESSAGE,
+  TEMPORARY_ATTACHMENT_EXPIRED_MESSAGE,
   toDomCommand
 } from '@dodecagon/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { config } from '../../config';
 import { db } from '../../db';
 import { publishMessage, publishReplyCount } from '../../db/publishers';
 import { assertDmChannel } from '../../db/queries/dms';
 import { getSettings } from '../../db/queries/server';
-import { messageFiles, messages } from '../../db/schema';
+import { messageFiles, messages, messageSendRequests } from '../../db/schema';
+import { assertChannelAccess } from '../../helpers/assert-channel-access';
 import { fileManager } from '../../helpers/file-manager';
 import { getInvokerCtxFromTrpcCtx } from '../../helpers/get-invoker-ctx-from-trpc-ctx';
+import {
+  getSendRequest,
+  runMessageSendRequest
+} from '../../helpers/message-send-request';
 import { parseCommandArgs } from '../../helpers/parse-command-args';
 import { canUseCapability } from '../../helpers/plugin-capability-access';
 import { runBeforeMessageSaveHooks } from '../../helpers/run-before-message-save-hooks';
@@ -42,6 +49,7 @@ const sendMessageRoute = rateLimitedProcedure(protectedProcedure, {
   .input(
     z.object({
       content: z.string().max(MESSAGE_MAX_LENGTH),
+      clientRequestId: z.string().uuid().optional(),
       channelId: z.number(),
       files: z.array(z.string()).max(STORAGE_MAX_FILES_PER_MESSAGE).default([]),
       parentMessageId: z.number().optional(),
@@ -49,13 +57,32 @@ const sendMessageRoute = rateLimitedProcedure(protectedProcedure, {
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await Promise.all([
-      ctx.needsPermission(Permission.SEND_MESSAGES),
-      ctx.needsChannelPermission(
-        input.channelId,
-        ChannelPermission.SEND_MESSAGES
-      )
-    ]);
+    await ctx.needsPermission(Permission.SEND_MESSAGES);
+    await assertChannelAccess(ctx, input.channelId);
+    await ctx.needsChannelPermission(
+      input.channelId,
+      ChannelPermission.SEND_MESSAGES
+    );
+
+    const request = input.clientRequestId
+      ? {
+          userId: ctx.userId,
+          clientRequestId: input.clientRequestId,
+          payload: await sha256(
+            JSON.stringify({
+              content: input.content,
+              channelId: input.channelId,
+              files: input.files,
+              parentMessageId: input.parentMessageId ?? null,
+              replyToMessageId: input.replyToMessageId ?? null
+            })
+          )
+        }
+      : undefined;
+    const completedRequest = request ? getSendRequest(request) : undefined;
+    if (completedRequest && completedRequest.messageId !== null) {
+      return completedRequest.messageId;
+    }
 
     if (input.parentMessageId) {
       const parentMessage = await db
@@ -151,185 +178,227 @@ const sendMessageRoute = rateLimitedProcedure(protectedProcedure, {
         'Your message only contained unsupported or removed content, so there was nothing to send.'
     });
 
-    if (enablePlugins) {
-      targetContent = await runBeforeMessageSaveHooks({
-        content: targetContent,
-        channelId: input.channelId,
-        userId: ctx.userId,
-        type: MessageSaveType.CREATE
-      });
-    }
-
-    let editable = true;
-    let commandExecutor: ((messageId: number) => void) | undefined = undefined;
-
-    // derived from the sanitized html, not the raw input: otherwise the command
-    // that runs, and the text plugins receive, can differ from what is stored
-    // and shown to everyone else
-    const plainText = getPlainTextFromHtml(targetContent);
-
-    if (enablePlugins) {
-      // when plugins are enabled, need to check if the message is a command
-      // this might be improved in the future with a more robust parser
-      const { args, commandName } = parseCommandArgs(plainText);
-      const foundCommand = pluginManager.getCommandByName(commandName);
-
-      if (foundCommand) {
-        const canRunCommand =
-          !!foundCommand &&
-          (await ctx.hasPermission(Permission.USE_PLUGINS)) &&
-          (await canUseCapability(
-            ctx.userId,
-            foundCommand.pluginId,
-            PluginCapabilityType.COMMAND,
-            foundCommand.name
-          ));
-
-        if (canRunCommand) {
-          const argsObject: Record<string, unknown> = {};
-
-          foundCommand.args?.forEach((argDef, index) => {
-            if (index < args.length) argsObject[argDef.name] = args[index];
-          });
-
-          const pluginLogo = pluginManager.getPluginLogo(foundCommand.pluginId);
-
-          editable = false;
-          targetContent = toDomCommand(
-            { ...foundCommand, imageUrl: pluginLogo, status: 'pending' },
-            args
-          );
-
-          // do not await, let it run in background
-          commandExecutor = (messageId: number) => {
-            const updateCommandStatus = async (
-              status: 'completed' | 'failed',
-              response?: unknown
-            ) => {
-              const updatedContent = toDomCommand(
-                {
-                  ...foundCommand,
-                  imageUrl: pluginLogo,
-                  response,
-                  status
-                },
-                args
-              );
-
-              // awaited before publishing, otherwise clients are told to
-              // refetch a message whose new content has not been written yet
-              await db
-                .update(messages)
-                .set({ content: updatedContent })
-                .where(eq(messages.id, messageId));
-
-              publishMessage(messageId, input.channelId, 'update');
-            };
-
-            pluginManager
-              .executeCommand(
-                foundCommand.pluginId,
-                foundCommand.name,
-                getInvokerCtxFromTrpcCtx(ctx, {
-                  source: 'chat',
-                  channelId: input.channelId,
-                  parentMessageId: input.parentMessageId,
-                  messageId
-                }),
-                argsObject
-              )
-              .then((response) => updateCommandStatus('completed', response))
-              .catch((error) =>
-                updateCommandStatus('failed', error?.message || 'Unknown error')
-              )
-              // the handler above is what writes the status, so a failure in it is the end
-              // of the line: there is nothing further to fall back to and no request left
-              // to answer
-              .catch((error) =>
-                logger.error(
-                  'Failed to record the status of command %s: %s',
-                  foundCommand.name,
-                  getErrorMessage(error)
-                )
-              )
-              .finally(() => {
-                enqueueActivityLog({
-                  type: ActivityLogType.EXECUTED_PLUGIN_COMMAND,
-                  userId: ctx.user.id,
-                  details: {
-                    pluginId: foundCommand.pluginId,
-                    commandName: foundCommand.name,
-                    args: argsObject
-                  }
-                });
-              });
-          };
-        }
+    const existingRequest = request ? getSendRequest(request) : undefined;
+    if (!existingRequest) {
+      for (const fileId of input.files) {
+        const file = fileManager.getTemporaryFile(fileId);
+        invariant(file, {
+          code: 'BAD_REQUEST',
+          message: TEMPORARY_ATTACHMENT_EXPIRED_MESSAGE
+        });
+        invariant(file.userId === ctx.userId, {
+          code: 'FORBIDDEN',
+          message: "You don't have permission to access this file"
+        });
       }
     }
 
-    const savedFileIds: number[] = [];
-
-    for (const tempFileId of input.files) {
-      const newFile = await fileManager.saveFile(
-        tempFileId,
-        ctx.userId,
-        FileSaveType.MESSAGE
-      );
-
-      savedFileIds.push(newFile.id);
-    }
-
-    const message = db.transaction((tx) => {
-      const createdMessage = tx
-        .insert(messages)
-        .values({
+    const send = async (markIrreversible?: () => void) => {
+      if (enablePlugins) {
+        if (pluginManager.getHooks('beforeMessageSave').length > 0)
+          markIrreversible?.();
+        targetContent = await runBeforeMessageSaveHooks({
+          content: targetContent,
           channelId: input.channelId,
           userId: ctx.userId,
-          content: targetContent,
-          editable,
-          parentMessageId: input.parentMessageId ?? null,
-          replyToMessageId: input.replyToMessageId ?? null,
-          createdAt: Date.now()
-        })
-        .returning()
-        .get();
-
-      if (savedFileIds.length > 0) {
-        tx.insert(messageFiles)
-          .values(
-            savedFileIds.map((fileId) => ({
-              messageId: createdMessage.id,
-              fileId,
-              createdAt: Date.now()
-            }))
-          )
-          .run();
+          type: MessageSaveType.CREATE
+        });
       }
 
-      return createdMessage;
-    });
+      let editable = true;
+      let commandExecutor: ((messageId: number) => void) | undefined =
+        undefined;
 
-    commandExecutor?.(message.id);
+      // derived from the sanitized html, not the raw input: otherwise the command
+      // that runs, and the text plugins receive, can differ from what is stored
+      // and shown to everyone else
+      const plainText = getPlainTextFromHtml(targetContent);
 
-    publishMessage(message.id, input.channelId, 'create');
+      if (enablePlugins) {
+        // when plugins are enabled, need to check if the message is a command
+        // this might be improved in the future with a more robust parser
+        const { args, commandName } = parseCommandArgs(plainText);
+        const foundCommand = pluginManager.getCommandByName(commandName);
 
-    if (input.parentMessageId) {
-      publishReplyCount(input.parentMessageId, input.channelId);
-    }
+        if (foundCommand) {
+          const canRunCommand =
+            !!foundCommand &&
+            (await ctx.hasPermission(Permission.USE_PLUGINS)) &&
+            (await canUseCapability(
+              ctx.userId,
+              foundCommand.pluginId,
+              PluginCapabilityType.COMMAND,
+              foundCommand.name
+            ));
 
-    enqueueProcessMetadata(targetContent, message.id);
+          if (canRunCommand) {
+            const argsObject: Record<string, unknown> = {};
 
-    eventBus.emit('message:created', {
-      messageId: message.id,
-      channelId: input.channelId,
-      userId: ctx.userId,
-      pluginId: null,
-      content: targetContent,
-      textContent: plainText
-    });
+            foundCommand.args?.forEach((argDef, index) => {
+              if (index < args.length) argsObject[argDef.name] = args[index];
+            });
 
-    return message.id;
+            const pluginLogo = pluginManager.getPluginLogo(
+              foundCommand.pluginId
+            );
+
+            editable = false;
+            targetContent = toDomCommand(
+              { ...foundCommand, imageUrl: pluginLogo, status: 'pending' },
+              args
+            );
+
+            // do not await, let it run in background
+            commandExecutor = (messageId: number) => {
+              const updateCommandStatus = async (
+                status: 'completed' | 'failed',
+                response?: unknown
+              ) => {
+                const updatedContent = toDomCommand(
+                  {
+                    ...foundCommand,
+                    imageUrl: pluginLogo,
+                    response,
+                    status
+                  },
+                  args
+                );
+
+                // awaited before publishing, otherwise clients are told to
+                // refetch a message whose new content has not been written yet
+                await db
+                  .update(messages)
+                  .set({ content: updatedContent })
+                  .where(eq(messages.id, messageId));
+
+                publishMessage(messageId, input.channelId, 'update');
+              };
+
+              pluginManager
+                .executeCommand(
+                  foundCommand.pluginId,
+                  foundCommand.name,
+                  getInvokerCtxFromTrpcCtx(ctx, {
+                    source: 'chat',
+                    channelId: input.channelId,
+                    parentMessageId: input.parentMessageId,
+                    messageId
+                  }),
+                  argsObject
+                )
+                .then((response) => updateCommandStatus('completed', response))
+                .catch((error) =>
+                  updateCommandStatus(
+                    'failed',
+                    error?.message || 'Unknown error'
+                  )
+                )
+                // the handler above is what writes the status, so a failure in it is the end
+                // of the line: there is nothing further to fall back to and no request left
+                // to answer
+                .catch((error) =>
+                  logger.error(
+                    'Failed to record the status of command %s: %s',
+                    foundCommand.name,
+                    getErrorMessage(error)
+                  )
+                )
+                .finally(() => {
+                  enqueueActivityLog({
+                    type: ActivityLogType.EXECUTED_PLUGIN_COMMAND,
+                    userId: ctx.user.id,
+                    details: {
+                      pluginId: foundCommand.pluginId,
+                      commandName: foundCommand.name,
+                      args: argsObject
+                    }
+                  });
+                });
+            };
+          }
+        }
+      }
+
+      const savedFileIds: number[] = [];
+
+      for (const tempFileId of input.files) {
+        markIrreversible?.();
+        const newFile = await fileManager.saveFile(
+          tempFileId,
+          ctx.userId,
+          FileSaveType.MESSAGE
+        );
+
+        savedFileIds.push(newFile.id);
+      }
+
+      const message = db.transaction((tx) => {
+        const createdMessage = tx
+          .insert(messages)
+          .values({
+            channelId: input.channelId,
+            userId: ctx.userId,
+            content: targetContent,
+            clientRequestId: input.clientRequestId ?? null,
+            editable,
+            parentMessageId: input.parentMessageId ?? null,
+            replyToMessageId: input.replyToMessageId ?? null,
+            createdAt: Date.now()
+          })
+          .returning()
+          .get();
+
+        if (savedFileIds.length > 0) {
+          tx.insert(messageFiles)
+            .values(
+              savedFileIds.map((fileId) => ({
+                messageId: createdMessage.id,
+                fileId,
+                createdAt: Date.now()
+              }))
+            )
+            .run();
+        }
+
+        if (request) {
+          tx.update(messageSendRequests)
+            .set({ messageId: createdMessage.id, failure: 'completed' })
+            .where(
+              and(
+                eq(messageSendRequests.userId, request.userId),
+                eq(messageSendRequests.clientRequestId, request.clientRequestId)
+              )
+            )
+            .run();
+        }
+
+        return createdMessage;
+      });
+
+      commandExecutor?.(message.id);
+
+      publishMessage(message.id, input.channelId, 'create');
+
+      if (input.parentMessageId) {
+        publishReplyCount(input.parentMessageId, input.channelId);
+      }
+
+      enqueueProcessMetadata(targetContent, message.id);
+
+      eventBus.emit('message:created', {
+        messageId: message.id,
+        channelId: input.channelId,
+        userId: ctx.userId,
+        pluginId: null,
+        content: targetContent,
+        textContent: plainText
+      });
+
+      return message.id;
+    };
+
+    if (request) return runMessageSendRequest(request, send);
+    return send();
   });
 
 export { sendMessageRoute };

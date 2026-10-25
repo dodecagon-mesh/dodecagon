@@ -2,6 +2,10 @@ import { PluginAvatar } from '@/components/plugin-avatar';
 import { UserAvatar } from '@/components/user-avatar';
 import { setMessageJumpTarget } from '@/features/app/actions';
 import { useChannelById } from '@/features/server/channels/hooks';
+import {
+  highlightMessageElement,
+  scrollToVirtualMessage
+} from '@/features/server/messages/helpers';
 import { usePluginMetadata } from '@/features/server/plugins/hooks';
 import { useUserById } from '@/features/server/users/hooks';
 import { getRenderedUsername } from '@/helpers/get-rendered-username';
@@ -25,9 +29,21 @@ const MessageReplyPreviewWrapper = memo(
     const replyTargetUser = useUserById(replyTarget?.userId ?? null);
     const replyTargetPlugin = usePluginMetadata(replyTarget?.pluginId);
 
-    const onReplyJumpClick = useCallback(() => {
+    const onReplyJumpClick = useCallback(async () => {
       if (!message.replyToMessageId) {
         return;
+      }
+
+      if (message.parentMessageId !== null) {
+        const target = await scrollToVirtualMessage(
+          message.channelId,
+          message.replyToMessageId,
+          message.parentMessageId
+        );
+        if (target) {
+          await highlightMessageElement(target, 2000);
+          return;
+        }
       }
 
       setMessageJumpTarget({
@@ -36,7 +52,12 @@ const MessageReplyPreviewWrapper = memo(
         isDm: !!channel?.isDm,
         highlightTime: 2000
       });
-    }, [message.replyToMessageId, message.channelId, channel?.isDm]);
+    }, [
+      message.replyToMessageId,
+      message.channelId,
+      message.parentMessageId,
+      channel?.isDm
+    ]);
 
     const replyTargetAuthorName = useMemo(() => {
       if (replyTargetPlugin) {

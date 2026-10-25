@@ -5,7 +5,7 @@ import { useFilteredUsers } from '@/features/server/users/hooks';
 import { TestId, type TCommandInfo } from '@dodecagon/shared';
 import Emoji, { gitHubEmojis } from '@tiptap/extension-emoji';
 import Link from '@tiptap/extension-link';
-import { EditorContent, useEditor } from '@tiptap/react';
+import { EditorContent, useEditor, useEditorState } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import {
   memo,
@@ -41,6 +41,7 @@ import { mergeEmojis, type TEmojiItem } from './helpers';
 type TTiptapInputHandle = {
   insertEmoji: (emoji: TEmojiItem) => void;
   focus: () => void;
+  clear: () => void;
 };
 
 type TTiptapInputProps = {
@@ -151,6 +152,7 @@ const TiptapInput = memo(
       extensions,
       content: value,
       editable: !disabled,
+      shouldRerenderOnTransaction: false,
       onUpdate: ({ editor }) => {
         const html = editor.getHTML();
 
@@ -165,6 +167,8 @@ const TiptapInput = memo(
           'data-testid': TestId.MESSAGE_COMPOSE_EDITOR
         },
         handleKeyDown: (_view, event) => {
+          if (event.isComposing || _view.composing || event.keyCode === 229)
+            return false;
           // block all input when readOnly
           if (readOnlyRef.current) {
             event.preventDefault();
@@ -234,7 +238,8 @@ const TiptapInput = memo(
 
     useImperativeHandle(ref, () => ({
       insertEmoji: handleEmojiSelect,
-      focus: () => editor?.commands.focus()
+      focus: () => editor?.commands.focus(),
+      clear: () => editor?.commands.clearContent(false)
     }));
 
     // keeps newly added custom emojis usable without refreshing the app
@@ -290,7 +295,7 @@ const TiptapInput = memo(
 
         // only update if content is actually different to avoid cursor jumping
         if (currentContent !== value) {
-          editor.commands.setContent(value);
+          editor.commands.setContent(value, { emitUpdate: false });
         }
       }
     }, [editor, value]);
@@ -301,7 +306,10 @@ const TiptapInput = memo(
       }
     }, [editor, disabled]);
 
-    const isEmpty = !editor || editor.isEmpty;
+    const isEmpty = useEditorState({
+      editor,
+      selector: ({ editor }) => !editor || editor.isEmpty
+    });
 
     return (
       <div className="relative flex min-w-0 flex-1">

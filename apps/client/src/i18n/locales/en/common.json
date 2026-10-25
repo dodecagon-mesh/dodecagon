@@ -53,6 +53,7 @@
   "failedEditMessage": "Failed to edit message",
   "pressEnterToSave": "Press Enter to save, Esc to cancel",
   "failedSendMessage": "Failed to send message",
+  "sendingMessage": "Sending...",
   "failedLoadPluginUi": "Failed to load the UI for plugin \"{{pluginId}}\"",
   "failedLoadSearchResults": "Could not load search results",
   "failedExecuteCommand": "Failed to execute command",
