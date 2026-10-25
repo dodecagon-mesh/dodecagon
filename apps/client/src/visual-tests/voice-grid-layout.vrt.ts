@@ -1,3 +1,4 @@
+import { CardTheme } from '@/components/channel-view/voice/card-theme';
 import { VoiceGrid } from '@/components/channel-view/voice/voice-grid';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -122,4 +123,53 @@ test('hiding participants collapses the strip without removing focused media', a
   await expect
     .poll(() => strip.getBoundingClientRect().height)
     .toBeGreaterThan(0);
+});
+
+test('profile background keeps its selected color in both grid and focused views', async () => {
+  const profileCards = ['one', 'two'].map((id) =>
+    createElement(
+      'div',
+      { key: id, className: 'relative size-full', 'data-profile-card': id },
+      createElement(CardTheme, { profileColor: '#cec2cf' })
+    )
+  );
+  await render();
+  for (const pinnedCardId of [undefined, 'one']) {
+    root!.render(
+      createElement(VoiceGrid, {
+        pinnedCardId,
+        tileAspectRatio: 16 / 9,
+        children: profileCards
+      })
+    );
+    await expect
+      .poll(() => {
+        const backgrounds = host!.querySelectorAll('[data-profile-card] > div');
+        return Array.from(backgrounds).map(
+          (background) => getComputedStyle(background).backgroundColor
+        );
+      })
+      .toEqual(['rgb(206, 194, 207)', 'rgb(206, 194, 207)']);
+  }
+});
+
+test('focused participant leaves separate space for screen-share thumbnails', async () => {
+  await render('one');
+  const focused = host!.querySelector('[data-card="one"]')!;
+  const share = host!.querySelector('[data-card="share"]')!;
+  const main = focused.getBoundingClientRect();
+  const thumbnail = share.getBoundingClientRect();
+  expect(main.bottom).toBeLessThanOrEqual(thumbnail.top - 8);
+  expect(main.width / main.height).toBeCloseTo(16 / 9);
+});
+
+test('the participant scroller leaves paint room around every speaking thumbnail', async () => {
+  await render('share');
+  const thumbnail = host!.querySelector<HTMLElement>('[data-card="one"]')!;
+  const strip = thumbnail.parentElement!.parentElement!;
+  const tileRect = thumbnail.getBoundingClientRect();
+  const clipRect = strip.getBoundingClientRect();
+  expect(tileRect.top - 2).toBeGreaterThanOrEqual(clipRect.top);
+  expect(tileRect.bottom + 2).toBeLessThanOrEqual(clipRect.bottom);
+  expect(tileRect.left - 2).toBeGreaterThanOrEqual(clipRect.left);
 });

@@ -1,3 +1,4 @@
+import { resolveShortcutBindings } from '@/components/hotkeys-controller/shortcuts';
 import { createCachedSelector } from 're-reselect';
 import { createSelector } from 'reselect';
 import type { IRootState } from '../store';
@@ -98,3 +99,11 @@ export const isChannelMutedSelector = createCachedSelector(
   [mutedChannelIdsSelector, (_: IRootState, channelId: number) => channelId],
   (mutedChannelIds, channelId) => mutedChannelIds.includes(channelId)
 )((_, channelId) => channelId);
+
+export const shortcutOverridesSelector = (state: IRootState) =>
+  state.app.shortcutOverrides;
+
+export const shortcutBindingsSelector = createSelector(
+  [shortcutOverridesSelector],
+  resolveShortcutBindings
+);

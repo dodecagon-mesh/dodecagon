@@ -9,7 +9,8 @@ import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
 const leaveVoiceRoute = protectedProcedure.mutation(async ({ ctx }) => {
-  const { runtime, channelId } = await getCurrentVoiceRuntime(ctx);
+  const { runtime, channelId, assertCurrent } =
+    await getCurrentVoiceRuntime(ctx);
 
   const channel = await db
     .select({
@@ -37,17 +38,19 @@ const leaveVoiceRoute = protectedProcedure.mutation(async ({ ctx }) => {
     code: 'BAD_REQUEST',
     message: 'User not in voice channel'
   });
+  assertCurrent();
+  const sessionId = runtime.getSessionId(ctx.user.id)!;
+  ctx.currentVoiceChannelId = undefined;
 
   runtime.removeUser(ctx.user.id);
 
   ctx.pubsub.publish(ServerEvents.USER_LEAVE_VOICE, {
     channelId,
-    userId: ctx.user.id
+    userId: ctx.user.id,
+    sessionId
   });
 
   await unpublishHiddenChannelFromUser(ctx.user.id, channel.id);
-
-  ctx.currentVoiceChannelId = undefined;
 
   logger.info('%s left voice channel %s', ctx.user.name, channel.name);
 });

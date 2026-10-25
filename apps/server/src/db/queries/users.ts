@@ -297,26 +297,26 @@ const getUserByOidcSub = async (
   getJoinedUser(eq(users.oidcSub, oidcSub));
 
 const getUserByToken = async (token: string | undefined) => {
+  if (!token) return undefined;
+  const serverToken = await getServerToken();
+  let decoded: TTokenPayload;
   try {
-    if (!token) return undefined;
+    decoded = jwt.verify(token, serverToken) as TTokenPayload;
+  } catch (error) {
+    if (error instanceof jwt.JsonWebTokenError) return undefined;
+    throw error;
+  }
 
-    const decoded = jwt.verify(token, await getServerToken()) as TTokenPayload;
+  const user = await getUserById(decoded.userId);
+  if (user?.banned) return undefined;
 
-    const user = await getUserById(decoded.userId);
-
-    if (user?.banned) return undefined;
-
-    // a deleted user has no row, so deletion already invalidates its tokens. this covers
-    // the case where the row survives but its sessions should not, such as a password
-    // change. tokens predating this mechanism carry no version and count as 0
-    if (user && (decoded.tokenVersion ?? 0) !== user.tokenVersion) {
-      return undefined;
-    }
-
-    return user;
-  } catch {
+  // deletion and an explicit token-version change invalidate credentials.
+  // database failures must propagate as operational failures, not invalid tokens.
+  if (user && (decoded.tokenVersion ?? 0) !== user.tokenVersion) {
     return undefined;
   }
+
+  return user;
 };
 
 const getUsers = async (): Promise<TJoinedUser[]> => {

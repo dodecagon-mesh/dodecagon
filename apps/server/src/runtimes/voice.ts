@@ -38,6 +38,11 @@ import {
 } from '../utils/mediasoup';
 import { pubsub } from '../utils/pubsub';
 
+type TVoiceConnection = {
+  closed: boolean;
+  superseded: boolean;
+};
+
 const voiceRuntimes = new Map<number, VoiceRuntime>();
 
 const defaultRouterOptions: RouterOptions<AppData> = {
@@ -160,12 +165,13 @@ type TDirectMediaRuntimeSession = {
 class VoiceRuntime {
   private static idleUpdateInProgress = false;
 
-  public static beginIdleUpdate = (): boolean => {
+  public static beginIdleUpdate = (force = false): boolean => {
     if (
       VoiceRuntime.idleUpdateInProgress ||
-      [...voiceRuntimes.values()].some(
-        (runtime) => runtime.state.users.length > 0
-      )
+      (!force &&
+        [...voiceRuntimes.values()].some(
+          (runtime) => runtime.state.users.length > 0
+        ))
     )
       return false;
     VoiceRuntime.idleUpdateInProgress = true;
@@ -178,6 +184,10 @@ class VoiceRuntime {
 
   public readonly id: number;
   private state: TChannelState = { users: [], externalStreams: {} };
+  private memberships = new Map<
+    number,
+    { connection: TVoiceConnection; sessionId: string }
+  >();
   private router?: Router<AppData>;
   private consumerTransports: TTransportMap = {};
   private producerTransports: TTransportMap = {};
@@ -423,9 +433,12 @@ class VoiceRuntime {
     this.state.users = [];
 
     remainingUsers.forEach(({ userId }) => {
+      const sessionId = this.getSessionId(userId)!;
+      this.memberships.delete(userId);
       pubsub.publish(ServerEvents.USER_LEAVE_VOICE, {
         channelId: this.id,
-        userId
+        userId,
+        sessionId
       });
 
       eventBus.emit('user:left_voice', {
@@ -456,16 +469,43 @@ class VoiceRuntime {
     return user?.state ?? defaultUserState;
   };
 
-  public addUser = (
-    userId: number,
-    state: Pick<TVoiceUserState, 'micMuted' | 'soundMuted'>
-  ) => {
-    invariant(!VoiceRuntime.idleUpdateInProgress, {
+  public ownsUser = (userId: number, connection: TVoiceConnection) =>
+    !connection.closed &&
+    !connection.superseded &&
+    this.memberships.get(userId)?.connection === connection;
+
+  public getSessionId = (userId: number) =>
+    this.memberships.get(userId)?.sessionId;
+
+  public supersedeUser = (userId: number) => {
+    const membership = this.memberships.get(userId);
+    if (membership) membership.connection.superseded = true;
+  };
+
+  public assertCanJoin = () => {
+    invariant(!this.destroyed && !VoiceRuntime.idleUpdateInProgress, {
       code: 'CONFLICT',
       message:
         'The server is installing an update. Retry joining voice shortly.'
     });
-    if (this.getUser(userId)) return;
+  };
+
+  public addUser = (
+    userId: number,
+    state: Pick<TVoiceUserState, 'micMuted' | 'soundMuted'>,
+    connection: TVoiceConnection,
+    sessionId: string = crypto.randomUUID()
+  ) => {
+    this.assertCanJoin();
+    invariant(!connection.closed && !connection.superseded, {
+      code: 'CONFLICT',
+      message: 'This voice connection is no longer active'
+    });
+    invariant(!this.getUser(userId), {
+      code: 'CONFLICT',
+      message: 'User already in a voice channel'
+    });
+    this.memberships.set(userId, { connection, sessionId });
 
     this.clearDirectMediaFailures(userId);
     this.nonVoiceMediaGenerations.set(userId, ++this.nonVoiceMediaSequence);
@@ -484,6 +524,8 @@ class VoiceRuntime {
   };
 
   public removeUser = (userId: number) => {
+    if (!this.getUser(userId)) return;
+    this.memberships.delete(userId);
     this.nonVoiceMediaGenerations.delete(userId);
     this.invalidateDirectMediaUser(userId);
     this.state.users = this.state.users.filter((u) => u.userId !== userId);
@@ -1088,7 +1130,12 @@ class VoiceRuntime {
   };
 
   public createConsumerTransport = async (userId: number) => {
+    const member = this.getUser(userId);
     const { transport, params } = await this.createTransport(userId);
+    if (!member || this.getUser(userId) !== member || this.destroyed) {
+      transport.close();
+      throw new Error('Voice membership changed while creating transport');
+    }
 
     this.consumerTransports[userId]?.close();
     this.consumerTransports[userId] = transport;
@@ -1108,7 +1155,10 @@ class VoiceRuntime {
     });
 
     transport.on('dtlsstatechange', (state) => {
-      if (state === 'failed' || state === 'closed') {
+      if (
+        this.consumerTransports[userId] === transport &&
+        (state === 'failed' || state === 'closed')
+      ) {
         this.removeConsumerTransport(userId);
       }
     });
@@ -1129,7 +1179,12 @@ class VoiceRuntime {
   };
 
   public createProducerTransport = async (userId: number) => {
+    const member = this.getUser(userId);
     const { params, transport } = await this.createTransport(userId);
+    if (!member || this.getUser(userId) !== member || this.destroyed) {
+      transport.close();
+      throw new Error('Voice membership changed while creating transport');
+    }
 
     this.producerTransports[userId]?.close();
     this.producerTransports[userId] = transport;
@@ -1146,7 +1201,10 @@ class VoiceRuntime {
     });
 
     transport.on('dtlsstatechange', (state) => {
-      if (state === 'failed' || state === 'closed') {
+      if (
+        this.producerTransports[userId] === transport &&
+        (state === 'failed' || state === 'closed')
+      ) {
         this.removeProducerTransport(userId);
       }
     });
@@ -1238,6 +1296,7 @@ class VoiceRuntime {
     }
 
     producer.observer.on('close', () => {
+      if (this.getProducer(type, userId) !== producer) return;
       eventBus.emit('voice:producer_removed', {
         channelId: this.id,
         userId,
@@ -1693,4 +1752,4 @@ class VoiceRuntime {
   };
 }
 
-export { EXTERNAL_STREAM_ID_BASE, VoiceRuntime };
+export { EXTERNAL_STREAM_ID_BASE, VoiceRuntime, type TVoiceConnection };

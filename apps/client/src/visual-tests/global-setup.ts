@@ -140,6 +140,8 @@ const startSetup = async () => {
     env: {
       ...process.env,
       NODE_ENV: 'development',
+      // Match vitest.config.ts so authenticated joins do not reload the test iframe.
+      DODECAGON_BUILD_VERSION: '0.0.0-test',
       DODECAGON_DATA_PATH: dataPath,
       DODECAGON_PORT: visualTestServerPort
     },

@@ -9,6 +9,7 @@ import { describe, expect, test } from 'bun:test';
 import { and, eq } from 'drizzle-orm';
 import { getCaller, initTest } from '../../__tests__/helpers';
 import { tdb } from '../../__tests__/setup';
+import { getTestVoiceConnection } from '../../__tests__/voice-connection';
 import { config } from '../../config';
 import {
   channelRolePermissions,
@@ -31,7 +32,11 @@ const VOICE_CHANNEL_ID = 2;
 const joinVoiceChannelTwo = async (userId: number) => {
   const runtime = new VoiceRuntime(VOICE_CHANNEL_ID);
 
-  runtime.addUser(userId, { micMuted: false, soundMuted: false });
+  runtime.addUser(
+    userId,
+    { micMuted: false, soundMuted: false },
+    getTestVoiceConnection(userId)
+  );
 
   const { caller } = await initTest(userId, undefined, {
     currentVoiceChannelId: VOICE_CHANNEL_ID
@@ -170,7 +175,11 @@ describe('voice router', () => {
 
       const originRuntime = new VoiceRuntime(2);
 
-      originRuntime.addUser(4, { micMuted: false, soundMuted: false });
+      originRuntime.addUser(
+        4,
+        { micMuted: false, soundMuted: false },
+        getTestVoiceConnection(4)
+      );
 
       try {
         await expect(
@@ -193,7 +202,11 @@ describe('voice router', () => {
 
       await destinationRuntime.init();
 
-      originRuntime.addUser(4, { micMuted: false, soundMuted: false });
+      originRuntime.addUser(
+        4,
+        { micMuted: false, soundMuted: false },
+        getTestVoiceConnection(4)
+      );
 
       const joinInput = {
         channelId: PRIVATE_VOICE_CHANNEL_ID,
@@ -236,7 +249,11 @@ describe('voice router', () => {
 
       await destinationRuntime.init();
 
-      originRuntime.addUser(4, { micMuted: false, soundMuted: false });
+      originRuntime.addUser(
+        4,
+        { micMuted: false, soundMuted: false },
+        getTestVoiceConnection(4)
+      );
 
       const joinInput = {
         channelId: PRIVATE_VOICE_CHANNEL_ID,
@@ -327,7 +344,11 @@ describe('voice router', () => {
 
       const dmRuntime = new VoiceRuntime(DM_CHANNEL_ID);
 
-      dmRuntime.addUser(4, { micMuted: false, soundMuted: false });
+      dmRuntime.addUser(
+        4,
+        { micMuted: false, soundMuted: false },
+        getTestVoiceConnection(4)
+      );
 
       try {
         await expect(
@@ -346,7 +367,11 @@ describe('voice router', () => {
 
       const originRuntime = new VoiceRuntime(2);
 
-      originRuntime.addUser(4, { micMuted: false, soundMuted: false });
+      originRuntime.addUser(
+        4,
+        { micMuted: false, soundMuted: false },
+        getTestVoiceConnection(4)
+      );
 
       const revealed: number[] = [];
 
@@ -374,7 +399,11 @@ describe('voice router', () => {
     test('should take the revealed channel back when the moved user leaves', async () => {
       const runtime = new VoiceRuntime(PRIVATE_VOICE_CHANNEL_ID);
 
-      runtime.addUser(4, { micMuted: false, soundMuted: false });
+      runtime.addUser(
+        4,
+        { micMuted: false, soundMuted: false },
+        getTestVoiceConnection(4)
+      );
 
       const { caller } = await initTest(4, undefined, {
         currentVoiceChannelId: PRIVATE_VOICE_CHANNEL_ID
@@ -531,7 +560,11 @@ describe('voice router', () => {
         kind === StreamKind.SCREEN ? 'video' : 'audio'
       );
 
-      runtime.addUser(2, { micMuted: false, soundMuted: false });
+      runtime.addUser(
+        2,
+        { micMuted: false, soundMuted: false },
+        getTestVoiceConnection(2)
+      );
       runtime.addProducer(2, kind, producer);
 
       const { caller } = await initTest(2, undefined, {
@@ -648,7 +681,11 @@ describe('voice router', () => {
       const { runtime, caller, producer } = await withProducer();
       const replacement = createFakeProducer();
       const other = createFakeProducer();
-      runtime.addUser(1, { micMuted: false, soundMuted: false });
+      runtime.addUser(
+        1,
+        { micMuted: false, soundMuted: false },
+        getTestVoiceConnection(1)
+      );
       runtime.addProducer(1, StreamKind.AUDIO, other.producer);
       runtime.addProducer(2, StreamKind.AUDIO, replacement.producer);
       try {
@@ -744,7 +781,11 @@ describe('voice router', () => {
     test('should ignore a close for a producer that is already gone', async () => {
       const runtime = new VoiceRuntime(2);
 
-      runtime.addUser(2, { micMuted: false, soundMuted: false });
+      runtime.addUser(
+        2,
+        { micMuted: false, soundMuted: false },
+        getTestVoiceConnection(2)
+      );
 
       const { caller } = await initTest(2, undefined, {
         currentVoiceChannelId: 2
@@ -893,7 +934,11 @@ describe('voice router', () => {
 
       const runtime = new VoiceRuntime(PRIVATE_VOICE_CHANNEL_ID);
 
-      runtime.addUser(2, { micMuted: false, soundMuted: false });
+      runtime.addUser(
+        2,
+        { micMuted: false, soundMuted: false },
+        getTestVoiceConnection(2)
+      );
 
       const { caller } = await initTest(2, undefined, {
         currentVoiceChannelId: PRIVATE_VOICE_CHANNEL_ID

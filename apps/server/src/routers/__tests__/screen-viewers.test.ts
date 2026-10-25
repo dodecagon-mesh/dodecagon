@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import type { Consumer, Producer } from 'mediasoup/types';
 import { createMockContext } from '../../__tests__/context';
 import { getMockedToken, initTest } from '../../__tests__/helpers';
+import { getTestVoiceConnection } from '../../__tests__/voice-connection';
 import { appRouter } from '../../routers';
 import { VoiceRuntime } from '../../runtimes/voice';
 
@@ -40,8 +41,16 @@ const createConsumerStub = (producerId: string) => {
 describe('voice.onScreenViewers', () => {
   test('delivers an initial snapshot and replaces it when consumption changes', async () => {
     const runtime = new VoiceRuntime(2);
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
     const screen = createProducerStub('screen-2');
     runtime.addProducer(2, StreamKind.SCREEN, screen as unknown as Producer);
     const { caller } = await initTest(1);

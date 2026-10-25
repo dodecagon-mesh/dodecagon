@@ -4,8 +4,10 @@ import {
   detectLanguageFromCookie,
   detectLanguageFromHeader,
   getLanguageResources,
+  SUPPORTED_LANGUAGES,
   whenI18nReady
 } from '../index';
+import keybindingsEn from '../locales/en/keybindings.json';
 
 describe('the i18n factory', () => {
   test('creates an instance for the given language', async () => {
@@ -57,4 +59,25 @@ describe('the i18n factory', () => {
     expect(browser.language).toBe('en');
     expect(browser.t('identityLabel', { ns: 'connect' })).toBe('Identity');
   });
+});
+
+test('every supported locale registers complete keybinding copy and interpolation values', async () => {
+  for (const { code } of SUPPORTED_LANGUAGES) {
+    const instance = createI18n(code);
+    await whenI18nReady(instance);
+    const messages = instance.getResourceBundle(code, 'keybindings') as Record<
+      string,
+      string
+    >;
+    expect(Object.keys(messages).sort()).toEqual(
+      Object.keys(keybindingsEn).sort()
+    );
+    for (const [key, source] of Object.entries(keybindingsEn)) {
+      expect(typeof messages[key]).toBe('string');
+      expect(messages[key].trim().length).toBeGreaterThan(0);
+      expect(messages[key].match(/\{\{\w+\}\}/g)?.sort() ?? []).toEqual(
+        source.match(/\{\{\w+\}\}/g)?.sort() ?? []
+      );
+    }
+  }
 });

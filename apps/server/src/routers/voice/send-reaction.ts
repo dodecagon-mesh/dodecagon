@@ -22,9 +22,10 @@ const sendVoiceReactionRoute = rateLimitedProcedure(protectedProcedure, {
   .mutation(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.SEND_VOICE_REACTION);
 
-    const { channelId } = await getCurrentVoiceRuntime(ctx);
+    const { channelId, assertCurrent } = await getCurrentVoiceRuntime(ctx);
 
     await resolveKnownEmojiFileId(input.emoji);
+    assertCurrent();
 
     ctx.pubsub.publish(ServerEvents.USER_VOICE_REACTION, {
       channelId,

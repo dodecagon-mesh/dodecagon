@@ -32,8 +32,10 @@ const NAMESPACE_LIST = [
   'topbar',
   'dialogs',
   'settings',
+  'keybindings',
   'permissions',
-  'audio'
+  'audio',
+  'design-system'
 ];
 
 const I18N_OPTIONS = {

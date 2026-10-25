@@ -28,6 +28,7 @@ export enum LocalStorageKey {
   BROWSER_NOTIFICATIONS_FOR_REPLIES = 'dodecagon-browser-notifications-for-replies',
   LANGUAGE = 'dodecagon-language',
   PLUGIN_SLOT_DEBUG = 'dodecagon-plugin-slot-debug',
+  SHORTCUT_OVERRIDES = 'dodecagon-shortcut-overrides',
   HIDE_OWN_SCREEN_SHARE = 'dodecagon-hide-own-screen-share',
   HIDDEN_REMOTE_WEBCAMS = 'dodecagon-hidden-remote-webcams',
   NOTIFICATION_SOUNDS = 'dodecagon-notification-sounds',
@@ -39,6 +40,7 @@ export enum LocalStorageKey {
 
 export enum SessionStorageKey {
   TOKEN = 'dodecagon-token',
+  CLIENT_RELOAD_VERSION = 'dodecagon-client-reload-version',
   OIDC_NO_AUTO_REDIRECT = 'dodecagon-oidc-no-auto-redirect'
 }
 

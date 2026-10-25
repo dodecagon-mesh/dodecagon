@@ -1,4 +1,5 @@
 import { ReconnectingOverlay } from '@/components/reconnecting-overlay';
+import { ServerUpdateNotice } from '@/components/reconnecting-overlay/server-update-notice';
 import {
   useIsAppLoading,
   useIsAutoConnecting,
@@ -77,6 +78,7 @@ const AppScreens = memo(() => {
   return (
     <>
       {isReconnecting && <ReconnectingOverlay />}
+      {!isReconnecting && <ServerUpdateNotice />}
 
       <div className="contents" inert={isReconnecting}>
         <Suspense fallback={<LoadingApp text={t('loadingApp')} />}>

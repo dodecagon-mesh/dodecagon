@@ -28,6 +28,7 @@ import { eventBus } from '../../plugins/event-bus';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { enqueueLogin } from '../../queues/logins';
 import { VoiceRuntime } from '../../runtimes/voice';
+import { SERVER_VERSION } from '../../utils/env';
 import { invariant } from '../../utils/invariant';
 import { publicProcedure, rateLimitedProcedure } from '../../utils/trpc';
 
@@ -164,6 +165,7 @@ const joinServerRoute = rateLimitedProcedure(publicProcedure, {
       users: processedPublicUsers,
       serverId: settings.serverId,
       serverName: settings.name,
+      serverVersion: SERVER_VERSION,
       ownUserId: ctx.user.id,
       ownUserPasswordSet: ctx.user.passwordSet,
       voiceMap,

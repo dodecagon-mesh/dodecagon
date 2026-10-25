@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as ConnectRouteImport } from './routes/connect'
+import { Route as DesignSystemRouteImport } from './routes/design-system'
 import { Route as DisconnectedRouteImport } from './routes/disconnected'
 import { Route as HealthzRouteImport } from './routes/healthz'
 import { Route as InfoRouteImport } from './routes/info'
@@ -36,6 +37,11 @@ const AppRoute = AppRouteImport.update({
 const ConnectRoute = ConnectRouteImport.update({
   id: '/connect',
   path: '/connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DesignSystemRoute = DesignSystemRouteImport.update({
+  id: '/design-system',
+  path: '/design-system',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DisconnectedRoute = DisconnectedRouteImport.update({
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
   '/connect': typeof ConnectRoute
+  '/design-system': typeof DesignSystemRoute
   '/disconnected': typeof DisconnectedRoute
   '/healthz': typeof HealthzRoute
   '/info': typeof InfoRoute
@@ -108,6 +115,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
   '/connect': typeof ConnectRoute
+  '/design-system': typeof DesignSystemRoute
   '/disconnected': typeof DisconnectedRoute
   '/healthz': typeof HealthzRoute
   '/info': typeof InfoRoute
@@ -124,6 +132,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
   '/connect': typeof ConnectRoute
+  '/design-system': typeof DesignSystemRoute
   '/disconnected': typeof DisconnectedRoute
   '/healthz': typeof HealthzRoute
   '/info': typeof InfoRoute
@@ -141,6 +150,7 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/connect'
+    | '/design-system'
     | '/disconnected'
     | '/healthz'
     | '/info'
@@ -156,6 +166,7 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/connect'
+    | '/design-system'
     | '/disconnected'
     | '/healthz'
     | '/info'
@@ -171,6 +182,7 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/connect'
+    | '/design-system'
     | '/disconnected'
     | '/healthz'
     | '/info'
@@ -187,6 +199,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRoute
   ConnectRoute: typeof ConnectRoute
+  DesignSystemRoute: typeof DesignSystemRoute
   DisconnectedRoute: typeof DisconnectedRoute
   HealthzRoute: typeof HealthzRoute
   InfoRoute: typeof InfoRoute
@@ -220,6 +233,13 @@ declare module '@tanstack/react-router' {
       path: '/connect'
       fullPath: '/connect'
       preLoaderRoute: typeof ConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/design-system': {
+      id: '/design-system'
+      path: '/design-system'
+      fullPath: '/design-system'
+      preLoaderRoute: typeof DesignSystemRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/disconnected': {
@@ -299,6 +319,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRoute,
   ConnectRoute: ConnectRoute,
+  DesignSystemRoute: DesignSystemRoute,
   DisconnectedRoute: DisconnectedRoute,
   HealthzRoute: HealthzRoute,
   InfoRoute: InfoRoute,

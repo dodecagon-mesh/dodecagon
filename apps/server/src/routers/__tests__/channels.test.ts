@@ -5,6 +5,7 @@ import {
 } from '@dodecagon/shared';
 import { describe, expect, test } from 'bun:test';
 import { createFakeSocket, initTest } from '../../__tests__/helpers';
+import { getTestVoiceConnection } from '../../__tests__/voice-connection';
 import { getChannelsReadStatesForUser } from '../../db/queries/channels';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { pubsub } from '../../utils/pubsub';
@@ -252,9 +253,17 @@ describe('channels router', () => {
 
     const runtime = new VoiceRuntime(2);
 
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
 
-    const departures: { channelId: number; userId: number }[] = [];
+    const departures: {
+      channelId: number;
+      userId: number;
+      sessionId: string;
+    }[] = [];
 
     const subscription = pubsub
       .subscribe(ServerEvents.USER_LEAVE_VOICE)
@@ -269,7 +278,9 @@ describe('channels router', () => {
     subscription.unsubscribe();
 
     expect(VoiceRuntime.findById(2)).toBeUndefined();
-    expect(departures).toEqual([{ channelId: 2, userId: 2 }]);
+    expect(departures).toEqual([
+      { channelId: 2, userId: 2, sessionId: expect.any(String) }
+    ]);
   });
 
   // channel 5 is private, the default role may view it and user 2 is denied. the client can

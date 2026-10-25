@@ -44,12 +44,14 @@ if (typeof window !== 'undefined') {
 }
 
 const isTerminalClose = (code: number) =>
-  code === DisconnectCode.KICKED || code === DisconnectCode.BANNED;
+  code === DisconnectCode.KICKED ||
+  code === DisconnectCode.BANNED ||
+  code === DisconnectCode.AUTHENTICATION_FAILED;
 
 const initializeTRPC = (host: string) => {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
 
-  wsClient = createWSClient({
+  const client = createWSClient({
     url: `${protocol}://${host}`,
     onOpen: () => {
       pushVoiceDebugEvent('ws', 'websocket open', { host });
@@ -74,7 +76,7 @@ const initializeTRPC = (host: string) => {
         isCleaningUp
       });
 
-      if (isNavigatingAway || isCleaningUp) return;
+      if (isNavigatingAway || isCleaningUp || wsClient !== client) return;
 
       if (isTerminalClose(info.code)) {
         cleanup();
@@ -88,7 +90,7 @@ const initializeTRPC = (host: string) => {
       }
 
       closeClient();
-      reconnectToServer(info);
+      reconnectToServer(info, { transportClosed: true });
     },
     connectionParams: async (): Promise<TConnectionParams> => {
       return {
@@ -101,6 +103,7 @@ const initializeTRPC = (host: string) => {
       pongTimeoutMs: 5_000
     }
   });
+  wsClient = client;
 
   trpc = createTRPCProxyClient<AppRouter>({
     links: [wsLink({ client: wsClient })]
@@ -128,16 +131,15 @@ const getTRPCClient = () => {
 };
 
 const closeClient = () => {
-  if (wsClient) {
-    wsClient.close();
-    wsClient = null;
-  }
-
+  const client = wsClient;
+  // Detach before close: its delayed onClose must not tear down a newer client.
+  wsClient = null;
   trpc = null;
   currentHost = null;
+  client?.close();
 };
 
-const cleanup = () => {
+const cleanup = ({ invalidateCredentials = true } = {}) => {
   if (isCleaningUp) {
     return;
   }
@@ -147,32 +149,21 @@ const cleanup = () => {
   cancelReconnect();
   closeClient();
 
-  // cleanup can be called due to various reasons (manual disconnect, connection error, auto-login failure, etc).
-  // so we remove any persisted auto-login token to prevent auto-login loops.
-  // skip this when navigating away (refresh/close) - Firefox fires onClose during refresh, Chrome does not
-  if (!isNavigatingAway) {
+  // A password-dialog cancellation ends the connection, not the account login.
+  // Outages never enter cleanup; logout and confirmed invalidation remove tokens.
+  if (invalidateCredentials) {
     removeLocalStorageItem(LocalStorageKey.AUTO_LOGIN_TOKEN);
-
-    // the switch of the connect screen reads this flag, so it has to follow
-    // the token: without a token auto-login cannot happen and the switch must
-    // not claim that it is on
     setLocalStorageItemBool(LocalStorageKey.AUTO_LOGIN, false);
-
-    // same reasoning, for a server that redirects straight to its identity provider
-    suppressOidcAutoRedirect();
+    removeSessionStorageItem(SessionStorageKey.TOKEN);
   }
+  suppressOidcAutoRedirect();
 
   resetServerScreens();
   resetServerState();
   resetDialogs();
   resetApp();
 
-  removeSessionStorageItem(SessionStorageKey.TOKEN);
-
-  // this should help Firefox users who report that auto login is not consistent
-  setTimeout(() => {
-    isCleaningUp = false;
-  }, 100);
+  isCleaningUp = false;
 };
 
 export type TRouterOutputs = inferRouterOutputs<AppRouter>;

@@ -35,13 +35,11 @@ const Shell = ({ children }: { children?: React.ReactNode }) => {
         <Toaster />
         <StoreDebug />
         <HotkeysController />
-        <DevicesProvider>
-          <PluginsController />
-          <DialogsProvider />
-          <ServerScreensProvider />
-          <AutoLoginController />
-          {children}
-        </DevicesProvider>
+        <PluginsController />
+        <DialogsProvider />
+        <ServerScreensProvider />
+        <AutoLoginController />
+        {children}
       </GlobalErrorBoundary>
     </ThemeProvider>
   );
@@ -57,8 +55,10 @@ export function ClientShell() {
 // are chosen the old way
 export function ClientApp() {
   return (
-    <Shell>
-      <AppScreens />
-    </Shell>
+    <DevicesProvider>
+      <Shell>
+        <AppScreens />
+      </Shell>
+    </DevicesProvider>
   );
 }

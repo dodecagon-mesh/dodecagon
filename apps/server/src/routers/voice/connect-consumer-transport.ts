@@ -10,7 +10,8 @@ const connectConsumerTransportRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
-    const { runtime } = await getCurrentVoiceRuntime(ctx);
+    const { runtime, assertCurrent } = await getCurrentVoiceRuntime(ctx);
+    assertCurrent();
 
     const consumerTransport = runtime.getConsumerTransport(ctx.user.id);
 

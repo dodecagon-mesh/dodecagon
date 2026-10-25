@@ -32,6 +32,8 @@ import {
   reconnectSelector,
   referenceableChannelsSelector,
   serverNameSelector,
+  serverUpdateRequestedSelector,
+  serverUpdateStateSelector,
   totalUnreadCountSelector,
   typingUsersByChannelIdSelector,
   typingUsersByThreadIdSelector,
@@ -48,6 +50,12 @@ export const useIsConnected = () => useStoreSelector(connectedSelector);
 export const useIsReconnecting = () => useStoreSelector(reconnectingSelector);
 
 export const useReconnectState = () => useStoreSelector(reconnectSelector);
+
+export const useServerUpdateState = () =>
+  useStoreSelector(serverUpdateStateSelector);
+
+export const useServerUpdateRequested = () =>
+  useStoreSelector(serverUpdateRequestedSelector);
 
 export const useDisconnectInfo = () => useStoreSelector(disconnectInfoSelector);
 

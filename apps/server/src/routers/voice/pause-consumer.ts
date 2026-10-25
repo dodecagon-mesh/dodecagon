@@ -12,7 +12,9 @@ const pauseConsumerRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
-    const { runtime, mediaGeneration } = await getCurrentVoiceRuntime(ctx);
+    const { runtime, mediaGeneration, assertCurrent } =
+      await getCurrentVoiceRuntime(ctx);
+    assertCurrent();
     runtime.assertMediaAllowed(ctx.user.id, input.kind, mediaGeneration);
 
     const consumer = runtime.getConsumer(
@@ -29,6 +31,7 @@ const pauseConsumerRoute = protectedProcedure
     if (consumer.paused) return;
 
     await consumer.pause();
+    assertCurrent();
 
     if (input.kind === StreamKind.SCREEN) {
       runtime.publishScreenViewers();

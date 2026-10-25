@@ -44,6 +44,7 @@ export enum ServerEvents {
   USER_DELETE = 'userDelete',
 
   SERVER_SETTINGS_UPDATE = 'serverSettingsUpdate',
+  SERVER_UPDATE_STATE = 'serverUpdateState',
 
   PLUGIN_LOG = 'pluginLog',
   PLUGIN_COMMANDS_CHANGE = 'pluginCommandsChange',
@@ -58,6 +59,12 @@ export enum ServerEvents {
 
   DM_CONVERSATION_OPEN = 'dmConversationOpen'
 }
+
+/** Null is idle; failed is terminal until another attempt. No private error details. */
+export type TServerUpdateState = {
+  phase: 'checking' | 'downloading' | 'installing' | 'restarting' | 'failed';
+  targetVersion?: string;
+} | null;
 
 export type TNewMessage = {
   content: string;

@@ -26,9 +26,9 @@ const subscribeToVoice = () => {
   });
 
   const onUserLeaveVoiceSub = trpc.voice.onLeave.subscribe(undefined, {
-    onData: ({ channelId, userId }) => {
+    onData: ({ channelId, userId, sessionId }) => {
       logDebug('[EVENTS] voice.onLeave', { channelId, userId });
-      removeUserFromVoiceChannel(userId, channelId);
+      removeUserFromVoiceChannel(userId, channelId, sessionId);
     },
     onError: handleSubscriptionError('onUserLeaveVoice')
   });

@@ -173,12 +173,16 @@ const Devices = memo(() => {
   );
 
   const handlePlaybackChange = useCallback(
-    (value: string) => onChange('playbackId', value),
+    (value: string) => {
+      if (value) onChange('playbackId', value);
+    },
     [onChange]
   );
 
   const handleMicrophoneChange = useCallback(
-    (value: string) => onChange('microphoneId', value),
+    (value: string) => {
+      if (value) onChange('microphoneId', value);
+    },
     [onChange]
   );
 
@@ -326,7 +330,6 @@ const Devices = memo(() => {
     webcamFramerate: values.webcamFramerate
   });
 
-  const didPrimeDevicesOnGrantedRef = useRef(false);
   const mutedByTestRef = useRef<{
     previousMicMuted: boolean;
     previousSoundMuted: boolean;
@@ -412,21 +415,8 @@ const Devices = memo(() => {
   }, [startVideoTest, loadDevices]);
 
   useEffect(() => {
-    if (permissionState !== 'granted') {
-      didPrimeDevicesOnGrantedRef.current = false;
-      return;
-    }
-
-    if (didPrimeDevicesOnGrantedRef.current) return;
-    didPrimeDevicesOnGrantedRef.current = true;
-
-    const primeDevices = async () => {
-      await requestPermission({ silent: true });
-      await loadDevices();
-    };
-
-    primeDevices();
-  }, [permissionState, requestPermission, loadDevices]);
+    void loadDevices();
+  }, [loadDevices]);
 
   useEffect(() => {
     return () => {

@@ -30,10 +30,6 @@ type TUseMicrophoneTestParams = {
   noiseGateThresholdDb: number;
 };
 
-type TRequestPermissionOptions = {
-  silent?: boolean;
-};
-
 const DEFAULT_DEVICE_NAME = 'default';
 const LOOPBACK_DELAY_SECONDS = 0.12;
 const WORKLET_METER_UPDATE_INTERVAL_MS = 16;
@@ -464,32 +460,25 @@ const useMicrophoneTest = ({
     ]
   );
 
-  const requestPermission = useCallback(
-    async ({ silent = false }: TRequestPermissionOptions = {}) => {
-      if (!silent) {
-        setError(undefined);
+  const requestPermission = useCallback(async () => {
+    setError(undefined);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: getAudioConstraints(),
+        video: false
+      });
+
+      stopStreamTracks(stream);
+      setPermissionState('granted');
+    } catch (error) {
+      if (isPermissionDeniedError(error)) {
+        setPermissionState('denied');
       }
 
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: getAudioConstraints(),
-          video: false
-        });
-
-        stopStreamTracks(stream);
-        setPermissionState('granted');
-      } catch (error) {
-        if (isPermissionDeniedError(error)) {
-          setPermissionState('denied');
-        }
-
-        if (!silent) {
-          setError(getMicrophoneErrorMessage(error));
-        }
-      }
-    },
-    [getAudioConstraints, stopStreamTracks]
-  );
+      setError(getMicrophoneErrorMessage(error));
+    }
+  }, [getAudioConstraints, stopStreamTracks]);
 
   const startTest = useCallback(async () => {
     isTestRequestedRef.current = true;

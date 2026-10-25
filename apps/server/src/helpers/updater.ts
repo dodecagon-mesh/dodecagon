@@ -1,16 +1,27 @@
-import { getErrorMessage } from '@dodecagon/shared';
+import {
+  getErrorMessage,
+  ServerEvents,
+  type TServerUpdateState
+} from '@dodecagon/shared';
 import { BunUpdater, validateReleaseMetadata } from 'bun-sfe-autoupdater';
 import { renameSync, rmdirSync } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 import semver from 'semver';
+import { setImmediate } from 'timers/promises';
 import { z } from 'zod';
 import { config } from '../config';
 import { logger } from '../logger';
 import { initVoiceRuntimes } from '../runtimes';
 import { VoiceRuntime } from '../runtimes/voice';
-import { IS_DOCKER, IS_PRODUCTION, SERVER_VERSION } from '../utils/env';
+import {
+  IS_DOCKER,
+  IS_PRODUCTION,
+  IS_TEST,
+  SERVER_VERSION
+} from '../utils/env';
 import { closeMediasoup, loadMediasoup } from '../utils/mediasoup';
+import { pubsub } from '../utils/pubsub';
 import { readBodyWithLimit } from '../utils/read-body-with-limit';
 import { sha256File } from '../utils/sha-256-file';
 
@@ -60,27 +71,66 @@ class Updater {
   private consecutiveFailures = 0;
   private checkTimer: ReturnType<typeof setInterval> | null = null;
   private checkAbort?: AbortController;
+  private updateState: TServerUpdateState = null;
 
-  public canUpdate = (): boolean => IS_PRODUCTION && !IS_DOCKER;
+  public getUpdateState = (): TServerUpdateState => this.updateState;
+
+  private setUpdateState = (state: TServerUpdateState): void => {
+    this.updateState = state;
+    pubsub.publish(ServerEvents.SERVER_UPDATE_STATE, state);
+  };
+
+  public canUpdate = (): boolean =>
+    IS_PRODUCTION &&
+    !IS_TEST &&
+    !IS_DOCKER &&
+    process.platform !== 'win32' &&
+    typeof process.execve === 'function';
   public getLatestVersion = async () => this.bunUpdater.getLatestVersion();
   public hasUpdates = async () => this.bunUpdater.hasUpdates();
-  public update = async (): Promise<void> => this.runUpdate(false);
+  public update = async (): Promise<{ updated: boolean }> => ({
+    updated: await this.runUpdate(false)
+  });
 
-  private runUpdate = async (automatic: boolean): Promise<void> => {
-    if (
-      !this.canUpdate() ||
-      this.isUpdating ||
-      (automatic && this.shouldDeferAutoUpdate())
-    )
-      return;
+  private runUpdate = async (automatic: boolean): Promise<boolean> => {
+    if (!this.canUpdate()) {
+      if (automatic) return false;
+      throw new Error('Binary updates are not supported on this server.');
+    }
+    if (this.isUpdating) {
+      if (automatic) return false;
+      throw new Error('A server update is already in progress. Please wait.');
+    }
+    if (automatic && this.shouldDeferAutoUpdate()) return false;
     this.isUpdating = true;
-    this.checkAbort = new AbortController();
+    this.checkAbort = automatic ? new AbortController() : undefined;
+    if (automatic && this.updateState?.phase === 'failed')
+      this.setUpdateState(null);
+    const previousState = this.updateState;
+    if (!automatic) this.setUpdateState({ phase: 'checking' });
     try {
-      if (automatic) await this.installIdleUpdate();
-      else await this.bunUpdater.checkForUpdates();
+      const updated = await this.installUpdate(automatic);
+      if (!updated && this.updateState !== previousState)
+        this.setUpdateState(null);
       this.consecutiveFailures = 0;
+      return updated;
     } catch (error) {
-      if (automatic && this.checkAbort.signal.aborted) return;
+      if (automatic && this.checkAbort?.signal.aborted) {
+        if (this.updateState !== previousState) this.setUpdateState(null);
+        return false;
+      }
+      if (this.updateState !== previousState) {
+        this.setUpdateState({
+          phase: 'failed',
+          ...(this.updateState?.targetVersion
+            ? { targetVersion: this.updateState.targetVersion }
+            : {})
+        });
+      }
+      if (!automatic) {
+        logger.error('Failed to update server: %s', getErrorMessage(error));
+        throw error;
+      }
       this.consecutiveFailures += 1;
       logger.error(
         'Failed to check for updates (%d consecutive): %s',
@@ -93,6 +143,7 @@ class Updater {
           this.consecutiveFailures
         );
       }
+      return false;
     } finally {
       this.checkAbort = undefined;
       this.isUpdating = false;
@@ -104,17 +155,19 @@ class Updater {
     timeout = 15_000
   ): Promise<Response> => {
     const response = await fetch(url, {
-      signal: AbortSignal.any([
-        this.checkAbort!.signal,
-        AbortSignal.timeout(timeout)
-      ])
+      signal: this.checkAbort
+        ? AbortSignal.any([
+            this.checkAbort.signal,
+            AbortSignal.timeout(timeout)
+          ])
+        : AbortSignal.timeout(timeout)
     });
     if (!response.ok)
       throw new Error(`Update download failed: HTTP ${response.status}`);
     return response;
   };
 
-  private installIdleUpdate = async (): Promise<void> => {
+  private installUpdate = async (automatic: boolean): Promise<boolean> => {
     const release = zGithubRelease.parse(
       await readJson(await this.fetchUpdate(RELEASE_API))
     );
@@ -132,9 +185,14 @@ class Updater {
     }
     if (
       !semver.gt(metadata.version, SERVER_VERSION) ||
-      this.shouldDeferAutoUpdate()
+      (automatic && this.shouldDeferAutoUpdate())
     )
-      return;
+      return false;
+    if (automatic)
+      this.setUpdateState({
+        phase: 'checking',
+        targetVersion: metadata.version
+      });
     const artifact = metadata.artifacts.find(
       ({ target }) => target === `${process.platform}-${process.arch}`
     );
@@ -149,6 +207,10 @@ class Updater {
     ) {
       throw new Error('Release has no valid artifact for this platform');
     }
+    this.setUpdateState({
+      phase: 'downloading',
+      targetVersion: metadata.version
+    });
     const binary = process.execPath;
     const directory = await fs.mkdtemp(
       path.join(path.dirname(binary), '.dodecagon-update-')
@@ -181,11 +243,27 @@ class Updater {
       }
       await fs.chmod(staged, (await fs.stat(binary)).mode & 0o777);
       await fs.copyFile(binary, backup);
-      if (this.shouldDeferAutoUpdate() || !VoiceRuntime.beginIdleUpdate())
-        return;
+      if (automatic && this.shouldDeferAutoUpdate()) return false;
+      if (!VoiceRuntime.beginIdleUpdate(!automatic)) {
+        if (automatic) return false;
+        throw new Error(
+          'The server is already installing an update. Please wait.'
+        );
+      }
       locked = true;
+      this.setUpdateState({
+        phase: 'installing',
+        targetVersion: metadata.version
+      });
       workerStopped = await closeMediasoup();
-      if (this.shouldDeferAutoUpdate()) return;
+      if (automatic && this.shouldDeferAutoUpdate()) return false;
+      this.setUpdateState({
+        phase: 'restarting',
+        targetVersion: metadata.version
+      });
+      // Let subscribed sockets flush the restart notice before replacing this process.
+      await setImmediate();
+      if (automatic && this.shouldDeferAutoUpdate()) return false;
       // No await between atomic replacement and exec: new voice joins remain blocked.
       renameSync(staged, binary);
       installed = true;
@@ -201,9 +279,16 @@ class Updater {
         installed = false;
         throw error;
       }
+      return true;
     } finally {
       try {
         if (workerStopped && !installed) {
+          // worker shutdown ended these calls even though the binary rolled back.
+          // publish departures so clients clear their sessions before rejoining.
+          for (const channelId of Object.keys(VoiceRuntime.getVoiceMap())) {
+            const runtime = VoiceRuntime.findById(Number(channelId));
+            await runtime?.destroy();
+          }
           await loadMediasoup();
           await initVoiceRuntimes();
         }
@@ -223,14 +308,7 @@ class Updater {
     );
 
   public start = (): void => {
-    // execve is Unix-only; Windows retains the explicit manual updater.
-    if (
-      !this.canUpdate() ||
-      process.platform === 'win32' ||
-      typeof process.execve !== 'function' ||
-      !config.server.autoupdate ||
-      this.checkTimer
-    )
+    if (!this.canUpdate() || !config.server.autoupdate || this.checkTimer)
       return;
     this.isAutoUpdateStarted = true;
     this.checkTimer = setInterval(
@@ -249,14 +327,14 @@ class Updater {
     this.checkTimer = null;
   };
 
-  private updateAutomatically = (): void => {
+  private updateAutomatically = (): Promise<boolean> | undefined => {
     if (
       !this.isAutoUpdateStarted ||
       !this.canUpdate() ||
       this.shouldDeferAutoUpdate()
     )
       return;
-    void this.runUpdate(true);
+    return this.runUpdate(true);
   };
 }
 

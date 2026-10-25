@@ -43,6 +43,5 @@ export type TVoiceReaction = {
 
 export type TReconnectState = {
   attempt: number;
-  maxAttempts: number;
   nextAttemptAt: number | null;
 };

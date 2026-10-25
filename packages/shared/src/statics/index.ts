@@ -29,6 +29,7 @@ export enum MessageNodeType {
 
 export enum DisconnectCode {
   UNEXPECTED = 1006,
+  AUTHENTICATION_FAILED = 4001,
   KICKED = 40000,
   BANNED = 40001,
   SERVER_SHUTDOWN = 40002

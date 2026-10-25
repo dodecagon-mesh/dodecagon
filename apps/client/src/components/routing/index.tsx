@@ -1,4 +1,5 @@
 import { ReconnectingOverlay } from '@/components/reconnecting-overlay';
+import { ServerUpdateNotice } from '@/components/reconnecting-overlay/server-update-notice';
 import { useIsAppLoading, useIsPluginsLoading } from '@/features/app/hooks';
 import {
   useDisconnectInfo,
@@ -60,7 +61,7 @@ const Routing = memo(() => {
     return <ReconnectingOverlay />;
   }
 
-  return null;
+  return isConnected ? <ServerUpdateNotice /> : null;
 });
 
 export { Routing };

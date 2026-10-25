@@ -1,3 +1,4 @@
+import { ServerUpdateStatus } from '@/components/reconnecting-overlay/server-update-notice';
 import { SettingsSection } from '@/components/server-screens/settings-shell/section';
 import { useAdminUpdates } from '@/features/server/admin/hooks';
 import { cn } from '@/lib/utils';
@@ -13,9 +14,12 @@ import { memo, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 const Updates = memo(() => {
-  const { t } = useTranslation('settings');
+  const { t } = useTranslation(['settings', 'common']);
   const {
     loading,
+    checkFailed,
+    isUpdating,
+    updateState = null,
     hasUpdate,
     latestVersion,
     currentVersion,
@@ -40,16 +44,24 @@ const Updates = memo(() => {
     return <LoadingCard className="h-[600px]" />;
   }
 
-  // the server always reports a version, so a missing one means the check
-  // never came back and the real state is unknown
-  const checkFailed = !currentVersion;
-
   let statusIcon = <CheckIcon className="size-6 text-success" />;
   let statusTitle = t('upToDateTitle');
   let statusDescription = t('upToDateDesc');
   let statusBackground = 'bg-success-solid/25';
 
-  if (checkFailed) {
+  if (isUpdating) {
+    statusIcon = (
+      <ArrowPathIcon className="size-6 text-accent-text motion-safe:animate-spin" />
+    );
+    statusTitle = t('forceUpdatePending');
+    statusDescription = t('common:serverUpdateHint');
+    statusBackground = 'bg-primary/20';
+  } else if (updateState?.phase === 'failed') {
+    statusIcon = <ExclamationCircleIcon className="size-6 text-destructive" />;
+    statusTitle = t('common:serverUpdateFailed');
+    statusDescription = t('forceUpdateFailed');
+    statusBackground = 'bg-destructive/15';
+  } else if (checkFailed) {
     statusIcon = <ExclamationCircleIcon className="size-6 text-destructive" />;
     statusTitle = t('updateCheckFailedTitle');
     statusDescription = t('updateCheckFailedDesc');
@@ -71,12 +83,10 @@ const Updates = memo(() => {
       title={t('updatesTitle')}
       description={t('updatesDesc')}
       action={
-        hasUpdate && canUpdate ? (
-          <Button onClick={update}>
-            <ArrowUpCircleIcon className="size-5" />
-            {t('updateServerBtn')}
-          </Button>
-        ) : undefined
+        <Button onClick={update} disabled={!canUpdate || isUpdating}>
+          <ArrowUpCircleIcon className="size-5" />
+          {t(isUpdating ? 'forceUpdatePending' : 'updateServerBtn')}
+        </Button>
       }
     >
       <div className="flex w-full max-w-[1040px] flex-col gap-2">
@@ -90,9 +100,13 @@ const Updates = memo(() => {
             <span className="text-base font-bold leading-5 text-foreground">
               {statusTitle}
             </span>
-            <span className="text-sm leading-4 text-muted-foreground">
-              {statusDescription}
-            </span>
+            {updateState ? (
+              <ServerUpdateStatus state={updateState} />
+            ) : (
+              <span className="text-sm leading-4 text-muted-foreground">
+                {statusDescription}
+              </span>
+            )}
           </div>
           {checkFailed && (
             <div className="ml-auto shrink-0">

@@ -1,7 +1,9 @@
 import { requestConfirmation } from '@/features/dialogs/actions';
+import { store } from '@/features/store';
 import { getTRPCClient, type TRouterOutputs } from '@/lib/trpc';
 import {
   DELETED_USER_IDENTITY_AND_NAME,
+  getTrpcError,
   parseTrpcErrors,
   type TCategory,
   type TChannel,
@@ -21,9 +23,12 @@ import {
   type TStorageSettings,
   type TTrpcErrors
 } from '@dodecagon/shared';
+import { TRPCClientError } from '@trpc/client';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { useServerUpdateRequested, useServerUpdateState } from '../hooks';
+import { serverSliceActions } from '../slice';
 
 export type TAdminUser = TRouterOutputs['users']['getAll'][number];
 export type TAdminUserInfo = TRouterOutputs['users']['getInfo']['user'];
@@ -51,13 +56,18 @@ export const useAdminGeneral = () => {
 };
 
 export const useAdminUpdates = () => {
-  const { t } = useTranslation('common');
+  const { t } = useTranslation(['common', 'settings']);
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<TTrpcErrors>({});
   const [hasUpdate, setHasUpdate] = useState(false);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
   const [canUpdate, setCanUpdate] = useState(false);
+  const [checkFailed, setCheckFailed] = useState(false);
+  const updateState = useServerUpdateState();
+  const updateRequested = useServerUpdateRequested();
+  const isUpdating =
+    updateRequested || (!!updateState && updateState.phase !== 'failed');
 
   const fetchUpdate = useCallback(async () => {
     setLoading(true);
@@ -72,8 +82,10 @@ export const useAdminUpdates = () => {
       setLatestVersion(latestVersion);
       setCurrentVersion(currentVersion);
       setCanUpdate(canUpdate);
+      setCheckFailed(false);
     } catch (error) {
       console.error('Error fetching update:', error);
+      setCheckFailed(true);
       setErrors(parseTrpcErrors(error));
     }
 
@@ -81,27 +93,47 @@ export const useAdminUpdates = () => {
   }, []);
 
   const update = useCallback(async () => {
-    const answer = await requestConfirmation({
-      title: 'Are you sure you want to update the server?',
-      message:
-        'This will download and install the latest version of the server. The server will be restarted during the process, which may cause temporary downtime.',
-      confirmLabel: 'Update',
-      cancelLabel: 'Cancel'
-    });
+    const { updateState, updateRequested } = store.getState().server;
+    if (
+      !canUpdate ||
+      updateRequested ||
+      (updateState && updateState.phase !== 'failed')
+    )
+      return;
 
-    if (!answer) return;
-
-    const trpc = getTRPCClient();
+    store.dispatch(serverSliceActions.setUpdateRequested(true));
 
     try {
-      trpc.others.updateServer.mutate();
+      const answer = await requestConfirmation({
+        title: t('settings:forceUpdateConfirmTitle'),
+        message: t('settings:forceUpdateConfirmMsg'),
+        confirmLabel: t('settings:updateServerBtn'),
+        cancelLabel: t('common:cancel')
+      });
 
-      toast.success(t('common:serverUpdateInitiated'));
+      if (!answer) return;
+
+      const trpc = getTRPCClient();
+
+      const { updated } = await trpc.others.updateServer.mutate();
+
+      if (updated) {
+        toast.success(t('common:serverUpdateInitiated'));
+      } else {
+        toast.info(t('settings:upToDateTitle'));
+      }
     } catch (error) {
       console.error('Error updating server:', error);
-      setErrors(parseTrpcErrors(error));
+      if (error instanceof TRPCClientError && !error.data) {
+        toast.info(t('settings:forceUpdateConnectionLost'));
+      } else {
+        setErrors(parseTrpcErrors(error));
+        toast.error(getTrpcError(error, t('settings:forceUpdateFailed')));
+      }
+    } finally {
+      store.dispatch(serverSliceActions.setUpdateRequested(false));
     }
-  }, [t]);
+  }, [canUpdate, t]);
 
   useEffect(() => {
     fetchUpdate();
@@ -110,6 +142,9 @@ export const useAdminUpdates = () => {
   return {
     refetch: fetchUpdate,
     loading,
+    checkFailed,
+    isUpdating,
+    updateState,
     hasUpdate,
     latestVersion,
     currentVersion,

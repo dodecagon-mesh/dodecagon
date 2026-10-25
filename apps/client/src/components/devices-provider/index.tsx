@@ -98,7 +98,12 @@ const resolveDeviceId = (
   savedId: string | undefined,
   availableDevices: (MediaDeviceInfo | undefined)[]
 ): string => {
-  if (savedId && availableDevices.some((d) => d?.deviceId === savedId)) {
+  // Anonymous/empty discovery before permission cannot invalidate a saved ID.
+  if (
+    savedId &&
+    (availableDevices.some((device) => device?.deviceId === savedId) ||
+      availableDevices.every((device) => !device?.label.trim()))
+  ) {
     return savedId;
   }
 
@@ -109,20 +114,16 @@ const resolveDeviceId = (
   return availableDevices[0]?.deviceId ?? 'default';
 };
 
-const normalizeDevices = (
-  devices: MediaDeviceInfo[],
-  kind: MediaDeviceKind
-) => {
+const normalizeDevices = (devices: MediaDeviceInfo[]) => {
   const seen = new Set<string>();
   const normalized: MediaDeviceInfo[] = [];
 
   for (const device of devices) {
-    if (!device.deviceId && !device.label) {
+    if (!device.deviceId) {
       continue;
     }
 
-    const dedupeKey =
-      device.deviceId || `${kind}-fallback-${device.groupId || 'default'}`;
+    const dedupeKey = device.deviceId;
 
     if (seen.has(dedupeKey)) {
       continue;
@@ -155,15 +156,9 @@ export type TDevicesProvider = {
   loadDevices: () => Promise<void>;
 };
 
-const DevicesProviderContext = createContext<TDevicesProvider>({
-  loading: true,
-  devices: getDefaultDeviceSettings(),
-  inputDevices: [],
-  playbackDevices: [],
-  videoDevices: [],
-  saveDevices: () => {},
-  loadDevices: () => Promise.resolve()
-});
+const DevicesProviderContext = createContext<TDevicesProvider | undefined>(
+  undefined
+);
 
 type TDevicesProviderProps = {
   children: React.ReactNode;
@@ -213,24 +208,15 @@ const DevicesProvider = memo(({ children }: TDevicesProviderProps) => {
       });
 
       setInputDevices(
-        normalizeDevices(
-          allDevices.filter((d) => d.kind === 'audioinput'),
-          'audioinput'
-        )
+        normalizeDevices(allDevices.filter((d) => d.kind === 'audioinput'))
       );
 
       setPlaybackDevices(
-        normalizeDevices(
-          allDevices.filter((d) => d.kind === 'audiooutput'),
-          'audiooutput'
-        )
+        normalizeDevices(allDevices.filter((d) => d.kind === 'audiooutput'))
       );
 
       setVideoDevices(
-        normalizeDevices(
-          allDevices.filter((d) => d.kind === 'videoinput'),
-          'videoinput'
-        )
+        normalizeDevices(allDevices.filter((d) => d.kind === 'videoinput'))
       );
     } catch (error) {
       toast.error(t('failedLoadDevices'));

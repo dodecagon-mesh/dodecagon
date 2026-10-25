@@ -24,6 +24,7 @@ import {
   resetPluginMocks
 } from '../../__tests__/mocks';
 import { tdb, testsBaseUrl } from '../../__tests__/setup';
+import { getTestVoiceConnection } from '../../__tests__/voice-connection';
 import { getChannelsReadStatesForUser } from '../../db/queries/channels';
 import { getUserRoleIds } from '../../db/queries/roles';
 import {
@@ -2361,7 +2362,11 @@ describe('plugins router', () => {
     test('should reach everyone in a voice channel and nobody outside it', async () => {
       const runtime = new VoiceRuntime(VOICE_CHANNEL_ID);
 
-      runtime.addUser(2, { micMuted: false, soundMuted: false });
+      runtime.addUser(
+        2,
+        { micMuted: false, soundMuted: false },
+        getTestVoiceConnection(2)
+      );
 
       const inside = listen(2);
       const outside = listen(5);
@@ -2428,7 +2433,11 @@ describe('plugins router', () => {
     const withRuntime = async (run: () => Promise<void>) => {
       const runtime = new VoiceRuntime(VOICE_CHANNEL_ID);
 
-      runtime.addUser(2, { micMuted: false, soundMuted: false });
+      runtime.addUser(
+        2,
+        { micMuted: false, soundMuted: false },
+        getTestVoiceConnection(2)
+      );
 
       try {
         await run();

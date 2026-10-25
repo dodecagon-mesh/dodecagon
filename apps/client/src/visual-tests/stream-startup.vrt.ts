@@ -1,9 +1,8 @@
 import { useTransports } from '@/components/voice-provider/hooks/use-transports';
 import { setCurrentVoiceChannelId } from '@/features/server/channels/actions';
-import {
-  addUserToVoiceChannel,
-  removeUserFromVoiceChannel
-} from '@/features/server/voice/actions';
+import { serverSliceActions } from '@/features/server/slice';
+import { addUserToVoiceChannel } from '@/features/server/voice/actions';
+import { store } from '@/features/store';
 import * as trpc from '@/lib/trpc';
 import { StreamKind } from '@dodecagon/shared';
 import type { Transport } from 'mediasoup-client/types';
@@ -25,8 +24,12 @@ afterEach(() => {
   host?.remove();
   stream?.getTracks().forEach((track) => track.stop());
   setCurrentVoiceChannelId(undefined);
-  removeUserFromVoiceChannel(1, 2);
-  removeUserFromVoiceChannel(2, 2);
+  store.dispatch(
+    serverSliceActions.removeUserFromVoiceChannel({ userId: 1, channelId: 2 })
+  );
+  store.dispatch(
+    serverSliceActions.removeUserFromVoiceChannel({ userId: 2, channelId: 2 })
+  );
   vi.restoreAllMocks();
 });
 

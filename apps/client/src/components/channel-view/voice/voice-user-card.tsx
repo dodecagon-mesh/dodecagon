@@ -48,7 +48,6 @@ type TVoiceUserCardProps = {
   className?: string;
   isPinned?: boolean;
   isAnyCardPinned?: boolean;
-  showSpeakingOutline?: boolean;
 };
 
 // focused size is inherited from the stage; grid and strip stay compact
@@ -70,8 +69,7 @@ const VoiceUserCard = memo(
     isPinned = false,
     showPinControls = true,
     voiceUser,
-    isAnyCardPinned = false,
-    showSpeakingOutline = true
+    isAnyCardPinned = false
   }: TVoiceUserCardProps) => {
     const { t } = useTranslation('common');
     const { videoRef, hasVideoStream } = useVoiceRefs(userId);
@@ -81,10 +79,15 @@ const VoiceUserCard = memo(
     const showUserBanners = useShowUserBannersInVoice();
     const webRtcSimulcastEnabled = useWebRtcSimulcastEnabled();
     const { isSimulcastConsumer } = useVoice();
-    const { isActivelySpeaking } = useSpeakingState(userId);
-    // The overlay drops the speaking highlight together with its auto-hidden
-    // chrome, so no green outline is left behind on the stage.
-    const isSpeaking = isActivelySpeaking && showSpeakingOutline;
+    const { isActivelySpeaking, speakingIntensity } = useSpeakingState(userId);
+    const speakingStyle = useMemo(() => {
+      if (!isActivelySpeaking) return undefined;
+      const intensity = Math.min(4, Math.max(1, speakingIntensity));
+      const strength = 70 + (intensity - 1) * 10;
+      return {
+        boxShadow: `0 0 0 2px color-mix(in srgb, var(--color-success) ${strength}%, transparent)`
+      };
+    }, [isActivelySpeaking, speakingIntensity]);
     const { isWebcamHidden, toggleWebcamHidden } = useRemoteWebcamVisibility();
     const webcamHidden = isWebcamHidden(userId);
     const { isViewingDemo, stopViewingDemo } = useDemoVisibility();
@@ -157,11 +160,9 @@ const VoiceUserCard = memo(
             'relative overflow-hidden rounded-[var(--voice-card-radius,12px)] bg-panel group/voice-user-card',
             'flex items-center justify-center',
             'size-full',
-            // the tile carries no border, a speaking participant gets an
-            // external ring around the tile, like the Discord tile
-            isSpeaking && 'shadow-[0_0_0_2px_var(--color-success)]',
             className
           )}
+          style={speakingStyle}
         >
           {showPinControls && (
             <CardPinButton
@@ -253,7 +254,7 @@ const VoiceUserCard = memo(
           <div
             data-voice-caption
             className={cn(
-              'absolute bottom-[var(--voice-caption-bottom,0px)] left-0 right-0 z-[1] flex',
+              'pointer-events-none absolute bottom-[var(--voice-caption-bottom,0px)] left-0 right-0 z-[1] flex',
               density.inset
             )}
           >

@@ -1,6 +1,7 @@
 import { ServerEvents, StreamKind } from '@dodecagon/shared';
 import { describe, expect, test } from 'bun:test';
 import type { Consumer, Producer } from 'mediasoup/types';
+import { getTestVoiceConnection } from '../../__tests__/voice-connection';
 import { config } from '../../config';
 import { eventBus } from '../../plugins/event-bus';
 import { pubsub } from '../../utils/pubsub';
@@ -50,8 +51,16 @@ describe('VoiceRuntime destroy', () => {
   test('should announce the users still in the channel', async () => {
     const runtime = createRuntime();
 
-    runtime.addUser(7, { micMuted: false, soundMuted: false });
-    runtime.addUser(8, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      7,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(7)
+    );
+    runtime.addUser(
+      8,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(8)
+    );
 
     const left: number[] = [];
 
@@ -90,7 +99,11 @@ describe('VoiceRuntime producer and consumer maps', () => {
 
   test('should keep producers of other kinds when one is replaced', async () => {
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
     const audio = createProducerStub();
     const screenAudio = createProducerStub();
     const replacement = createProducerStub();
@@ -188,8 +201,16 @@ describe('VoiceRuntime external streams', () => {
 describe('VoiceRuntime screen viewers', () => {
   test('counts active screen video consumers once and excludes the presenter', async () => {
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
     const screen = createProducerStub();
     const viewer = createConsumerStub(screen.id);
     const self = createConsumerStub(screen.id);
@@ -228,9 +249,21 @@ describe('VoiceRuntime screen viewers', () => {
 
   test('keeps independent presenters independent', async () => {
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
-    runtime.addUser(3, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
+    runtime.addUser(
+      3,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(3)
+    );
     const first = createProducerStub();
     const second = createProducerStub();
 
@@ -261,8 +294,16 @@ describe('VoiceRuntime screen viewers', () => {
     const previous = config.webRtc.holepunchMediaEnabled;
     config.webRtc.holepunchMediaEnabled = true;
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
     const screen = createProducerStub();
     runtime.addProducer(2, StreamKind.SCREEN, screen as unknown as Producer);
     runtime.registerDirectMediaSubscriber(1, true);
@@ -314,8 +355,16 @@ describe('VoiceRuntime screen viewers', () => {
 
   test('publishes a change when screen consumption and production change', async () => {
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
     const screen = createProducerStub();
     const events: number[] = [];
     const subscription = pubsub
@@ -344,7 +393,11 @@ describe('VoiceRuntime screen viewers', () => {
 describe('VoiceRuntime producer listing', () => {
   test('should list every kind with the id a consumer needs', () => {
     const runtime = createRuntime();
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
     const audio = createProducerStub();
     const screen = createProducerStub();
 
@@ -476,7 +529,11 @@ describe('VoiceRuntime producer events', () => {
 describe('VoiceRuntime voice-only mode', () => {
   test('closes non-microphone media without changing microphone or sound state', async () => {
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: true, soundMuted: true });
+    runtime.addUser(
+      1,
+      { micMuted: true, soundMuted: true },
+      getTestVoiceConnection(1)
+    );
     const microphone = createProducerStub();
     const voice = createConsumerStub();
     const mediaKinds = [
@@ -544,7 +601,11 @@ describe('VoiceRuntime voice-only mode', () => {
 
   test('rejects non-microphone attachments and accepts them again when disabled', async () => {
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
     runtime.updateUserState(1, { voiceOnlyMode: true });
     try {
       for (const kind of [
@@ -599,7 +660,11 @@ describe('VoiceRuntime voice-only mode', () => {
 
   test('closes stale native resources even after voice-only mode is disabled again', async () => {
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
     const generation = runtime.getNonVoiceMediaGeneration(1);
     runtime.updateUserState(1, { voiceOnlyMode: true });
     runtime.updateUserState(1, { voiceOnlyMode: false });
@@ -637,7 +702,11 @@ describe('VoiceRuntime voice-only mode', () => {
 
   test('rejects nonvoice attachments after departure even without a captured token', async () => {
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
     runtime.removeUser(1);
     const producer = createProducerStub();
     const consumer = createConsumerStub();
@@ -670,12 +739,24 @@ describe('VoiceRuntime voice-only mode', () => {
 
   test('never lets a departed membership replace a rejoined users media', async () => {
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
     const departedGeneration = runtime.getNonVoiceMediaGeneration(1);
     runtime.removeUser(1);
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
     const otherGeneration = runtime.getNonVoiceMediaGeneration(2);
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
     const currentGeneration = runtime.getNonVoiceMediaGeneration(1);
     const producer = createProducerStub();
     const consumer = createConsumerStub();
@@ -735,8 +816,16 @@ describe('VoiceRuntime voice-only mode', () => {
 describe('VoiceRuntime direct media fallback', () => {
   test('keeps relay producers visible while both participants support direct media', async () => {
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
     const previous = config.webRtc.holepunchMediaEnabled;
     config.webRtc.holepunchMediaEnabled = true;
     try {
@@ -760,8 +849,16 @@ describe('VoiceRuntime direct media fallback', () => {
 
   test('a failed attempt latches only its pair without disabling native capability', async () => {
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
     const previous = config.webRtc.holepunchMediaEnabled;
     config.webRtc.holepunchMediaEnabled = true;
     const updates: number[] = [];
@@ -816,8 +913,16 @@ describe('VoiceRuntime direct media fallback', () => {
 
   test('the feature flag disables direct while relay stays usable', async () => {
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
     const previous = config.webRtc.holepunchMediaEnabled;
     config.webRtc.holepunchMediaEnabled = false;
     try {
@@ -843,8 +948,16 @@ describe('VoiceRuntime direct media fallback', () => {
 describe('VoiceRuntime relay during a direct attempt', () => {
   test('a standby relay producer preserves an in-flight direct session', async () => {
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
     const previous = config.webRtc.holepunchMediaEnabled;
     config.webRtc.holepunchMediaEnabled = true;
     try {
@@ -880,8 +993,16 @@ test.each([StreamKind.AUDIO, StreamKind.VIDEO, StreamKind.SCREEN])(
     const previous = config.webRtc.holepunchMediaEnabled;
     config.webRtc.holepunchMediaEnabled = true;
     const runtime = createRuntime();
-    runtime.addUser(1, { micMuted: false, soundMuted: false });
-    runtime.addUser(2, { micMuted: false, soundMuted: false });
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
     runtime.registerDirectMediaSubscriber(1, true);
     runtime.registerDirectMediaSubscriber(2, true);
     const producer = createProducerStub();

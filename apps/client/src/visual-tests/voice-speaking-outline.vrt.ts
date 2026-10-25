@@ -9,7 +9,6 @@ import { afterEach, expect, test, vi } from 'vitest';
 import '../index.css';
 
 const SUCCESS_BORDER = 'rgb(87, 209, 138)';
-const SUCCESS_SHADOW = 'rgb(87, 209, 138)';
 
 const speaking = vi.hoisted(() => ({ active: true, intensity: 4 }));
 
@@ -113,7 +112,7 @@ const voiceUser = {
 let root: Root | undefined;
 let host: HTMLDivElement | undefined;
 
-const render = async (showSpeakingOutline: boolean) => {
+const render = async (onPin = () => {}) => {
   localStorage.setItem('vite-ui-theme', 'dark');
   await i18n.changeLanguage('en');
   host = document.createElement('div');
@@ -132,10 +131,9 @@ const render = async (showSpeakingOutline: boolean) => {
           userId: 2,
           channelId: 2,
           cardId: 'user-2',
-          onPin: () => {},
+          onPin,
           onUnpin: () => {},
-          voiceUser,
-          showSpeakingOutline
+          voiceUser
         })
       )
     )
@@ -175,20 +173,19 @@ afterEach(() => {
 });
 
 test('the speaking highlight is an external ring around the card', async () => {
-  await render(true);
+  await render();
 
   const styles = getComputedStyle(tileElement());
 
   // the tile carries no border, the ring sits outside of it
   expect(styles.borderTopWidth).toBe('0px');
-  expect(styles.boxShadow).toContain(SUCCESS_SHADOW);
   expect(styles.boxShadow).toContain('2px');
   expect(styles.boxShadow).not.toContain('inset');
 });
 
 test('a silent participant keeps the plain card', async () => {
   speaking.active = false;
-  await render(true);
+  await render();
 
   const styles = getComputedStyle(tileElement());
 
@@ -196,27 +193,47 @@ test('a silent participant keeps the plain card', async () => {
   expect(styles.boxShadow).toBe('none');
 });
 
-test('the speaking highlight is dropped together with the hidden overlay chrome', async () => {
-  await render(false);
-
-  expect(getComputedStyle(tileElement()).boxShadow).toBe('none');
-});
-
-test('the ring keeps one width for every voice level', async () => {
+test('louder speech brightens the ring without changing its width or the card geometry', async () => {
   speaking.intensity = 1;
-  await render(true);
+  await render();
   const quiet = getComputedStyle(tileElement()).boxShadow;
+  const quietRect = tileElement().getBoundingClientRect().toJSON();
+  const ringAlpha = (shadow: string) => {
+    const color = shadow.match(/^(?:color|rgba?)\([^)]+\)/)?.[0];
+    if (!color) throw new Error(`missing ring color: ${shadow}`);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = color;
+    context.fillRect(0, 0, 1, 1);
+    return context.getImageData(0, 0, 1, 1).data[3];
+  };
 
   unmount();
 
   speaking.intensity = 4;
-  await render(true);
+  await render();
   const loud = getComputedStyle(tileElement()).boxShadow;
 
-  expect(quiet).toBe(loud);
+  expect(ringAlpha(loud)).toBeGreaterThan(ringAlpha(quiet));
+  expect(getComputedStyle(tileElement()).borderTopWidth).toBe('0px');
+  expect(tileElement().getBoundingClientRect().toJSON()).toEqual(quietRect);
   expect(loud).toContain('2px');
   // the avatar does not carry a second ring
   expect(getComputedStyle(avatarElement()).borderTopColor).not.toBe(
     SUCCESS_BORDER
   );
+});
+
+test('the lower name area opens the participant just like the center of the card', async () => {
+  let pinned = false;
+  await render(() => {
+    pinned = true;
+  });
+  const rect = tileElement().getBoundingClientRect();
+  const hit = document.elementFromPoint(rect.left + 20, rect.bottom - 12);
+  const pin = tileElement().querySelector('button[aria-label="Pin aria"]');
+  expect(hit).toBe(pin);
+  (hit as HTMLElement).click();
+  expect(pinned).toBe(true);
 });

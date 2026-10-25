@@ -3,6 +3,7 @@ import { describe, expect, spyOn, test } from 'bun:test';
 import type { Consumer, Producer, RtpParameters } from 'mediasoup/types';
 import { createMockContext } from '../../__tests__/context';
 import { getMockedToken, initTest } from '../../__tests__/helpers';
+import { getTestVoiceConnection } from '../../__tests__/voice-connection';
 import { getCurrentVoiceRuntime } from '../../helpers/get-current-voice-runtime';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
@@ -27,8 +28,16 @@ const videoParameters = (ssrc: number): RtpParameters => ({
 
 const join = async (ctxOverrides?: Partial<Context>) => {
   const runtime = new VoiceRuntime(2);
-  runtime.addUser(1, { micMuted: false, soundMuted: false });
-  runtime.addUser(2, { micMuted: false, soundMuted: false });
+  runtime.addUser(
+    1,
+    { micMuted: false, soundMuted: false },
+    getTestVoiceConnection(1)
+  );
+  runtime.addUser(
+    2,
+    { micMuted: false, soundMuted: false },
+    getTestVoiceConnection(2)
+  );
   await runtime.init();
   const { caller } = await initTest(1, undefined, {
     currentVoiceChannelId: 2,
@@ -227,7 +236,11 @@ describe('voice-only media policy', () => {
           await caller.voice.updateState({ voiceOnlyMode: false });
         } else {
           runtime.removeUser(1);
-          runtime.addUser(1, { micMuted: false, soundMuted: false });
+          runtime.addUser(
+            1,
+            { micMuted: false, soundMuted: false },
+            getTestVoiceConnection(1)
+          );
           await runtime.createConsumerTransport(1);
         }
         const resumed = await caller.voice.consume(input);
@@ -235,7 +248,9 @@ describe('voice-only media policy', () => {
         expect(consumer.id).toBe(resumed.consumerId);
         expect(consumer.closed).toBe(false);
         gate.release();
-        expect(await rejected).toMatchObject({ code: 'FORBIDDEN' });
+        expect(await rejected).toMatchObject({
+          code: transition === 'mode cycle' ? 'FORBIDDEN' : 'BAD_REQUEST'
+        });
         expect(runtime.getConsumer(1, 2, StreamKind.SCREEN)).toBe(consumer);
         expect(consumer.closed).toBe(false);
       } finally {

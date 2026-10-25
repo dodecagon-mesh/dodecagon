@@ -14,7 +14,8 @@ const updateVoiceStateRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
-    const { runtime, channelId } = await getCurrentVoiceRuntime(ctx);
+    const { runtime, channelId, assertCurrent } =
+      await getCurrentVoiceRuntime(ctx);
 
     const validatedInput = { ...input };
 
@@ -23,6 +24,7 @@ const updateVoiceStateRoute = protectedProcedure
       ctx.hasChannelPermission(channelId, ChannelPermission.WEBCAM),
       ctx.hasChannelPermission(channelId, ChannelPermission.SHARE_SCREEN)
     ]);
+    assertCurrent();
 
     if (!canSpeak) {
       delete validatedInput.micMuted;

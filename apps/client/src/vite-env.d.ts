@@ -39,6 +39,8 @@ declare module 'i18next' {
     defaultNS: 'common';
     resources: {
       audio: typeof import('./i18n/locales/en/audio.json');
+      'design-system': typeof import('./i18n/locales/en/design-system.json');
+      keybindings: typeof import('./i18n/locales/en/keybindings.json');
       common: typeof import('./locales/en/common.json');
       connect: typeof import('./locales/en/connect.json');
       disconnected: typeof import('./locales/en/disconnected.json');

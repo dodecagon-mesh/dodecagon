@@ -25,7 +25,7 @@ import { logger } from '../logger';
 import { eventBus } from '../plugins/event-bus';
 import { enqueueActivityLog } from '../queues/activity-log';
 import { appRouter } from '../routers';
-import { VoiceRuntime } from '../runtimes/voice';
+import { VoiceRuntime, type TVoiceConnection } from '../runtimes/voice';
 import { invariant } from './invariant';
 import { pubsub } from './pubsub';
 import type { Context } from './trpc';
@@ -35,6 +35,7 @@ let wss: WebSocketServer | undefined;
 const usersIpMap = new Map<number, string>();
 
 const userSockets = new Map<number, Set<WebSocket>>();
+const voiceConnections = new WeakMap<WebSocket, TVoiceConnection>();
 
 const trackUserSocket = (userId: number, ws: WebSocket) => {
   const sockets = userSockets.get(userId) ?? new Set<WebSocket>();
@@ -80,9 +81,23 @@ const createContext = async ({
   req,
   res: ws
 }: CreateWSSContextFnOptions): Promise<Context> => {
+  const voiceConnection: TVoiceConnection = {
+    closed:
+      ws?.readyState === WebSocket.CLOSING ||
+      ws?.readyState === WebSocket.CLOSED,
+    superseded: false
+  };
+  if (ws) voiceConnections.set(ws, voiceConnection);
   const { token } = info.connectionParams as TConnectionParams;
 
   const decodedUser = await getUserByToken(token);
+
+  if (!decodedUser) {
+    ws?.close(
+      DisconnectCode.AUTHENTICATION_FAILED,
+      'Invalid authentication token'
+    );
+  }
 
   invariant(decodedUser, {
     code: 'UNAUTHORIZED',
@@ -185,6 +200,7 @@ const createContext = async ({
     userId: decodedUser.id,
     handshakeHash: '',
     currentVoiceChannelId: undefined,
+    voiceConnection,
     locale: DEFAULT_LOCALE,
     hasPermission,
     needsPermission,
@@ -202,6 +218,24 @@ const createContext = async ({
 
 const handleSocketClose = async (ws: WebSocket) => {
   try {
+    const voiceConnection = voiceConnections.get(ws);
+    const voiceRuntime = ws.userId
+      ? VoiceRuntime.findRuntimeByUserId(ws.userId)
+      : undefined;
+    const ownsVoice =
+      voiceConnection &&
+      ws.userId &&
+      voiceRuntime?.ownsUser(ws.userId, voiceConnection);
+    if (voiceConnection) voiceConnection.closed = true;
+    if (ownsVoice && voiceRuntime && ws.userId) {
+      const sessionId = voiceRuntime.getSessionId(ws.userId)!;
+      voiceRuntime.removeUser(ws.userId);
+      pubsub.publish(ServerEvents.USER_LEAVE_VOICE, {
+        channelId: voiceRuntime.id,
+        userId: ws.userId,
+        sessionId
+      });
+    }
     const userId = ws.userId;
 
     // ignore connections that never authenticated through joinServer
@@ -218,18 +252,7 @@ const handleSocketClose = async (ws: WebSocket) => {
 
     const user = await getUserById(userId);
 
-    if (!user) return;
-
-    const voiceRuntime = VoiceRuntime.findRuntimeByUserId(user.id);
-
-    if (voiceRuntime) {
-      voiceRuntime.removeUser(user.id);
-
-      pubsub.publish(ServerEvents.USER_LEAVE_VOICE, {
-        channelId: voiceRuntime.id,
-        userId: user.id
-      });
-    }
+    if (!user || userSockets.has(userId)) return;
 
     usersIpMap.delete(user.id);
     pubsub.publish(ServerEvents.USER_LEAVE, user.id);

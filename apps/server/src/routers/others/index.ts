@@ -1,6 +1,9 @@
 import { t } from '../../utils/trpc';
 import { changeLogoRoute } from './change-logo';
-import { onServerSettingsUpdateRoute } from './events';
+import {
+  onServerSettingsUpdateRoute,
+  onServerUpdateStateRoute
+} from './events';
 import { getSettingsRoute } from './get-settings';
 import { getStorageSettingsRoute } from './get-storage-settings';
 import { getUpdateRoute } from './get-update';
@@ -19,6 +22,7 @@ export const othersRouter = t.router({
   changeLogo: changeLogoRoute,
   getSettings: getSettingsRoute,
   onServerSettingsUpdate: onServerSettingsUpdateRoute,
+  onServerUpdateState: onServerUpdateStateRoute,
   useSecretToken: useSecretTokenRoute,
   getStorageSettings: getStorageSettingsRoute,
   getUpdate: getUpdateRoute,

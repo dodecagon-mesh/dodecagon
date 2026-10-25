@@ -193,16 +193,18 @@ test('call chrome fades through opacity without delaying pointer dismissal', asy
   expect(getComputedStyle(toolbar).pointerEvents).toBe('none');
 });
 
-test('leaving the stage hides controls immediately and expands the presentation', async () => {
+test('leaving the stage hides controls without moving the presentation', async () => {
   await render();
   await reveal();
   const { toolbar, footer, share, stage } = elements();
   const before = footer.getBoundingClientRect().toJSON();
+  const mediaBefore = share.getBoundingClientRect().toJSON();
   stage.dispatchEvent(new PointerEvent('pointerleave'));
   await waitForRender();
   expect(getComputedStyle(footer).opacity).toBe('0');
   expect(getComputedStyle(toolbar).pointerEvents).toBe('none');
   expect(footer.getBoundingClientRect().toJSON()).toEqual(before);
+  expect(share.getBoundingClientRect().toJSON()).toEqual(mediaBefore);
   const target = page.elementLocator(share);
   await target.hover();
   await expect.poll(() => getComputedStyle(footer).opacity).toBe('1');
@@ -269,22 +271,18 @@ test('focused scrims follow controls through pointer and keyboard visibility', a
   }
 });
 
-test('visible presentation controls reserve a separate strip and hidden controls release it', async () => {
+test('participants remain visible and media geometry stays fixed when controls hide', async () => {
   await render();
-  const { share, participant, stage } = elements();
-  const hiddenHeight = share.getBoundingClientRect().height;
   await reveal();
-  const media = share.getBoundingClientRect();
-  const thumbnail = participant.getBoundingClientRect();
+  const { share, participant, stage } = elements();
+  const media = share.getBoundingClientRect().toJSON();
+  const thumbnail = participant.getBoundingClientRect().toJSON();
   expect(media.bottom).toBeLessThanOrEqual(thumbnail.top - 8);
-  expect(media.height).toBeLessThan(hiddenHeight);
   stage.dispatchEvent(new PointerEvent('pointerleave'));
   await waitForRender();
-  expect(share.getBoundingClientRect().height).toBe(hiddenHeight);
-  expect(
-    getComputedStyle(participant.parentElement!.parentElement!.parentElement!)
-      .opacity
-  ).toBe('0');
+  expect(share.getBoundingClientRect().toJSON()).toEqual(media);
+  expect(participant.getBoundingClientRect().toJSON()).toEqual(thumbnail);
+  expect(participant.checkVisibility({ checkOpacity: true })).toBe(true);
 });
 
 test('Tab reveals hidden controls and keeps disabled microphone settings keyboard reachable', async () => {

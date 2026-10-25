@@ -29,6 +29,7 @@ const joinVoiceRoute = rateLimitedProcedure(protectedProcedure, {
   .input(
     z.object({
       channelId: z.number(),
+      sessionId: z.uuid().default(() => crypto.randomUUID()),
       state: z.object({
         micMuted: z.boolean().default(false),
         soundMuted: z.boolean().default(false)
@@ -36,6 +37,8 @@ const joinVoiceRoute = rateLimitedProcedure(protectedProcedure, {
     })
   )
   .mutation(async ({ input, ctx }) => {
+    const previousRuntime = VoiceRuntime.findRuntimeByUserId(ctx.user.id);
+    const previousMember = previousRuntime?.getUser(ctx.user.id);
     await ctx.needsPermission(Permission.JOIN_VOICE_CHANNELS);
 
     const movedByModerator = hasVoiceMoveGrant(ctx.user.id, input.channelId);
@@ -70,11 +73,11 @@ const joinVoiceRoute = rateLimitedProcedure(protectedProcedure, {
       message: 'Cannot join a direct message channel as a voice channel'
     });
 
-    const userAlreadyInVoiceChannel = VoiceRuntime.findRuntimeByUserId(
-      ctx.user.id
-    );
-
-    invariant(!userAlreadyInVoiceChannel, {
+    invariant(!ctx.voiceConnection.closed && !ctx.voiceConnection.superseded, {
+      code: 'CONFLICT',
+      message: 'This voice connection is no longer active'
+    });
+    invariant(!previousRuntime?.ownsUser(ctx.user.id, ctx.voiceConnection), {
       code: 'BAD_REQUEST',
       message: 'User already in a voice channel'
     });
@@ -94,8 +97,37 @@ const joinVoiceRoute = rateLimitedProcedure(protectedProcedure, {
       code: 'INTERNAL_SERVER_ERROR',
       message: 'Voice runtime not found for this channel'
     });
+    const currentRuntime = VoiceRuntime.findRuntimeByUserId(ctx.user.id);
 
-    runtime.addUser(ctx.user.id, input.state);
+    invariant(
+      !ctx.voiceConnection.closed &&
+        !ctx.voiceConnection.superseded &&
+        (!currentRuntime ||
+          (currentRuntime === previousRuntime &&
+            currentRuntime.getUser(ctx.user.id) === previousMember)),
+      {
+        code: 'CONFLICT',
+        message: 'Voice membership changed while joining'
+      }
+    );
+    runtime.assertCanJoin();
+    const router = runtime.getRouter();
+    if (currentRuntime) {
+      const sessionId = currentRuntime.getSessionId(ctx.user.id)!;
+      currentRuntime.supersedeUser(ctx.user.id);
+      currentRuntime.removeUser(ctx.user.id);
+      ctx.pubsub.publish(ServerEvents.USER_LEAVE_VOICE, {
+        channelId: currentRuntime.id,
+        userId: ctx.user.id,
+        sessionId
+      });
+    }
+    runtime.addUser(
+      ctx.user.id,
+      input.state,
+      ctx.voiceConnection,
+      input.sessionId
+    );
 
     if (movedByModerator) consumeVoiceMoveGrant(ctx.user.id);
 
@@ -105,15 +137,15 @@ const joinVoiceRoute = rateLimitedProcedure(protectedProcedure, {
     ctx.pubsub.publish(ServerEvents.USER_JOIN_VOICE, {
       channelId: input.channelId,
       userId: ctx.user.id,
-      state
+      state,
+      sessionId: input.sessionId
     });
 
     logger.info('%s joined voice channel %s', ctx.user.name, channel.name);
 
-    const router = runtime.getRouter();
-
     return {
-      routerRtpCapabilities: router.rtpCapabilities
+      routerRtpCapabilities: router.rtpCapabilities,
+      sessionId: input.sessionId
     };
   });
 
