@@ -68,10 +68,20 @@ const test = base.extend<{ browser: Browser; page: Page }>({
 const loginAs = async (page: Page, identity: string, password: string) => {
   await page.goto('/');
   await waitForHydration(page);
-  await page.getByTestId(TestId.CONNECT_IDENTITY_INPUT).fill(identity);
+
+  const identityInput = page.getByTestId(TestId.CONNECT_IDENTITY_INPUT);
+  const serverView = page.getByTestId(TestId.SERVER_VIEW);
+
+  // a second page in the same context can already carry the session of the
+  // first one; there is nothing to submit then
+  await expect(identityInput.or(serverView)).toBeVisible();
+
+  if (!(await identityInput.isVisible())) return;
+
+  await identityInput.fill(identity);
   await page.getByTestId(TestId.CONNECT_PASSWORD_INPUT).fill(password);
   await page.getByTestId(TestId.CONNECT_BUTTON).click();
-  await page.getByTestId(TestId.SERVER_VIEW).waitFor();
+  await serverView.waitFor();
 };
 
 export { expect, loginAs, test, waitForHydration };

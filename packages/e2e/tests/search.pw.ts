@@ -14,7 +14,7 @@ test('search says when it is only showing the most recent matches', async ({
 }) => {
   await loginAs(page, 'testowner', 'password123');
 
-  await page.keyboard.press('ControlOrMeta+K');
+  await page.getByTestId(TestId.SEARCH_BUTTON).click();
 
   const input = page.getByTestId(TestId.SEARCH_INPUT);
 
