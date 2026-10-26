@@ -88,6 +88,33 @@ class TestStream {
   getAudioTracks = () => this.tracks.filter((track) => track.kind === 'audio');
 }
 
+const deliveredStats = (kind: string): RTCStatsReport =>
+  new Map([
+    [
+      `inbound-${kind}`,
+      {
+        id: `inbound-${kind}`,
+        timestamp: 1,
+        type: 'inbound-rtp',
+        kind,
+        mediaType: kind,
+        packetsReceived: 1,
+        framesDecoded: kind === 'video' ? 1 : undefined,
+        totalSamplesReceived: kind === 'audio' ? 1 : undefined,
+        jitterBufferEmittedCount: kind === 'audio' ? 1 : undefined
+      }
+    ]
+  ]) as unknown as RTCStatsReport;
+
+class TestReceiver {
+  constructor(
+    readonly track: MediaStreamTrack,
+    private readonly stats: Promise<RTCStatsReport>
+  ) {}
+
+  getStats = () => this.stats;
+}
+
 type TPeerPlan = {
   offer?: Promise<void>;
   answer?: Promise<void>;
@@ -112,6 +139,7 @@ class TestPeer extends EventTarget {
     codecs: RTCRtpCodec[];
   }[] = [];
   closeCount = 0;
+  receivers: TestReceiver[] = [];
 
   constructor(configuration: RTCConfiguration) {
     super();
@@ -206,14 +234,22 @@ class TestPeer extends EventTarget {
     this.dispatchEvent(new Event('connectionstatechange'));
   };
 
-  receive = (track: MediaStreamTrack) => {
+  receive = (
+    track: MediaStreamTrack,
+    stats = Promise.resolve(deliveredStats(track.kind))
+  ) => {
+    const receiver = new TestReceiver(track, stats);
+    this.receivers.push(receiver);
     const event = new Event('track');
     Object.defineProperties(event, {
       track: { value: track },
+      receiver: { value: receiver },
       streams: { value: [] }
     });
     this.dispatchEvent(event);
+    return receiver;
   };
+  getReceivers = () => [...this.receivers];
 
   close = () => {
     this.closeCount++;
@@ -329,6 +365,15 @@ type TDirectMediaFixture = {
   readonly failures: number;
 };
 
+type TDirectMediaObserver = {
+  onStream?: (userId: number, stream: MediaStream, kind: StreamKind) => void;
+  onRemoveStream?: (
+    userId: number,
+    kind: StreamKind,
+    stream: MediaStream
+  ) => void;
+};
+
 const fixture = (
   prepare: (
     peerId: number | undefined
@@ -336,7 +381,8 @@ const fixture = (
   send?: (sessionId: string, signal: TDirectMediaSignal) => Promise<void>,
   canReceive?: (userId: number) => boolean,
   onStopped?: (userId: number) => void,
-  canDefer?: () => boolean
+  canDefer?: () => boolean,
+  observer?: TDirectMediaObserver
 ): TDirectMediaFixture => {
   const sent: { sessionId: string; signal: TDirectMediaSignal }[] = [];
   const statuses: string[] = [];
@@ -356,9 +402,14 @@ const fixture = (
     },
     onStatus: (status) => statuses.push(status),
     onError: (error) => errors.push(error),
-    onStream: (userId, stream, kind) => streams.push({ userId, stream, kind }),
-    onRemoveStream: (userId, kind, stream) =>
-      removed.push({ userId, kind, stream })
+    onStream: (userId, stream, kind) => {
+      streams.push({ userId, stream, kind });
+      observer?.onStream?.(userId, stream, kind);
+    },
+    onRemoveStream: (userId, kind, stream) => {
+      observer?.onRemoveStream?.(userId, kind, stream);
+      removed.push({ userId, kind, stream });
+    }
   });
   subjects.push(subject);
   const start = (stream = capture().stream) =>
@@ -1263,8 +1314,54 @@ describe('DirectMedia incoming lifecycle', () => {
     expect(subject.streams).toHaveLength(0);
   });
 
-  test('ready requires connected plus a screen video track and received audio stays screen audio', async () => {
-    const subject = fixture(undefined, undefined, () => true);
+  test('screen reception keeps the relay bundle until both direct receivers deliver and restores it before retiring direct tracks', async () => {
+    type TScreenBundle = {
+      screen: MediaStream;
+      screenAudio: MediaStream;
+    };
+    const relayBundle: TScreenBundle = {
+      screen: new TestStream([
+        new TestTrack('video') as unknown as MediaStreamTrack
+      ]) as unknown as MediaStream,
+      screenAudio: new TestStream([
+        new TestTrack('audio') as unknown as MediaStreamTrack
+      ]) as unknown as MediaStream
+    };
+    const directStreams = new Map<StreamKind, MediaStream>();
+    const restoredBeforeRetirement: boolean[] = [];
+    const fallbackRpc = deferred<void>();
+    let directBundle: TScreenBundle | undefined;
+    let presentation = relayBundle;
+    const subject = fixture(
+      undefined,
+      async (_, signal) => {
+        if (signal.type === 'fallback') await fallbackRpc.promise;
+      },
+      () => true,
+      undefined,
+      undefined,
+      {
+        onStream: (_, stream, kind) => {
+          directStreams.set(kind, stream);
+          const screen = directStreams.get(StreamKind.SCREEN);
+          const screenAudio = directStreams.get(StreamKind.SCREEN_AUDIO);
+          if (!screen || !screenAudio) return;
+          directBundle = { screen, screenAudio };
+          presentation = directBundle;
+        },
+        onRemoveStream: () => {
+          if (presentation === relayBundle) return;
+          restoredBeforeRetirement.push(
+            [...directStreams.values()].every((stream) =>
+              stream
+                .getTracks()
+                .every((track) => track.readyState === 'live')
+            )
+          );
+          presentation = relayBundle;
+        }
+      }
+    );
     await subject.subject.handleSignal(
       event(
         'incoming',
@@ -1273,23 +1370,85 @@ describe('DirectMedia incoming lifecycle', () => {
       )
     );
     const peer = TestPeer.instances[0]!;
+    const audioInbound = {
+      id: 'audio',
+      timestamp: 1,
+      type: 'inbound-rtp',
+      kind: 'audio',
+      mediaType: 'audio',
+      packetsReceived: 0,
+      totalSamplesReceived: 0,
+      jitterBufferEmittedCount: 0
+    };
+    const videoInbound = {
+      id: 'video',
+      timestamp: 1,
+      type: 'inbound-rtp',
+      kind: 'video',
+      mediaType: 'video',
+      packetsReceived: 1,
+      framesDecoded: 0
+    };
+    const audio = new TestTrack('audio');
+    const video = new TestTrack('video');
+    peer.receive(
+      audio as unknown as MediaStreamTrack,
+      Promise.resolve(
+        new Map([['audio', audioInbound]]) as unknown as RTCStatsReport
+      )
+    );
+    peer.receive(
+      video as unknown as MediaStreamTrack,
+      Promise.resolve(
+        new Map([['video', videoInbound]]) as unknown as RTCStatsReport
+      )
+    );
     peer.connect();
     await flush();
+
+    expect(presentation).toBe(relayBundle);
     expect(subject.sent.map(({ signal }) => signal.type)).toEqual(['answer']);
-    const audio = new TestTrack('audio') as unknown as MediaStreamTrack;
-    const video = new TestTrack('video') as unknown as MediaStreamTrack;
-    peer.receive(audio);
+
+    videoInbound.framesDecoded = 1;
+    peer.connect();
     await flush();
+    expect(presentation).toBe(relayBundle);
     expect(subject.sent.map(({ signal }) => signal.type)).toEqual(['answer']);
-    peer.receive(video);
+
+    audioInbound.packetsReceived = 1;
+    peer.connect();
     await flush();
-    expect(subject.streams.map(({ kind }) => kind)).toEqual([
-      StreamKind.SCREEN_AUDIO,
-      StreamKind.SCREEN
+
+    expect(subject.sent.map(({ signal }) => signal.type)).toEqual([
+      'answer',
+      'ready'
     ]);
-    expect(subject.streams[0]!.stream.getTracks()).toEqual([audio]);
-    expect(subject.streams[1]!.stream.getTracks()).toEqual([video]);
-    expect(subject.statuses).toEqual([]);
+    expect(directBundle).toBeDefined();
+    expect(presentation).toBe(directBundle);
+    expect(directBundle).toEqual({
+      screen: directStreams.get(StreamKind.SCREEN),
+      screenAudio: directStreams.get(StreamKind.SCREEN_AUDIO)
+    });
+
+    nativeClosed.forEach((notify) => notify({ sessionId: 'incoming' }));
+    await flush();
+    expect(presentation).toBe(relayBundle);
+    expect(restoredBeforeRetirement).toEqual([true]);
+    expect(video.readyState).toBe('ended');
+    expect(audio.readyState).toBe('ended');
+    expect(subject.removed).toHaveLength(2);
+    expect(subject.removed.map(({ stream }) => stream)).toContain(
+      directStreams.get(StreamKind.SCREEN)
+    );
+    expect(subject.removed.map(({ stream }) => stream)).toContain(
+      directStreams.get(StreamKind.SCREEN_AUDIO)
+    );
+
+    const fallbackError = new Error('fallback delayed then rejected');
+    fallbackRpc.reject(fallbackError);
+    await flush();
+    expect(subject.errors).toContain(fallbackError);
+    expect(presentation).toBe(relayBundle);
   });
 
   test('incoming ready waits for answer send completion even if video and connection arrive first', async () => {
