@@ -1,7 +1,7 @@
 import { Dialog } from '@/components/dialogs/dialogs';
 import { UserAvatar } from '@/components/user-avatar';
 import { setModViewOpen } from '@/features/app/actions';
-import { openDialog } from '@/features/dialogs/actions';
+import { openOverlay } from '@/features/overlays/actions';
 import type { TAdminUser } from '@/features/server/admin/hooks';
 import { useUserRoles } from '@/features/server/hooks';
 import { useOwnUserId, useUserStatus } from '@/features/server/users/hooks';
@@ -44,7 +44,11 @@ const TableUser = memo(({ user, refetch }: TTableUserProps) => {
   }, [user.id]);
 
   const onDeleteClick = useCallback(() => {
-    openDialog(Dialog.DELETE_USER, { user, refetch });
+    openOverlay({
+      kind: 'dialog',
+      name: Dialog.DELETE_USER,
+      props: { user, refetch }
+    });
   }, [user, refetch]);
 
   return (

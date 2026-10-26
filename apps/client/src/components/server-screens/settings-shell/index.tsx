@@ -1,6 +1,5 @@
 import { useModViewOpen } from '@/features/app/hooks';
-import { requestConfirmation } from '@/features/dialogs/actions';
-import { useDialogInfo } from '@/features/dialogs/hooks';
+import { requestConfirmation } from '@/features/overlays/actions';
 import { usePreventExit } from '@/hooks/use-prevent-exit';
 import { cn } from '@/lib/utils';
 import { IconButton } from '@dodecagon/ui';
@@ -55,7 +54,6 @@ const SettingsShell = memo(
     );
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const { isOpen: isModViewOpen } = useModViewOpen();
-    const { isOpen: isDialogOpen } = useDialogInfo();
 
     const scrollRef = useRef<HTMLElement | null>(null);
     const sectionRefs = useRef(new Map<string, HTMLElement>());
@@ -213,8 +211,8 @@ const SettingsShell = memo(
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key !== 'Escape' || e.defaultPrevented) return;
 
-        // the topmost surface owns escape: dialogs, menus, and the mod view close themselves first
-        if (isModViewOpen || isDialogOpen) return;
+        // the topmost surface owns escape: the mod view and menus close themselves first
+        if (isModViewOpen) return;
         const eventPath = e.composedPath();
         const isMenuEscape = eventPath.some(
           (target) =>
@@ -228,7 +226,7 @@ const SettingsShell = memo(
       document.addEventListener('keydown', handleKeyDown);
 
       return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [handleClose, isModViewOpen, isDialogOpen]);
+    }, [handleClose, isModViewOpen]);
 
     return (
       <SettingsFormContext.Provider value={formSlot}>

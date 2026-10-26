@@ -1,10 +1,8 @@
 import { Dialog } from '@/components/dialogs/dialogs';
 import { ServerScreen } from '@/components/server-screens/screens';
 import { shortcutBindingsSelector } from '@/features/app/selectors';
-import { openDialog, toggleDialog } from '@/features/dialogs/actions';
-import { dialogInfoSelector } from '@/features/dialogs/selectors';
-import { openServerScreen } from '@/features/server-screens/actions';
-import { serverScreensInfoSelector } from '@/features/server-screens/selectors';
+import { openOverlay, toggleDialog } from '@/features/overlays/actions';
+import { overlaySelector } from '@/features/overlays/selectors';
 import { setDmsOpen } from '@/features/server/actions';
 import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
 import {
@@ -47,17 +45,12 @@ const ServerHotkeysController = memo(
           shortcut.action === 'mute' || shortcut.action === 'deafen';
         const settings = publicServerSettingsSelector(state);
         if (shortcut.action === 'search' && !settings?.enableSearch) return;
-        const dialog = dialogInfoSelector(state);
-        const screen = serverScreensInfoSelector(state);
+        const overlay = overlaySelector(state);
         const canToggleHelp =
           shortcut.action === 'help' &&
-          (!dialog.isOpen || dialog.openDialog === Dialog.KEYBOARD_SHORTCUTS);
-        if (
-          !isVoiceShortcut &&
-          !canToggleHelp &&
-          (dialog.isOpen || screen.isOpen)
-        )
-          return;
+          (overlay?.kind !== 'dialog' ||
+            overlay.name === Dialog.KEYBOARD_SHORTCUTS);
+        if (!isVoiceShortcut && !canToggleHelp && overlay) return;
         if (
           shortcut.action === 'members' &&
           event.target instanceof HTMLElement &&
@@ -74,11 +67,14 @@ const ServerHotkeysController = memo(
           return;
         }
         if (shortcut.action === 'settings') {
-          openServerScreen(ServerScreen.USER_SETTINGS);
+          openOverlay({
+            kind: 'serverScreen',
+            name: ServerScreen.USER_SETTINGS
+          });
           return;
         }
         if (shortcut.action === 'search') {
-          openDialog(Dialog.SEARCH);
+          openOverlay({ kind: 'dialog', name: Dialog.SEARCH });
           return;
         }
         if (shortcut.action === 'members') {

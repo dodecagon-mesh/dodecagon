@@ -105,13 +105,12 @@ mock.module('@/features/server/users/hooks', () => ({
   useUsers: () => users
 }));
 
-mock.module('@/features/dialogs/actions', () => ({
-  openDialog: () => undefined,
+mock.module('@/features/overlays/actions', () => ({
+  openOverlay: () => undefined,
   toggleDialog: () => undefined,
-  closeDialogs: () => undefined,
+  closeOverlay: () => undefined,
   requestConfirmation: async () => true,
-  requestTextInput: async () => null,
-  resetDialogs: () => undefined
+  requestTextInput: async () => null
 }));
 
 mock.module('@/lib/trpc', () => ({

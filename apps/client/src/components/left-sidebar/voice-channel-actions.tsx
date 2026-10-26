@@ -1,6 +1,6 @@
 import { ServerScreen } from '@/components/server-screens/screens';
 import { openVoiceChatSidebar } from '@/features/app/actions';
-import { openServerScreen } from '@/features/server-screens/actions';
+import { openOverlay } from '@/features/overlays/actions';
 import { useCan } from '@/features/server/hooks';
 import { Permission } from '@dodecagon/shared';
 import { IconButton } from '@dodecagon/ui';
@@ -47,7 +47,11 @@ const SettingsAction = memo(({ channelId }: TVoiceChannelActionsProps) => {
     (event: MouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
 
-      openServerScreen(ServerScreen.CHANNEL_SETTINGS, { channelId });
+      openOverlay({
+        kind: 'serverScreen',
+        name: ServerScreen.CHANNEL_SETTINGS,
+        props: { channelId }
+      });
     },
     [channelId]
   );

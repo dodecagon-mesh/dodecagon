@@ -17,7 +17,7 @@ import {
   useMessageSentSound,
   useNotificationSounds
 } from '@/features/app/hooks';
-import { openDialog } from '@/features/dialogs/actions';
+import { openOverlay } from '@/features/overlays/actions';
 import { Button, Switch } from '@dodecagon/ui';
 import { memo, type ReactNode, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -113,7 +113,7 @@ const Notifications = memo(() => {
   );
 
   const handleOpenSoundSettings = useCallback(() => {
-    openDialog(Dialog.SOUND_SETTINGS);
+    openOverlay({ kind: 'dialog', name: Dialog.SOUND_SETTINGS });
   }, []);
 
   return (

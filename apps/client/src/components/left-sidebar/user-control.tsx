@@ -1,6 +1,6 @@
 import { AudioSettingsMenu } from '@/components/audio-settings-menu';
 import { useShortcutHint } from '@/components/hotkeys-controller/use-shortcut-hint';
-import { openServerScreen } from '@/features/server-screens/actions';
+import { openOverlay } from '@/features/overlays/actions';
 import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
 import { useChannelCan } from '@/features/server/hooks';
 import { useOwnPublicUser } from '@/features/server/users/hooks';
@@ -94,7 +94,7 @@ const UserControl = memo(() => {
   const microphoneDisabled =
     !channelCan(ChannelPermission.SPEAK) || ownVoiceState.soundMuted;
   const handleSettingsClick = useCallback(() => {
-    openServerScreen(ServerScreen.USER_SETTINGS);
+    openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
   }, []);
 
   if (!ownPublicUser) return null;

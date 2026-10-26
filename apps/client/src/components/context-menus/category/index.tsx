@@ -1,6 +1,5 @@
 import { ServerScreen } from '@/components/server-screens/screens';
-import { requestConfirmation } from '@/features/dialogs/actions';
-import { openServerScreen } from '@/features/server-screens/actions';
+import { openOverlay, requestConfirmation } from '@/features/overlays/actions';
 import { useCategoryById } from '@/features/server/categories/hooks';
 import { useCan } from '@/features/server/hooks';
 import { getTRPCClient } from '@/lib/trpc';
@@ -50,7 +49,11 @@ const CategoryContextMenu = memo(
     }, [categoryId, t]);
 
     const onEditClick = useCallback(() => {
-      openServerScreen(ServerScreen.CATEGORY_SETTINGS, { categoryId });
+      openOverlay({
+        kind: 'serverScreen',
+        name: ServerScreen.CATEGORY_SETTINGS,
+        props: { categoryId }
+      });
     }, [categoryId]);
 
     if (!can(Permission.MANAGE_CATEGORIES)) {

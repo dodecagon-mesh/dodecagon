@@ -3,7 +3,7 @@ import {
   setModifierKeysHeldMap,
   togglePluginSlotDebug
 } from '@/features/app/actions';
-import { toggleDialog } from '@/features/dialogs/actions';
+import { toggleDialog } from '@/features/overlays/actions';
 import { memo, useCallback, useEffect } from 'react';
 import { isShortcutRecording } from './shortcuts';
 

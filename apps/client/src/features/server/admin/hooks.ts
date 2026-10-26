@@ -1,4 +1,4 @@
-import { requestConfirmation } from '@/features/dialogs/actions';
+import { requestConfirmation } from '@/features/overlays/actions';
 import { store } from '@/features/store';
 import { getTRPCClient, type TRouterOutputs } from '@/lib/trpc';
 import {

@@ -1,5 +1,5 @@
 import { ServerScreen } from '@/components/server-screens/screens';
-import { openServerScreen } from '@/features/server-screens/actions';
+import { openOverlay } from '@/features/overlays/actions';
 import { useCan } from '@/features/server/hooks';
 import { Permission, TestId } from '@dodecagon/shared';
 import { IconButton, Tooltip } from '@dodecagon/ui';
@@ -22,7 +22,7 @@ const ServerSettingsButton = memo(() => {
   const can = useCan();
 
   const onClick = useCallback(() => {
-    openServerScreen(ServerScreen.SERVER_SETTINGS);
+    openOverlay({ kind: 'serverScreen', name: ServerScreen.SERVER_SETTINGS });
   }, []);
 
   if (!can(SERVER_SETTINGS_PERMISSIONS)) {

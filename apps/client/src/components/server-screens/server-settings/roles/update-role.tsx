@@ -1,5 +1,5 @@
 import { useSettingsForm } from '@/components/server-screens/settings-shell/use-settings-form';
-import { requestConfirmation } from '@/features/dialogs/actions';
+import { requestConfirmation } from '@/features/overlays/actions';
 import { getTRPCClient } from '@/lib/trpc';
 import {
   getTrpcError,

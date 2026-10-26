@@ -1,5 +1,5 @@
 import { FileCard } from '@/components/channel-view/text/file-card';
-import { requestConfirmation } from '@/features/dialogs/actions';
+import { requestConfirmation } from '@/features/overlays/actions';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TFile } from '@dodecagon/shared';

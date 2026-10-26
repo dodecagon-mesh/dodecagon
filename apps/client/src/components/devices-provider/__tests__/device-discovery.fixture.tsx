@@ -13,8 +13,8 @@ mock.module('@/helpers/browser-logger', () => ({
   logVoice() {},
   logVoiceError() {}
 }));
-mock.module('@/features/server-screens/actions', () => ({
-  openServerScreen() {}
+mock.module('@/features/overlays/actions', () => ({
+  openOverlay() {}
 }));
 
 // Load after the DOM and i18n doubles: static imports initialize these modules too early.

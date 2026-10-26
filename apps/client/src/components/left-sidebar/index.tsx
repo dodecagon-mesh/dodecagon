@@ -3,7 +3,7 @@ import { Dialog } from '@/components/dialogs/dialogs';
 import { useShortcutHint } from '@/components/hotkeys-controller/use-shortcut-hint';
 import { PluginSlotRenderer } from '@/components/plugin-slot-renderer';
 import { ResizableSidebar } from '@/components/resizable-sidebar';
-import { openDialog } from '@/features/dialogs/actions';
+import { openOverlay } from '@/features/overlays/actions';
 import { setSelectedChannelId } from '@/features/server/channels/actions';
 import {
   usePublicServerSettings,
@@ -43,7 +43,7 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
   useFollowVoiceMove();
 
   const onSearchClick = useCallback(() => {
-    openDialog(Dialog.SEARCH);
+    openOverlay({ kind: 'dialog', name: Dialog.SEARCH });
   }, []);
 
   return (

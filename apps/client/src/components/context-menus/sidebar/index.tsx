@@ -1,5 +1,5 @@
 import { Dialog } from '@/components/dialogs/dialogs';
-import { openDialog } from '@/features/dialogs/actions';
+import { openOverlay } from '@/features/overlays/actions';
 import { useCan } from '@/features/server/hooks';
 import { Permission, TestId } from '@dodecagon/shared';
 import {
@@ -20,7 +20,7 @@ const SidebarContextMenu = memo(({ children }: TSidebarContextMenuProps) => {
   const can = useCan();
 
   const onAddCategoryClick = useCallback(() => {
-    openDialog(Dialog.CREATE_CATEGORY);
+    openOverlay({ kind: 'dialog', name: Dialog.CREATE_CATEGORY });
   }, []);
 
   if (!can(Permission.MANAGE_CATEGORIES)) {

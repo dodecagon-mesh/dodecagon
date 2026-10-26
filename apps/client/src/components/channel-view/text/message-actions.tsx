@@ -9,7 +9,7 @@ import {
 } from '@/components/tiptap-input/helpers';
 import { openThreadSidebar } from '@/features/app/actions';
 import { useIsShiftHeld } from '@/features/app/hooks';
-import { requestConfirmation } from '@/features/dialogs/actions';
+import { requestConfirmation } from '@/features/overlays/actions';
 import { useCustomEmojis } from '@/features/server/emojis/hooks';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission, PluginSlot } from '@dodecagon/shared';

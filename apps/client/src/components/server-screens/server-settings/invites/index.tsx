@@ -1,6 +1,6 @@
 import { Dialog } from '@/components/dialogs/dialogs';
 import { SettingsSection } from '@/components/server-screens/settings-shell/section';
-import { openDialog } from '@/features/dialogs/actions';
+import { openOverlay } from '@/features/overlays/actions';
 import { useAdminInvites } from '@/features/server/admin/hooks';
 import type { TJoinedInvite } from '@dodecagon/shared';
 import { LoadingCard, PaginatedList } from '@dodecagon/ui';
@@ -28,7 +28,12 @@ const Invites = memo(() => {
   );
 
   const onCreateInvite = useCallback(
-    () => openDialog(Dialog.CREATE_INVITE, { refetch }),
+    () =>
+      openOverlay({
+        kind: 'dialog',
+        name: Dialog.CREATE_INVITE,
+        props: { refetch }
+      }),
     [refetch]
   );
 

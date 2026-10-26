@@ -1,8 +1,7 @@
 import { Dialog } from '@/components/dialogs/dialogs';
 import { resetAllShortcutBindings } from '@/features/app/actions';
-import { openDialog, resetDialogs } from '@/features/dialogs/actions';
-import { dialogInfoSelector } from '@/features/dialogs/selectors';
-import { closeServerScreens } from '@/features/server-screens/actions';
+import { closeOverlay, openOverlay } from '@/features/overlays/actions';
+import { overlaySelector } from '@/features/overlays/selectors';
 import { setPublicServerSettings } from '@/features/server/actions';
 import {
   setCurrentVoiceChannelId,
@@ -64,8 +63,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   resetAllShortcutBindings();
-  resetDialogs();
-  closeServerScreens();
+  closeOverlay();
   updateOwnVoiceState({ micMuted: false, soundMuted: false });
   setSelectedChannelId(1);
   await expect
@@ -117,7 +115,7 @@ test('search shortcuts respect the server search setting', async () => {
     await userEvent.keyboard(
       '{Control>}k{/Control}{Control>}{Shift>}F{/Shift}{/Control}'
     );
-    expect(dialogInfoSelector(store.getState()).isOpen).toBe(false);
+    expect(overlaySelector(store.getState())).toBeUndefined();
   } finally {
     setPublicServerSettings(settings);
   }
@@ -265,16 +263,19 @@ test('composition, consumed events and unrelated modifier combinations stay unto
 });
 
 test('shortcuts do not replace an existing dialog or navigate behind it', async () => {
-  openDialog(Dialog.TEXT_INPUT, { title: 'Keep this dialog open' });
+  openOverlay({
+    kind: 'dialog',
+    name: Dialog.TEXT_INPUT,
+    props: { title: 'Keep this dialog open' }
+  });
   await expect
     .element(page.getByRole('heading', { name: 'Keep this dialog open' }))
     .toBeVisible();
   await userEvent.keyboard(
     '{Alt>}{ArrowDown}{/Alt}{Control>}/{/Control}{Control>}k{/Control}'
   );
-  expect(dialogInfoSelector(store.getState()).openDialog).toBe(
-    Dialog.TEXT_INPUT
-  );
+  const overlay = overlaySelector(store.getState());
+  expect(overlay?.name).toBe(Dialog.TEXT_INPUT);
   expect(selectedChannelIdSelector(store.getState())).toBe(1);
   await userEvent.keyboard('{Control>}{Shift>}M{/Shift}{/Control}');
   await expect.poll(() => voiceState().micMuted).toBe(true);
@@ -332,7 +333,7 @@ test('recorded microphone shortcut replaces the default and updates help and hin
     )
     .toBeVisible();
 
-  closeServerScreens();
+  closeOverlay();
   dispatchKey({ code: 'KeyM', key: 'M', ctrlKey: true, shiftKey: true });
   expect(voiceState().micMuted).toBe(false);
   dispatchKey({ code: 'KeyM', key: 'm', ctrlKey: true, altKey: true });
@@ -367,7 +368,7 @@ test('removing a shortcut disables its action and restoring the default makes it
       page.getByText('Shortcut for Toggle microphone removed.', { exact: true })
     )
     .toBeVisible();
-  closeServerScreens();
+  closeOverlay();
   dispatchKey({ code: 'KeyM', key: 'M', ctrlKey: true, shiftKey: true });
   expect(voiceState().micMuted).toBe(false);
 
@@ -385,7 +386,7 @@ test('removing a shortcut disables its action and restoring the default makes it
       })
     )
     .toBeVisible();
-  closeServerScreens();
+  closeOverlay();
   dispatchKey({ code: 'KeyM', key: 'M', ctrlKey: true, shiftKey: true });
   await expect.poll(() => voiceState().micMuted).toBe(true);
 });
@@ -404,7 +405,7 @@ test('recording rejects conflicts and debug keys without executing voice or debu
   for (const code of ['F4', 'F5', 'F9']) {
     const event = dispatchKey({ code, key: code });
     expect(event.defaultPrevented).toBe(true);
-    expect(dialogInfoSelector(store.getState()).isOpen).toBe(false);
+    expect(overlaySelector(store.getState())).toBeUndefined();
   }
   await expect.element(page.getByRole('alert')).toBeVisible();
   dispatchKey({
@@ -433,7 +434,7 @@ test('recording rejects conflicts and debug keys without executing voice or debu
   await expect
     .element(page.getByRole('heading', { name: 'User Settings', exact: true }))
     .toBeVisible();
-  closeServerScreens();
+  closeOverlay();
   dispatchKey({ code: 'KeyM', key: 'M', ctrlKey: true, shiftKey: true });
   await expect.poll(() => voiceState().micMuted).toBe(true);
 });
@@ -473,7 +474,7 @@ test('keyboard users can cancel capture with Tab and restore all defaults', asyn
   await expect
     .element(page.getByText('All default shortcuts restored.', { exact: true }))
     .toBeVisible();
-  closeServerScreens();
+  closeOverlay();
   dispatchKey({ code: 'KeyD', key: 'D', ctrlKey: true, shiftKey: true });
   await expect
     .poll(voiceState)

@@ -2,7 +2,7 @@ import { useDevices } from '@/components/devices-provider/hooks/use-devices';
 import { Dialog } from '@/components/dialogs/dialogs';
 import { UserAvatar } from '@/components/user-avatar';
 import { useVoiceStats } from '@/components/voice-provider/stats-context';
-import { openDialog } from '@/features/dialogs/actions';
+import { openOverlay } from '@/features/overlays/actions';
 import { useCurrentVoicePeers } from '@/features/server/hooks';
 import { formatBigNumber } from '@/helpers/format-big-number';
 import { cn } from '@/lib/utils';
@@ -205,7 +205,7 @@ const StatsPopover = memo(({ children }: StatsPopoverProps) => {
 
   const handleOpenDiagnostics = useCallback(() => {
     setIsOpen(false);
-    openDialog(Dialog.VOICE_DEBUG);
+    openOverlay({ kind: 'dialog', name: Dialog.VOICE_DEBUG });
   }, []);
 
   const handleToggleSimulcastLayers = useCallback(() => {

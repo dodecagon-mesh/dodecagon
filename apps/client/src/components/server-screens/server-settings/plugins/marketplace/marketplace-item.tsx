@@ -1,5 +1,5 @@
 import { Dialog } from '@/components/dialogs/dialogs';
-import { openDialog } from '@/features/dialogs/actions';
+import { openOverlay } from '@/features/overlays/actions';
 import { useDateLocale } from '@/hooks/use-date-locale';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
@@ -145,16 +145,24 @@ const MarketplaceItem = memo(
     }, [latestCompatibleVersion, plugin.id, t, refetchInstalled]);
 
     const onInstallClick = useCallback(() => {
-      openDialog(Dialog.PLUGIN_INSTALL_CONFIRM, {
-        pluginName: plugin.name,
-        onConfirm: performInstall
+      openOverlay({
+        kind: 'dialog',
+        name: Dialog.PLUGIN_INSTALL_CONFIRM,
+        props: {
+          pluginName: plugin.name,
+          onConfirm: performInstall
+        }
       });
     }, [plugin.name, performInstall]);
 
     const onUpdateClick = useCallback(() => {
-      openDialog(Dialog.PLUGIN_INSTALL_CONFIRM, {
-        pluginName: plugin.name,
-        onConfirm: performUpdate
+      openOverlay({
+        kind: 'dialog',
+        name: Dialog.PLUGIN_INSTALL_CONFIRM,
+        props: {
+          pluginName: plugin.name,
+          onConfirm: performUpdate
+        }
       });
     }, [plugin.name, performUpdate]);
 

@@ -1,5 +1,6 @@
 import { ControlsBar } from '@/components/channel-view/voice/controls-bar';
 import { UserControl } from '@/components/left-sidebar/user-control';
+import { ServerScreen } from '@/components/server-screens/screens';
 import { TestId } from '@dodecagon/shared';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -7,15 +8,16 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import '../index.css';
 
-const { state, toggleMic, toggleSound, saveDevices, openServerScreen } =
-  vi.hoisted(() => ({
+const { state, toggleMic, toggleSound, saveDevices, openOverlay } = vi.hoisted(
+  () => ({
     state: { canSpeak: true, soundMuted: false },
     toggleMic: vi.fn(),
     toggleSound: vi.fn(),
     saveDevices: vi.fn(),
-    openServerScreen: vi.fn()
-  }));
-vi.mock('@/features/server-screens/actions', () => ({ openServerScreen }));
+    openOverlay: vi.fn()
+  })
+);
+vi.mock('@/features/overlays/actions', () => ({ openOverlay }));
 vi.mock('@/features/server/channels/hooks', () => ({
   useCurrentVoiceChannelId: () => 1,
   useIsCurrentVoiceChannelSelected: () => true
@@ -126,8 +128,10 @@ test('audio controls open compact device settings on right click without togglin
   await page
     .getByRole('button', { name: 'voiceSettings', exact: true })
     .click();
-  expect(openServerScreen).toHaveBeenCalledWith(expect.anything(), {
-    initialEntryId: 'devices'
+  expect(openOverlay).toHaveBeenCalledWith({
+    kind: 'serverScreen',
+    name: ServerScreen.USER_SETTINGS,
+    props: { initialEntryId: 'devices' }
   });
   await page
     .getByRole('button', { name: 'deafen', exact: true })

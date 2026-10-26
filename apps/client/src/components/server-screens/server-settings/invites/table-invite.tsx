@@ -1,5 +1,5 @@
 import { RoleBadge } from '@/components/role-badge';
-import { requestConfirmation } from '@/features/dialogs/actions';
+import { requestConfirmation } from '@/features/overlays/actions';
 import { getUrlFromServer } from '@/helpers/get-file-url';
 import { useDateLocale } from '@/hooks/use-date-locale';
 import { getTRPCClient } from '@/lib/trpc';

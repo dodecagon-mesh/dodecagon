@@ -82,9 +82,9 @@ mock.module('@/features/server/hooks', () => ({
   useCan: () => () => mode !== 'reader'
 }));
 
-mock.module('@/features/dialogs/actions', () => ({
-  openDialog: (dialog: string) => {
-    records.dialogs.push(dialog);
+mock.module('@/features/overlays/actions', () => ({
+  openOverlay: (overlay: { name: string }) => {
+    records.dialogs.push(overlay.name);
   }
 }));
 

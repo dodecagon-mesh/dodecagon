@@ -126,8 +126,8 @@ mock.module('@/features/app/actions', () => ({
   setModViewOpen: () => undefined
 }));
 
-mock.module('@/features/dialogs/actions', () => ({
-  openDialog: () => undefined,
+mock.module('@/features/overlays/actions', () => ({
+  openOverlay: () => undefined,
   requestConfirmation: async () => true
 }));
 

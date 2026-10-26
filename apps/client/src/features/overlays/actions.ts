@@ -1,27 +1,26 @@
 import { Dialog } from '@/components/dialogs/dialogs';
-import type { TGenericObject } from '@dodecagon/shared';
 import { store } from '../store';
-import { dialogInfoSelector } from './selectors';
-import { dialogSliceActions } from './slice';
+import { overlaySelector } from './selectors';
+import { overlaySliceActions, type TOverlayInput } from './slice';
 
-export const openDialog = (dialog: Dialog, props?: TGenericObject) => {
-  store.dispatch(dialogSliceActions.openDialog({ dialog, props }));
+export const openOverlay = (overlay: TOverlayInput) => {
+  store.dispatch(overlaySliceActions.openOverlay(overlay));
+};
+
+export const closeOverlay = () => {
+  store.dispatch(overlaySliceActions.closeOverlay());
 };
 
 export const toggleDialog = (dialog: Dialog) => {
-  const { openDialog: current, isOpen } = dialogInfoSelector(store.getState());
+  const overlay = overlaySelector(store.getState());
 
-  if (isOpen && current === dialog) {
-    closeDialogs();
+  if (overlay?.kind === 'dialog' && overlay.name === dialog) {
+    closeOverlay();
 
     return;
   }
 
-  openDialog(dialog);
-};
-
-export const closeDialogs = () => {
-  store.dispatch(dialogSliceActions.closeDialogs());
+  openOverlay({ kind: 'dialog', name: dialog });
 };
 
 export const requestConfirmation = async ({
@@ -41,8 +40,12 @@ export const requestConfirmation = async ({
   onConfirm?: () => void;
   onCancel?: () => void;
 }): Promise<boolean> => {
-  return new Promise((resolve) => {
-    openDialog(Dialog.CONFIRM_ACTION, {
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+
+  openOverlay({
+    kind: 'dialog',
+    name: Dialog.CONFIRM_ACTION,
+    props: {
       title,
       message,
       confirmLabel,
@@ -50,16 +53,18 @@ export const requestConfirmation = async ({
       variant,
       onConfirm: () => {
         onConfirm?.();
-        closeDialogs();
+        closeOverlay();
         resolve(true);
       },
       onCancel: () => {
         onCancel?.();
-        closeDialogs();
+        closeOverlay();
         resolve(false);
       }
-    });
+    }
   });
+
+  return promise;
 };
 
 export const requestTextInput = async ({
@@ -79,8 +84,14 @@ export const requestTextInput = async ({
   allowEmpty?: boolean;
   autoClose?: boolean;
 }): Promise<string | undefined | null> => {
-  return new Promise((resolve) => {
-    openDialog(Dialog.TEXT_INPUT, {
+  const { promise, resolve } = Promise.withResolvers<
+    string | undefined | null
+  >();
+
+  openOverlay({
+    kind: 'dialog',
+    name: Dialog.TEXT_INPUT,
+    props: {
       title,
       message,
       confirmLabel,
@@ -89,7 +100,7 @@ export const requestTextInput = async ({
       type,
       onConfirm: (text: string) => {
         if (autoClose) {
-          closeDialogs();
+          closeOverlay();
         }
 
         resolve(text);
@@ -97,10 +108,8 @@ export const requestTextInput = async ({
       onCancel: () => {
         resolve(null);
       }
-    });
+    }
   });
-};
 
-export const resetDialogs = () => {
-  store.dispatch(dialogSliceActions.resetDialogs());
+  return promise;
 };

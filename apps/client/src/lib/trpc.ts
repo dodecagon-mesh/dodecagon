@@ -1,6 +1,5 @@
 import { resetApp } from '@/features/app/actions';
-import { resetDialogs } from '@/features/dialogs/actions';
-import { resetServerScreens } from '@/features/server-screens/actions';
+import { closeOverlay } from '@/features/overlays/actions';
 import {
   cancelReconnect,
   reconnectToServer,
@@ -158,9 +157,8 @@ const cleanup = ({ invalidateCredentials = true } = {}) => {
   }
   suppressOidcAutoRedirect();
 
-  resetServerScreens();
+  closeOverlay();
   resetServerState();
-  resetDialogs();
   resetApp();
 
   isCleaningUp = false;
