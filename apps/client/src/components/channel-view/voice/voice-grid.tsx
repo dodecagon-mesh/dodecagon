@@ -18,6 +18,11 @@ const OPTIMAL_CELL_ASPECT_RATIO = 1.5;
 
 const FOCUSED_AVATAR_CLASS = '[--voice-avatar-size:96px]';
 
+// the gap-3 and px-7/pt-4/pb-24 padding the grid tracks sit inside
+const GRID_GAP = 12;
+const GRID_PADDING_X = 56;
+const GRID_PADDING_Y = 112;
+
 const VoiceGrid = memo(
   ({
     children,
@@ -179,18 +184,23 @@ const VoiceGrid = memo(
 
     const rows = Math.ceil(regularCards.length / gridCols);
     const lastRowCount = regularCards.length % gridCols || gridCols;
-    const lastRowOffset =
-      lastRowCount < gridCols ? ((gridCols - lastRowCount) / 2) * 100 : 0;
     const lastRowStart = regularCards.length - lastRowCount;
 
+    const columnWidth = containerSize
+      ? Math.max(
+          0,
+          (containerSize.width - GRID_PADDING_X - (gridCols - 1) * GRID_GAP) /
+            gridCols
+        )
+      : 0;
     const tileWidth =
       tileAspectRatio && containerSize
         ? Math.max(
             0,
             Math.min(
-              (containerSize.width - 56 - (gridCols - 1) * 12) / gridCols,
-              // the vertical padding of the grid below
-              ((containerSize.height - 112 - (rows - 1) * 12) / rows) *
+              columnWidth,
+              ((containerSize.height - GRID_PADDING_Y - (rows - 1) * GRID_GAP) /
+                rows) *
                 tileAspectRatio
             )
           )
@@ -199,6 +209,13 @@ const VoiceGrid = memo(
       tileWidth !== undefined && tileAspectRatio
         ? tileWidth / tileAspectRatio
         : undefined;
+    // a percentage resolves against the card itself and drops one gap per
+    // column, so the shift has to travel whole column pitches
+    const lastRowOffset =
+      lastRowCount < gridCols
+        ? ((gridCols - lastRowCount) / 2) *
+          ((tileWidth ?? columnWidth) + GRID_GAP)
+        : 0;
 
     return (
       <div
@@ -218,8 +235,8 @@ const VoiceGrid = memo(
           <div
             key={isValidElement(card) ? card.key : index}
             style={
-              lastRowOffset && index >= lastRowStart
-                ? { transform: `translateX(${lastRowOffset}%)` }
+              lastRowOffset > 0 && index >= lastRowStart
+                ? { transform: `translateX(${lastRowOffset}px)` }
                 : undefined
             }
           >
