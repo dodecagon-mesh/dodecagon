@@ -65,6 +65,7 @@
   "failedLoadServerInfo": "加载服务器信息失败",
   "failedLeaveVoiceChannel": "离开语音频道失败",
   "failedUpdateMicrophoneState": "更新麦克风状态失败",
+  "failedRestoreMicrophone": "麦克风已断开连接，无法恢复。请检查所选的输入设备，然后关闭并重新打开麦克风。",
   "failedUpdateSoundState": "更新声音状态失败",
   "failedUpdateWebcamState": "更新摄像头状态失败",
   "failedUpdateScreenShareState": "更新屏幕共享状态失败",

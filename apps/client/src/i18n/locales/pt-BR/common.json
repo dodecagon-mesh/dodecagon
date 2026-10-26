@@ -63,6 +63,7 @@
   "failedLoadServerInfo": "Falha ao carregar as informações do servidor",
   "failedLeaveVoiceChannel": "Falha ao sair do canal de voz",
   "failedUpdateMicrophoneState": "Falha ao atualizar o estado do microfone",
+  "failedRestoreMicrophone": "O microfone foi desconectado e não pôde ser restaurado. Verifique o dispositivo de entrada selecionado e desligue e ligue o microfone novamente.",
   "failedUpdateSoundState": "Falha ao atualizar o estado do som",
   "failedUpdateWebcamState": "Falha ao atualizar o estado da webcam",
   "failedUpdateScreenShareState": "Falha ao atualizar o estado do compartilhamento de tela",

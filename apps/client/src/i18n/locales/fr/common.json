@@ -65,6 +65,7 @@
   "failedLoadServerInfo": "Échec du chargement des informations du serveur",
   "failedLeaveVoiceChannel": "Échec de la déconnexion du salon vocal",
   "failedUpdateMicrophoneState": "Échec de la mise à jour du microphone",
+  "failedRestoreMicrophone": "Le microphone s'est déconnecté et n'a pas pu être restauré. Vérifiez le périphérique d'entrée sélectionné, puis désactivez et réactivez le microphone.",
   "failedUpdateSoundState": "Échec de la mise à jour du son",
   "failedUpdateWebcamState": "Échec de la mise à jour de la caméra",
   "failedUpdateScreenShareState": "Échec de la mise à jour du partage d’écran",

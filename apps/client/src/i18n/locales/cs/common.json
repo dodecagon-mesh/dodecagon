@@ -65,6 +65,7 @@
   "failedLoadServerInfo": "Načtení informací o serveru se nezdařilo",
   "failedLeaveVoiceChannel": "Opuštění hlasového kanálu se nezdařilo",
   "failedUpdateMicrophoneState": "Aktualizace stavu mikrofonu se nezdařila",
+  "failedRestoreMicrophone": "Mikrofon se odpojil a nepodařilo se jej obnovit. Zkontrolujte zvolené vstupní zařízení a poté mikrofon vypněte a znovu zapněte.",
   "failedUpdateSoundState": "Aktualizace stavu zvuku se nezdařila",
   "failedUpdateWebcamState": "Aktualizace stavu kamery se nezdařila",
   "failedUpdateScreenShareState": "Aktualizace sdílení obrazovky se nezdařila",

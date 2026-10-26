@@ -150,6 +150,8 @@
   "allowNewUsersDesc": "Permet à quiconque de s'inscrire et de rejoindre votre serveur. Si désactivé, seuls les utilisateurs que vous invitez peuvent rejoindre.",
   "pluginsLabel": "Autoriser les plugins",
   "pluginsDesc": "Activez ou désactivez les extensions pour votre serveur.",
+  "simulcastLabel": "Simulcast",
+  "simulcastDesc": "Permet aux utilisateurs d'envoyer plusieurs couches de qualité vidéo afin que les destinataires puissent s'adapter aux connexions plus faibles. Cela augmentera la bande passante et l'utilisation du processeur sur le serveur, mais peut améliorer l'expérience des utilisateurs sur des connexions plus lentes.",
   "directMessagesEnabledLabel": "Autoriser les messages privés",
   "directMessagesEnabledDesc": "Permet aux utilisateurs d'envoyer des messages privés entre eux. Si désactivé, les utilisateurs ne peuvent communiquer que dans les caneaux.",
   "searchEnabledLabel": "Activer la recherche sur le serveur",
