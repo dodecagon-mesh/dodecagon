@@ -229,7 +229,8 @@ export const MessageHistory = memo(
       scrollMargin: compact ? 0 : 24,
       anchorTo: 'end',
       followOnAppend: true,
-      scrollEndThreshold: 120,
+      // release bottom lock as soon as the reader scrolls into history
+      scrollEndThreshold: 1,
       overscan: 8,
       directDomUpdates: true,
       directDomUpdatesMode: 'position'

@@ -12,6 +12,7 @@ import { StrictMode, createElement, createRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { I18nextProvider } from 'react-i18next';
 import { expect, test } from 'vitest';
+import { page } from 'vitest/browser';
 import '../index.css';
 
 const messages = (start: number, count: number): TJoinedMessage[] =>
@@ -192,6 +193,27 @@ for (const compact of [false, true]) {
       expect(
         view.host.querySelectorAll('[data-message-id]').length
       ).toBeLessThan(100);
+    } finally {
+      view.close();
+    }
+  });
+}
+
+for (const compact of [false, true]) {
+  test(`a small upward scroll releases ${compact ? 'thread' : 'channel'} bottom lock before late media resize`, async () => {
+    const view = await fixture(messages(1, 100), compact);
+    try {
+      await page.elementLocator(view.container).wheel({ delta: { y: -60 } });
+      await expect.poll(view.fromBottom).toBeGreaterThanOrEqual(59);
+      const before = readVisibleAnchor(view.host, view.container);
+      const last = view.host.querySelector<HTMLElement>(
+        '[data-message-id="100"]'
+      )!;
+      last.style.minHeight = '450px';
+      await settle();
+      const after = readVisibleAnchor(view.host, view.container);
+      expect(after.id).toBe(before.id);
+      expect(Math.abs(after.offset - before.offset)).toBeLessThanOrEqual(2);
     } finally {
       view.close();
     }
