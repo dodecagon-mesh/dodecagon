@@ -11,7 +11,11 @@ import { z } from 'zod';
 import { config } from '../../config';
 import { getDirectMediaRuntime } from '../../helpers/get-direct-media-runtime';
 import { VoiceRuntime } from '../../runtimes/voice';
-import { protectedProcedure, rateLimitedProcedure } from '../../utils/trpc';
+import {
+  eventSubscription,
+  protectedProcedure,
+  rateLimitedProcedure
+} from '../../utils/trpc';
 
 type TVoiceProducerEvent = {
   channelId: number;
@@ -30,55 +34,32 @@ type TScreenConsumerStartedEvent = {
 };
 
 // these events are broadcast to ALL users (for UI population in the sidebar)
-const onUserJoinVoiceRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.USER_JOIN_VOICE);
-  }
-);
-
-const onUserLeaveVoiceRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.USER_LEAVE_VOICE);
-  }
-);
-
-const onUserUpdateVoiceStateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.USER_VOICE_STATE_UPDATE);
-  }
+const onUserJoinVoiceRoute = eventSubscription(ServerEvents.USER_JOIN_VOICE);
+const onUserLeaveVoiceRoute = eventSubscription(ServerEvents.USER_LEAVE_VOICE);
+const onUserUpdateVoiceStateRoute = eventSubscription(
+  ServerEvents.USER_VOICE_STATE_UPDATE
 );
 
 // broadcast too: reactions render on the voice cards of whichever channel the user is
 // looking at, which is not necessarily the one they are connected to
-const onUserVoiceReactionRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.USER_VOICE_REACTION);
-  }
+const onUserVoiceReactionRoute = eventSubscription(
+  ServerEvents.USER_VOICE_REACTION
 );
 
-const onUserVoiceMovedRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.user.id, ServerEvents.USER_VOICE_MOVED);
-  }
+const onUserVoiceMovedRoute = eventSubscription(
+  ServerEvents.USER_VOICE_MOVED,
+  'caller'
 );
 
 // these events are broadcast to ALL users (for external stream UI in the sidebar)
-const onVoiceAddExternalStreamRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.VOICE_ADD_EXTERNAL_STREAM);
-  }
+const onVoiceAddExternalStreamRoute = eventSubscription(
+  ServerEvents.VOICE_ADD_EXTERNAL_STREAM
 );
-
-const onVoiceUpdateExternalStreamRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM);
-  }
+const onVoiceUpdateExternalStreamRoute = eventSubscription(
+  ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM
 );
-
-const onVoiceRemoveExternalStreamRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.VOICE_REMOVE_EXTERNAL_STREAM);
-  }
+const onVoiceRemoveExternalStreamRoute = eventSubscription(
+  ServerEvents.VOICE_REMOVE_EXTERNAL_STREAM
 );
 
 // these events are channel-scoped (only sent to users in the same voice channel)

@@ -1,35 +1,22 @@
 import { ServerEvents } from '@dodecagon/shared';
-import { protectedProcedure } from '../../utils/trpc';
+import { eventSubscription } from '../../utils/trpc';
 
-const onMessageDeleteRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.MESSAGE_DELETE);
-  }
+const onMessageDeleteRoute = eventSubscription(
+  ServerEvents.MESSAGE_DELETE,
+  'caller'
 );
-
-const onMessageUpdateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.MESSAGE_UPDATE);
-  }
+const onMessageUpdateRoute = eventSubscription(
+  ServerEvents.MESSAGE_UPDATE,
+  'caller'
 );
-
-const onMessageRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.NEW_MESSAGE);
-});
-
-const onMessageTypingRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.MESSAGE_TYPING);
-  }
+const onMessageRoute = eventSubscription(ServerEvents.NEW_MESSAGE, 'caller');
+const onMessageTypingRoute = eventSubscription(
+  ServerEvents.MESSAGE_TYPING,
+  'caller'
 );
-
-const onThreadReplyCountUpdateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(
-      ctx.userId,
-      ServerEvents.THREAD_REPLY_COUNT_UPDATE
-    );
-  }
+const onThreadReplyCountUpdateRoute = eventSubscription(
+  ServerEvents.THREAD_REPLY_COUNT_UPDATE,
+  'caller'
 );
 
 export {

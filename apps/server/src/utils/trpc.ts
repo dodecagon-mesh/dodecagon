@@ -2,6 +2,7 @@ import {
   ChannelPermission,
   UserStatus,
   type Permission,
+  type ServerEvents,
   type TLocale,
   type TUser
 } from '@dodecagon/shared';
@@ -158,4 +159,25 @@ const protectedProcedure = t.procedure
 
 const publicProcedure = t.procedure.use(timingMiddleware).use(errorMiddleware);
 
-export { protectedProcedure, publicProcedure, rateLimitedProcedure, t };
+// a subscription that forwards one realtime event. `scope` picks who may receive
+// it: everyone, or only the caller. The route name is the contract the client
+// subscribes to, so it stays declared at the call site.
+const eventSubscription = <TEvent extends ServerEvents>(
+  event: TEvent,
+  scope: 'everyone' | 'caller' = 'everyone'
+) =>
+  protectedProcedure.subscription(({ ctx }) => {
+    if (scope === 'caller') {
+      return ctx.pubsub.subscribeFor(ctx.userId, event);
+    }
+
+    return ctx.pubsub.subscribe(event);
+  });
+
+export {
+  eventSubscription,
+  protectedProcedure,
+  publicProcedure,
+  rateLimitedProcedure,
+  t
+};
