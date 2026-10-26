@@ -15,6 +15,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # the version check runs on its own, without needs, so a merge that forgot to
+  # bump package.json fails in seconds instead of after the whole pipeline
+  version-check:
+    name: Version Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Get new version
+        id: get_version
+        run: echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Fail if version is already released
+        run: |
+          TAG="v${{ steps.get_version.outputs.version }}"
+          git fetch --tags --force origin
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Tag $TAG already exists. Bump package.json version in the PR to release." >&2
+            exit 1
+          fi
+
   # `ci` and `e2e` are reusable workflow calls; `timeout-minutes` is not a
   # supported keyword there. Their timeouts live in the called workflows
   # (ci.yml: 20, e2e.yml: 20 per shard).
@@ -25,7 +48,7 @@ jobs:
     uses: ./.github/workflows/e2e.yml
 
   build-and-publish:
-    needs: [ci, e2e]
+    needs: [version-check, ci, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -40,15 +63,6 @@ jobs:
       - name: Get new version
         id: get_version
         run: echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
-
-      - name: Fail if version is already released
-        run: |
-          TAG="v${{ steps.get_version.outputs.version }}"
-          git fetch --tags --force origin
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            echo "Tag $TAG already exists. Bump package.json version in the PR to release." >&2
-            exit 1
-          fi
 
       - name: Get container image name
         id: get_image
