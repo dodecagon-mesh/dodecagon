@@ -27,12 +27,16 @@ export enum MessageNodeType {
   EMOJI = 'emoji'
 }
 
+// RFC 6455 allows 1000-1003, 1007-1011 and 3000-4999 on the wire. A code above
+// 4999 is not a legal close code: bun 1.4.4 makes the close throw and the frame
+// never leaves, so the reason never reaches the browser. keep every value here
+// inside the private-use range.
 export enum DisconnectCode {
   UNEXPECTED = 1006,
   AUTHENTICATION_FAILED = 4001,
-  KICKED = 40000,
-  BANNED = 40001,
-  SERVER_SHUTDOWN = 40002
+  KICKED = 4002,
+  BANNED = 4003,
+  SERVER_SHUTDOWN = 4004
 }
 
 export const MAX_USER_NAME_LENGTH = 24;
