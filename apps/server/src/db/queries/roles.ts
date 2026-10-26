@@ -62,31 +62,37 @@ const getUserRoleIds = async (userId: number): Promise<number[]> => {
   return userRoleRecords.map((ur) => ur.roleId);
 };
 
-// server-level permission check for an arbitrary user (the context's
-// hasPermission is bound to the caller). Mirrors channelUserCan's shape:
-// owner short-circuit + a single lookup over the user's roles.
+// the one server-level permission check. the request context, the upload route
+// and the plugin bridge all answer this question through here, so a change to
+// the rule lands in one place. it takes one permission or several, and several
+// means the user needs all of them.
 const userCan = async (
   userId: number,
-  permission: Permission
+  permission: Permission | Permission[]
 ): Promise<boolean> => {
   const roleIds = await getUserRoleIds(userId);
 
   if (roleIds.includes(OWNER_ROLE_ID)) return true;
   if (roleIds.length === 0) return false;
 
-  const match = await db
+  const wanted = Array.isArray(permission) ? permission : [permission];
+
+  if (wanted.length === 0) return true;
+
+  const granted = await db
     .select({ permission: rolePermissions.permission })
     .from(rolePermissions)
     .where(
       and(
         inArray(rolePermissions.roleId, roleIds),
-        eq(rolePermissions.permission, permission)
+        inArray(rolePermissions.permission, wanted)
       )
     )
-    .limit(1)
-    .get();
+    .all();
 
-  return !!match;
+  const grantedSet = new Set(granted.map((row) => row.permission));
+
+  return wanted.every((entry) => grantedSet.has(entry));
 };
 
 const getUserRoles = async (userId: number): Promise<TJoinedRole[]> => {
