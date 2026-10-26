@@ -8,6 +8,10 @@ add the smallest thing that works, don't introduce unneeded abstractions or depe
 single use case, only if absolutely necessary. If you find yourself writing a lot of new code, check if it can be
 done with existing helpers or patterns first.
 
+**Treat a stopper as a question, not an obstacle.** When a check, a test or a tool fails,
+find the contract it broke before touching anything around it, and a version pin, retry,
+cache clear, skip or environment override only counts once the cause is named.
+
 ## Architecture
 
 Bun workspaces monorepo. `bun install` at the root, `./start.sh` (tmux) or `bun dev` in
