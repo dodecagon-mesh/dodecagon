@@ -5,8 +5,9 @@ https://github.com/dodecagon-mesh/dodecagon/blob/master/CONTRIBUTING.md
 
 PRs that do not follow it may be closed without review. The ones people miss most:
 
-  - the PR must target the `development` branch
-  - title: `feat|fix|chore: short description`
+  - the PR must target the `master` branch
+  - title: `feat|fix|chore(DOD-<id>): short description`
+  - push the branch with `git push -u origin HEAD` before signing off
 
 Everything in these comment blocks is invisible in the submitted pull request,
 so there is no need to delete them.
@@ -18,10 +19,9 @@ so there is no need to delete them.
 
 ## Checklist
 
-- [ ] Targets the `development` branch (or `main` only for a release merge)
+- [ ] Targets the `master` branch
 - [ ] Covers one feature or fix, not several
-- [ ] `bun run format:check`, `bun run check-types`, `bun run lint` pass
-- [ ] `bun run test` passes
+- [ ] `bun run signoff` passed and posted `signoff/build` and `signoff/e2e`
 - [ ] Tests added or updated where the change needed them
 
 ## Additional Context

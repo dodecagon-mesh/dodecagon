@@ -135,7 +135,7 @@ Quality and correctness always come first.
 
 ## CI
 
-Make sure all checks are passing when you submit your PR. This includes linting, formatting, and tests.
+Make sure all checks are passing when you submit your PR. This includes linting, formatting, and tests. In this fork the checks run locally and are published with `bun run signoff`; the sign-off statuses, not the hosted workflows, gate the merge. See [Fork workflow](#fork-workflow-dodecagon-meshdodecagon).
 
 ## Unit and Integration Tests
 
@@ -149,5 +149,9 @@ This fork has a single branch, `master`. Upstream rules above still apply to cod
 - `agent/<task>` or `feat/<task>`: one change per branch, PR into `master`.
 - Release: a merge into `master` runs `.github/workflows/release.yml`. The version comes from
   `package.json`. The workflow fails if the tag already exists, so bump the version in the PR.
-- Before opening a PR: `bun run format:check`, `bun run check-types`, `bun run lint`,
-  `bun run test`. Add tests for new behaviour.
+- Before opening a PR: push the branch with `git push -u origin HEAD`, then run
+  `bun run signoff`. It runs the build, unit, integration and E2E checks under the pinned
+  Bun 1.4.3 and posts the required `signoff/build` and `signoff/e2e` statuses. Install the
+  extension once with `gh extension install basecamp/gh-signoff`. GitHub Actions still runs
+  but does not block the merge. Any new commit invalidates the sign-off, so rerun the command.
+  Add tests for new behaviour.
