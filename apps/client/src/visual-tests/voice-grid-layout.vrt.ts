@@ -28,7 +28,12 @@ const cards = ['share', 'one', 'two', 'three'].map((id) =>
   )
 );
 
-const render = async (pinnedCardId?: string, participantsHidden = false) => {
+const render = async (
+  pinnedCardId?: string,
+  participantsHidden = false,
+  gridCards = cards,
+  tileAspectRatio: number | undefined = 16 / 9
+) => {
   if (!host) {
     host = document.createElement('div');
     host.style.cssText =
@@ -39,10 +44,10 @@ const render = async (pinnedCardId?: string, participantsHidden = false) => {
   root!.render(
     createElement(VoiceGrid, {
       pinnedCardId,
-      tileAspectRatio: 16 / 9,
+      tileAspectRatio,
       participantsHidden,
       onToggleParticipants: () => {},
-      children: cards
+      children: gridCards
     })
   );
   await new Promise<void>((resolve) =>
@@ -71,6 +76,37 @@ test('grid continues measuring after pinning, resizing and unpinning', async () 
   await expect.poll(columns).toBe(1);
   host!.style.width = '1292px';
   await expect.poll(columns).toBe(2);
+});
+
+test('the last partial row centers on the column pitch', async () => {
+  const sevenCards = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id) =>
+    createElement(
+      'div',
+      {
+        key: id,
+        'data-card': id,
+        style: {
+          width: '100%',
+          height: '100%',
+          minHeight: 90,
+          background: 'gray'
+        }
+      },
+      id
+    )
+  );
+
+  for (const tileAspectRatio of [16 / 9, undefined]) {
+    await render(undefined, false, sevenCards, tileAspectRatio);
+    await expect.poll(columns).toBe(3);
+    const rects = Array.from(host!.querySelectorAll('[data-card]'), (tile) =>
+      tile.getBoundingClientRect()
+    );
+    // the seventh card owns the middle column instead of the gutter before it,
+    // in both the measured tile grid and the 1fr one
+    expect(rects[6].left).toBeCloseTo(rects[1].left, 1);
+    expect(rects[6].width).toBeCloseTo(rects[1].width, 1);
+  }
 });
 
 test('pinned participants keep the discord tile size', async () => {
