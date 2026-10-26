@@ -150,6 +150,8 @@
   "allowNewUsersDesc": "允许任何人注册并加入您的服务器。若禁用，则只有您邀请的用户才能加入。",
   "pluginsLabel": "允许插件",
   "pluginsDesc": "为您的服务器启用或禁用插件。",
+  "simulcastLabel": "Simulcast",
+  "simulcastDesc": "允许用户发送多个视频质量层，让接收方能够适应较弱的连接。这会增加服务器的带宽和 CPU 占用，但可以改善连接较慢用户的体验。",
   "directMessagesEnabledLabel": "允许私信",
   "directMessagesEnabledDesc": "允许用户互相发送私信。若禁用，用户只能在频道中通信。",
   "searchEnabledLabel": "启用服务器搜索",

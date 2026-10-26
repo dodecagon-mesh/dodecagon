@@ -150,6 +150,8 @@
   "allowNewUsersDesc": "Permite que cualquiera se registre y se una a tu servidor. Si está desactivado, solo los usuarios que invites podrán unirse.",
   "pluginsLabel": "Permitir plugins",
   "pluginsDesc": "Habilita o deshabilita plugins para tu servidor.",
+  "simulcastLabel": "Simulcast",
+  "simulcastDesc": "Permite que los usuarios envíen varias capas de calidad de vídeo para que los receptores puedan adaptarse a conexiones más débiles. Aumentará el ancho de banda y el uso de CPU en el servidor, pero puede mejorar la experiencia de los usuarios con conexiones más lentas.",
   "directMessagesEnabledLabel": "Permitir mensajes directos",
   "directMessagesEnabledDesc": "Permite a los usuarios enviarse mensajes directos entre sí. Si está desactivado, los usuarios solo pueden comunicarse en los canales.",
   "searchEnabledLabel": "Activar búsqueda en el servidor",

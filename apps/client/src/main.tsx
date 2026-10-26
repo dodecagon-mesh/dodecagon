@@ -13,10 +13,19 @@ import { AutoLoginController } from './components/routing/auto-login-controller.
 import { AppScreens } from './components/routing/screens.tsx';
 import { ServerScreensProvider } from './components/server-screens/index.tsx';
 import { ThemeProvider } from './components/theme-provider/index.tsx';
+import { useTheme } from './components/theme-provider/use-theme.ts';
 import { loadApp } from './features/app/actions.ts';
 import { LocalStorageKey } from './helpers/storage.ts';
 import { useStrictEffect } from './hooks/use-strict-effect.ts';
 import './index.css';
+
+// the toast has to follow the theme the user picked, and only the app knows it,
+// so the mode is resolved here instead of inside packages/ui
+const AppToaster = () => {
+  const { resolvedTheme } = useTheme();
+
+  return <Toaster theme={resolvedTheme.mode} />;
+};
 
 const Shell = ({ children }: { children?: React.ReactNode }) => {
   // the app is only loaded in the browser, the server hands the screen of the
@@ -32,7 +41,7 @@ const Shell = ({ children }: { children?: React.ReactNode }) => {
     >
       <GlobalErrorBoundary>
         <DebugInfo />
-        <Toaster />
+        <AppToaster />
         <StoreDebug />
         <HotkeysController />
         <PluginsController />

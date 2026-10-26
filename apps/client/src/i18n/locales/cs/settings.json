@@ -150,6 +150,8 @@
   "allowNewUsersDesc": "Povolit komukoli zaregistrovat se a připojit k vašemu serveru. Pokud je tato možnost zakázána, mohou se připojit pouze uživatelé, které pozvete.",
   "pluginsLabel": "Povolit pluginy",
   "pluginsDesc": "Povolit nebo zakázat rozšíření pro váš server.",
+  "simulcastLabel": "Simulcast",
+  "simulcastDesc": "Umožněte uživatelům odesílat více vrstev kvality videa, aby se příjemci mohli přizpůsobit slabšímu připojení. Zvýší to přenos dat a zatížení procesoru serveru, ale může zlepšit zážitek uživatelům s pomalejším připojením.",
   "directMessagesEnabledLabel": "Povolit přímé zprávy",
   "directMessagesEnabledDesc": "Umožnit uživatelům posílat si navzájem přímé zprávy. Pokud je tato možnost zakázána, uživatelé mohou komunikovat pouze v kanálech.",
   "searchEnabledLabel": "Povolit hledání na serveru",

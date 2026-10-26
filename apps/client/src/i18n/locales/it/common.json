@@ -65,6 +65,7 @@
   "failedLoadServerInfo": "Impossibile caricare le informazioni del server",
   "failedLeaveVoiceChannel": "Impossibile uscire dal canale vocale",
   "failedUpdateMicrophoneState": "Impossibile aggiornare lo stato del microfono",
+  "failedRestoreMicrophone": "Il microfono si è disconnesso e non è stato possibile ripristinarlo. Controlla il dispositivo di input selezionato, poi disattiva e riattiva il microfono.",
   "failedUpdateSoundState": "Impossibile aggiornare lo stato dell’audio",
   "failedUpdateWebcamState": "Impossibile aggiornare lo stato della webcam",
   "failedUpdateScreenShareState": "Impossibile aggiornare la condivisione schermo",

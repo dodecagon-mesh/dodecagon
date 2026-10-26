@@ -1,13 +1,11 @@
-import { useTheme } from 'next-themes';
 import { Toaster as Sonner, type ToasterProps } from 'sonner';
 
+// the app owns its theme and passes the resolved mode in, so this stays a
+// presentational wrapper with no assumption about where the theme comes from
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = 'system' } = useTheme();
-
   return (
     <Sonner
       closeButton
-      theme={theme as ToasterProps['theme']}
       className="toaster group"
       style={
         {
