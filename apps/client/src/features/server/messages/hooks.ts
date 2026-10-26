@@ -1,3 +1,4 @@
+import { threadChannelIdSelector } from '@/features/app/selectors';
 import { useStoreSelector } from '@/features/store';
 import { useStore } from '@/features/store-context';
 import { logDebug } from '@/helpers/browser-logger';
@@ -14,6 +15,8 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { connectedSelector, serverIdSelector } from '../selectors';
+import { ownUserIdSelector } from '../users/selectors';
 import {
   ensureMessageWindow,
   getMessageCollection,
@@ -45,8 +48,8 @@ const EMPTY_WINDOW_STATE: TMessageWindowState = {
 
 export const useMessagesByChannelId = (channelId: number) => {
   const currentStore = useStore();
-  useStoreSelector((state) => state.server.serverId);
-  useStoreSelector((state) => state.server.ownUserId);
+  useStoreSelector(serverIdSelector);
+  useStoreSelector(ownUserIdSelector);
   const collection = getMessageCollection(currentStore, channelId);
   return useLiveQuery({
     client: getMessageDatabase(currentStore),
@@ -73,12 +76,10 @@ const useMessageWindow = (kind: 'channel' | 'thread', id: number) => {
     [t]
   );
   const currentStore = useStore();
-  const connected = useStoreSelector((state) => state.server.connected);
-  const serverId = useStoreSelector((state) => state.server.serverId);
-  const ownUserId = useStoreSelector((state) => state.server.ownUserId);
-  const threadChannelId = useStoreSelector(
-    (state) => state.app.threadChannelId
-  );
+  const connected = useStoreSelector(connectedSelector);
+  const serverId = useStoreSelector(serverIdSelector);
+  const ownUserId = useStoreSelector(ownUserIdSelector);
+  const threadChannelId = useStoreSelector(threadChannelIdSelector);
   const channelId =
     kind === 'channel'
       ? id
@@ -226,9 +227,7 @@ export const useMessages = (channelId: number) => {
 
 export const useThreadMessagesByParentId = (parentMessageId: number) => {
   const currentStore = useStore();
-  const sidebarChannelId = useStoreSelector(
-    (state) => state.app.threadChannelId
-  );
+  const sidebarChannelId = useStoreSelector(threadChannelIdSelector);
   const channelId =
     getThreadChannelId(currentStore, parentMessageId) ?? sidebarChannelId ?? 0;
   const collection = getMessageCollection(
@@ -256,8 +255,8 @@ export const useParentMessage = (
   channelId: number | undefined
 ) => {
   const currentStore = useStore();
-  useStoreSelector((state) => state.server.serverId);
-  useStoreSelector((state) => state.server.ownUserId);
+  useStoreSelector(serverIdSelector);
+  useStoreSelector(ownUserIdSelector);
   const collection = getMessageCollection(currentStore, channelId ?? 0);
   return useLiveQuery({
     client: getMessageDatabase(currentStore),

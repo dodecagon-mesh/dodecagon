@@ -4,7 +4,10 @@ import { ChannelPermission, Permission } from '@dodecagon/shared';
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import type { IRootState } from '../store';
 import { useChannelById, useChannelPermissionsById } from './channels/hooks';
-import { channelReadStateByIdSelector } from './channels/selectors';
+import {
+  channelReadStateByIdSelector,
+  channelsReadStatesSelector
+} from './channels/selectors';
 import { hasUnreadMentionInMessages } from './helpers';
 import {
   getMessageDatabaseScope,
@@ -31,6 +34,7 @@ import {
   reconnectingSelector,
   reconnectSelector,
   referenceableChannelsSelector,
+  serverIdSelector,
   serverNameSelector,
   serverUpdateRequestedSelector,
   serverUpdateStateSelector,
@@ -178,10 +182,10 @@ export const useCategoryHasUnreadMentions = (categoryId: number) => {
   const channels = useStoreSelector((state) =>
     visibleChannelsInCategorySelector(state, categoryId)
   );
-  const readStates = useStoreSelector((state) => state.server.readStatesMap);
+  const readStates = useStoreSelector(channelsReadStatesSelector);
   const ownUserId = useStoreSelector(ownUserIdSelector);
   const ownRoleIds = useStoreSelector(ownUserRoleIdsSelector);
-  useStoreSelector((state) => state.server.serverId);
+  useStoreSelector(serverIdSelector);
   const queryClient = getMessageQueryClient(currentStore);
   const scope = getMessageDatabaseScope(currentStore);
   const subscribe = useCallback(
@@ -234,7 +238,7 @@ export const useHasUnreadMentions = (channelId: number) => {
   const readState = useUnreadMessagesCount(channelId);
   const ownUserId = useStoreSelector(ownUserIdSelector);
   const ownRoleIds = useStoreSelector(ownUserRoleIdsSelector);
-  useStoreSelector((state) => state.server.serverId);
+  useStoreSelector(serverIdSelector);
   const scope = getMessageDatabaseScope(currentStore);
   const queryClient = getMessageQueryClient(currentStore);
   const subscribe = useCallback(

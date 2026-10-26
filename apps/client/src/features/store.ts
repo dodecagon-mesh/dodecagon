@@ -1,4 +1,4 @@
-import { useCallback, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import {
   appInitialState,
   appSliceReducer,
@@ -130,31 +130,19 @@ export const setStoreState = (nextState: Partial<IRootState>) => {
 
 // the selector reads the state the component needs, the component only
 // re-renders when that value changes
+//
+// the selectors are memoized where they are declared (createSelector and
+// createCachedSelector), that is the only cache in the read path. the snapshot
+// has to return the same reference for an unchanged state or react re-renders
+// forever, so a selector that builds a new object on every call is a bug in the
+// selector, not something to paper over here
 export const useStoreSelector = <T>(selector: (state: IRootState) => T): T => {
   const currentStore = useStore();
-  const cache = useRef<{
-    state: IRootState;
-    selector: (state: IRootState) => T;
-    value: T;
-  } | null>(null);
 
-  const getSnapshot = useCallback(() => {
-    const currentState = currentStore.getState();
-    const cached = cache.current;
-
-    if (
-      cached &&
-      cached.state === currentState &&
-      cached.selector === selector
-    ) {
-      return cached.value;
-    }
-
-    const value = selector(currentState);
-    cache.current = { state: currentState, selector, value };
-
-    return value;
-  }, [currentStore, selector]);
+  const getSnapshot = useCallback(
+    () => selector(currentStore.getState()),
+    [currentStore, selector]
+  );
 
   return useSyncExternalStore(currentStore.subscribe, getSnapshot, getSnapshot);
 };
