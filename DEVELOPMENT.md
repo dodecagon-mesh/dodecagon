@@ -148,6 +148,11 @@ A focused screen share keeps its aspect ratio and reserves space above the
 thumbnail row while controls are visible. Hiding the controls releases that
 space. The presenter's stream indicator does not mount a second media player.
 
+Voice card menus keep the media subtree mounted even when no actions are
+available. Picture-in-picture support resolves after the video mounts; changing
+the wrapper at that point replaces the player and loses its `srcObject`.
+Disable the menu without replacing the player.
+
 ## Testing
 
 To run tests, use the following command:

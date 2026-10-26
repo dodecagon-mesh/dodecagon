@@ -122,13 +122,10 @@ const VoiceCardContextMenu = memo(
       !!zoom ||
       !!webcam ||
       !!demo?.isViewing;
-
-    if (!hasItems) {
-      return <>{children}</>;
-    }
+    // Resolving picture-in-picture support must not remount the media player.
 
     return (
-      <ContextMenu>
+      <ContextMenu disabled={!hasItems}>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
         <ContextMenuContent className="w-66 rounded-[10px] border-line bg-panel p-1.5 text-foreground [&_[data-slot=context-menu-item]]:min-h-9 [&_[data-slot=context-menu-item]]:p-2">
           {demo?.isViewing && (
