@@ -61,7 +61,7 @@ Once your issue has been discussed and validated, you may submit a PR.
 - Must target the `master` branch
 - One feature or fix per PR
 - Large architectural changes must be discussed and approved before implementation
-- All CI checks must pass before review
+- All CI checks must pass before review (in this fork, run them locally and publish the sign-off; see [Fork workflow](#fork-workflow-dodecagon-meshdodecagon))
 
 PRs that do not meet these requirements may be closed without review.
 
@@ -115,7 +115,7 @@ If a feature is marked as **not planned**, please understand that the decision i
 All changes must be properly tested before submission.
 
 - Ensure the project builds successfully
-- Ensure CI passes
+- Ensure the local sign-off passes
 - Verify that your change does not introduce regressions
 
 Unstable or untested code will not be merged.
