@@ -1795,7 +1795,231 @@ test('rejects missing or non-hex Holepunch keys without advancing offer or answe
   ).resolves.toBeUndefined();
 });
 
-test.each([StreamKind.AUDIO, StreamKind.VIDEO, StreamKind.SCREEN])(
+const addScreenRelayMedia = async (
+  runtime: VoiceRuntime,
+  kind: StreamKind.SCREEN | StreamKind.SCREEN_AUDIO,
+  ssrc: number
+) => {
+  const transport = await runtime.getRouter().createDirectTransport();
+  const audio = kind === StreamKind.SCREEN_AUDIO;
+  const producer = await transport.produce({
+    kind: audio ? 'audio' : 'video',
+    rtpParameters: {
+      codecs: [
+        audio
+          ? {
+              mimeType: 'audio/opus',
+              payloadType: 111,
+              clockRate: 48000,
+              channels: 2
+            }
+          : { mimeType: 'video/VP8', payloadType: 96, clockRate: 90000 }
+      ],
+      encodings: [{ ssrc }]
+    }
+  });
+  runtime.addProducer(1, kind, producer);
+  const consumer = await transport.consume({
+    producerId: producer.id,
+    rtpCapabilities: runtime.getRouter().rtpCapabilities
+  });
+  runtime.addConsumer(2, 1, kind, consumer);
+  return { transport, producer, consumer };
+};
+
+const readyDirectScreen = async (
+  sender: TTestCaller,
+  receiver: TTestCaller
+) => {
+  const session = await sender.voice.startDirectMedia({
+    kind: StreamKind.SCREEN,
+    peerId: 2
+  });
+  await sender.voice.signalDirectMedia({
+    sessionId: session!.sessionId,
+    signal: offer
+  });
+  await receiver.voice.signalDirectMedia({
+    sessionId: session!.sessionId,
+    signal: answer
+  });
+  await receiver.voice.signalDirectMedia({
+    sessionId: session!.sessionId,
+    signal: { type: 'ready' }
+  });
+  return session!;
+};
+
+test('retains one paused screen relay bundle through direct playback and resumes it on fallback', async () => {
+  const { runtime, sender, receiver } = await pair();
+  await listen(sender);
+  await listen(receiver);
+  await runtime.init();
+  const screen = await addScreenRelayMedia(
+    runtime,
+    StreamKind.SCREEN,
+    7711
+  );
+  const screenAudio = await addScreenRelayMedia(
+    runtime,
+    StreamKind.SCREEN_AUDIO,
+    7712
+  );
+  const discovery: unknown[] = [];
+  subscriptions.push(
+    (await receiver.voice.onNewProducer()).subscribe({
+      next: (event) => discovery.push(event)
+    })
+  );
+  const originalIds = [screen.consumer.id, screenAudio.consumer.id];
+  try {
+    const session = await readyDirectScreen(sender, receiver);
+    expect(runtime.getConsumer(2, 1, StreamKind.SCREEN)).toBe(screen.consumer);
+    expect(runtime.getConsumer(2, 1, StreamKind.SCREEN_AUDIO)).toBe(
+      screenAudio.consumer
+    );
+    expect(screen.consumer.closed).toBe(false);
+    expect(screenAudio.consumer.closed).toBe(false);
+    expect(screen.consumer.paused).toBe(true);
+    expect(screenAudio.consumer.paused).toBe(true);
+    expect([
+      runtime.getConsumer(2, 1, StreamKind.SCREEN)!.id,
+      runtime.getConsumer(2, 1, StreamKind.SCREEN_AUDIO)!.id
+    ]).toEqual(originalIds);
+    expect(discovery).toEqual([]);
+
+    await receiver.voice.signalDirectMedia({
+      sessionId: session.sessionId,
+      signal: { type: 'fallback' }
+    });
+
+    expect(runtime.getConsumer(2, 1, StreamKind.SCREEN)).toBe(screen.consumer);
+    expect(runtime.getConsumer(2, 1, StreamKind.SCREEN_AUDIO)).toBe(
+      screenAudio.consumer
+    );
+    expect(screen.consumer.paused).toBe(false);
+    expect(screenAudio.consumer.paused).toBe(false);
+    expect([
+      runtime.getConsumer(2, 1, StreamKind.SCREEN)!.id,
+      runtime.getConsumer(2, 1, StreamKind.SCREEN_AUDIO)!.id
+    ]).toEqual(originalIds);
+    expect(discovery).toEqual([]);
+  } finally {
+    screen.transport.close();
+    screenAudio.transport.close();
+  }
+});
+
+test('discovers only a missing member of a retained screen relay bundle on fallback', async () => {
+  const { runtime, sender, receiver } = await pair();
+  await listen(sender);
+  await listen(receiver);
+  await runtime.init();
+  const screen = await addScreenRelayMedia(
+    runtime,
+    StreamKind.SCREEN,
+    7721
+  );
+  const screenAudio = await addScreenRelayMedia(
+    runtime,
+    StreamKind.SCREEN_AUDIO,
+    7722
+  );
+  const discovery: unknown[] = [];
+  subscriptions.push(
+    (await receiver.voice.onNewProducer()).subscribe({
+      next: (event) => discovery.push(event)
+    })
+  );
+  try {
+    const session = await readyDirectScreen(sender, receiver);
+    screenAudio.consumer.close();
+    await receiver.voice.signalDirectMedia({
+      sessionId: session.sessionId,
+      signal: { type: 'fallback' }
+    });
+    expect(runtime.getConsumer(2, 1, StreamKind.SCREEN)).toBe(screen.consumer);
+    expect(screen.consumer.paused).toBe(false);
+    expect(discovery).toEqual([
+      {
+        channelId: 2,
+        remoteId: 1,
+        kind: StreamKind.SCREEN_AUDIO
+      }
+    ]);
+
+    await receiver.voice.signalDirectMedia({
+      sessionId: session.sessionId,
+      signal: { type: 'fallback' }
+    });
+    expect(discovery).toHaveLength(1);
+  } finally {
+    screen.transport.close();
+    screenAudio.transport.close();
+  }
+});
+
+test.each(['unwatch', 'voice-only', 'producer-close'] as const)(
+  '%s retires direct screen playback without restoring or rediscovering relay media',
+  async (action) => {
+    const { runtime, sender, receiver } = await pair();
+    await listen(sender);
+    await listen(receiver);
+    await runtime.init();
+    const screen = await addScreenRelayMedia(
+      runtime,
+      StreamKind.SCREEN,
+      7731
+    );
+    const screenAudio = await addScreenRelayMedia(
+      runtime,
+      StreamKind.SCREEN_AUDIO,
+      7732
+    );
+    const discovery: unknown[] = [];
+    subscriptions.push(
+      (await receiver.voice.onNewProducer()).subscribe({
+        next: (event) => discovery.push(event)
+      })
+    );
+    try {
+      const session = await readyDirectScreen(sender, receiver);
+      if (action === 'unwatch') {
+        await receiver.voice.signalDirectMedia({
+          sessionId: session.sessionId,
+          signal: { type: 'fallback', reason: 'unwatch' }
+        });
+      } else if (action === 'voice-only') {
+        await receiver.voice.updateState({ voiceOnlyMode: true });
+      } else {
+        screen.producer.close();
+      }
+      expect(
+        runtime.getDirectMediaSession(session.sessionId, 1)
+      ).toBeUndefined();
+      expect(discovery).toEqual([]);
+      expect(runtime.getRelayDemand(1)).toEqual(
+        expect.arrayContaining([
+          {
+            channelId: 2,
+            kind: StreamKind.SCREEN,
+            required: false
+          },
+          {
+            channelId: 2,
+            kind: StreamKind.SCREEN_AUDIO,
+            required: false
+          }
+        ])
+      );
+    } finally {
+      screen.transport.close();
+      screenAudio.transport.close();
+    }
+  }
+);
+
+test.each([StreamKind.AUDIO, StreamKind.VIDEO])(
   'switches only the ready %s pair off relay and restores it on fallback',
   async (kind) => {
     const { runtime, sender, receiver } = await pair();
@@ -1860,9 +2084,7 @@ test.each([StreamKind.AUDIO, StreamKind.VIDEO, StreamKind.SCREEN])(
       const remote = runtime.getRemoteIds(peerId);
       return kind === StreamKind.AUDIO
         ? remote.remoteAudioIds
-        : kind === StreamKind.VIDEO
-          ? remote.remoteVideoIds
-          : remote.remoteScreenIds;
+        : remote.remoteVideoIds;
     };
     expect(relay.closed).toBe(true);
     expect(producer.closed).toBe(false);
