@@ -17,6 +17,7 @@ import {
   userRoles,
   users
 } from '../../db/schema';
+import { authenticateUserService } from '../../helpers/services/auth';
 
 describe('/login', () => {
   test('should successfully login with valid credentials', async () => {
@@ -510,6 +511,35 @@ describe('/login', () => {
     );
 
     expect(differentClient.status).not.toBe(429);
+  });
+
+  test('should share one limiter between the route and the service', async () => {
+    // the bucket used to exist twice, once in the bun route and once in the service, so
+    // each table counted the configured limit on its own. a request has to fill one slot
+    // in one bucket, however it reached the login
+    const { maxRequests } = config.rateLimiters.login;
+    const ip = '7.7.7.7';
+
+    for (let attempt = 0; attempt < maxRequests - 1; attempt++) {
+      const response = await login('testowner', 'wrongpassword', undefined, {
+        'x-forwarded-for': ip
+      });
+
+      expect(response.status).toBe(400);
+    }
+
+    const direct = await authenticateUserService(
+      { identity: 'testowner', password: 'wrongpassword' },
+      { origin: testsBaseUrl, ip }
+    );
+
+    expect(direct).toMatchObject({ ok: false, error: { kind: 'field' } });
+
+    const limited = await login('testowner', 'wrongpassword', undefined, {
+      'x-forwarded-for': ip
+    });
+
+    expect(limited.status).toBe(429);
   });
 
   test('should fail with missing identity', async () => {

@@ -1,60 +1,34 @@
-import { DisconnectCode, getErrorMessage } from '@dodecagon/shared';
 import type http from 'http';
-import { invalidateUserSessions } from '../../db/mutations/users';
-import { getUserByOidcSub } from '../../db/queries/users';
 import type { getWsInfo } from '../../helpers/get-ws-info';
-import { readLogoutToken } from '../../helpers/oidc/logout-token';
-import { logger } from '../../logger';
-import { disconnectUser } from '../../utils/wss';
-import { getTextBody, sendJsonError } from '../helpers';
-import { guardOidcRoute } from './common';
+import { verifyBackchannelLogoutService } from '../../helpers/services/oidc';
+import {
+  getPublicOrigin,
+  getTextBody,
+  isSecureRequest,
+  sendServiceError
+} from '../helpers';
 
+// the service verifies the logout token and ends the sessions, this route only reads the
+// form body and writes the answer
 const oidcBackchannelLogoutRouteHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse,
   { info }: { info: ReturnType<typeof getWsInfo> }
 ) => {
-  const guarded = guardOidcRoute(req, res, {
+  const body = await getTextBody(req);
+  const token = new URLSearchParams(body).get('logout_token') ?? '';
+
+  const result = await verifyBackchannelLogoutService(token, {
+    origin: getPublicOrigin(req),
     ip: info?.ip,
-    route: '/oidc/backchannel-logout',
-    isNavigation: false
+    secure: isSecureRequest(req),
+    cookie: req.headers.cookie
   });
 
-  if (!guarded) return;
-
-  let token: { sub: string; issuer: string };
-
-  try {
-    const body = await getTextBody(req);
-    const logoutToken = new URLSearchParams(body).get('logout_token') ?? '';
-
-    token = await readLogoutToken(logoutToken);
-  } catch (error) {
-    logger.warn(
-      'OIDC back-channel logout rejected: %s',
-      getErrorMessage(error)
-    );
-
-    sendJsonError(res, 400, 'invalid_request');
+  if (!result.ok) {
+    await sendServiceError(res, result.error);
 
     return;
-  }
-
-  const user = await getUserByOidcSub(token.sub);
-
-  if (user && user.oidcIssuer === token.issuer) {
-    await invalidateUserSessions(user.id);
-
-    disconnectUser(
-      user.id,
-      DisconnectCode.KICKED,
-      'Signed out by the provider'
-    );
-
-    logger.info(
-      'OIDC back-channel logout ended the sessions of user %d',
-      user.id
-    );
   }
 
   res.writeHead(200, { 'Cache-Control': 'no-store' });

@@ -1,5 +1,10 @@
 import type { TPluginHttpMethod } from '@dodecagon/plugin-sdk';
-import { getErrorMessage, UploadHeaders } from '@dodecagon/shared';
+import {
+  getErrorMessage,
+  toHttpResponse,
+  UploadHeaders,
+  type THttpError
+} from '@dodecagon/shared';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
 import http from 'http';
@@ -330,6 +335,46 @@ const sendJsonFieldErrors = (
   res.end(JSON.stringify({ errors }));
 };
 
+// the shared taxonomy owns the status code and the body shape of a service failure, the
+// start routes answer it through `toHttpResponse` and this writes the same answer onto the
+// node reply, so the two runtimes cannot drift apart
+const sendServiceError = async (
+  res: http.ServerResponse,
+  error: THttpError
+): Promise<void> => {
+  const response = toHttpResponse({ ok: false, error });
+  const headers: Record<string, string> = { 'Cache-Control': 'no-store' };
+
+  response.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
+
+  const body = await response.text();
+
+  res.writeHead(response.status, headers);
+  res.end(body);
+};
+
+// a navigation answer is a redirect the service has already built, with the state cookie
+// when that outcome carries one
+const sendRedirect = (
+  res: http.ServerResponse,
+  location: string,
+  cookie?: string
+) => {
+  const headers: Record<string, string> = {
+    'Cache-Control': 'no-store',
+    Location: location
+  };
+
+  if (cookie) {
+    headers['Set-Cookie'] = cookie;
+  }
+
+  res.writeHead(302, headers);
+  res.end();
+};
+
 type CacheMetadata = {
   etag: string;
   lastModified: string;
@@ -511,6 +556,8 @@ export {
   sendJsonError,
   sendJsonFieldErrors,
   sendNotModified,
+  sendRedirect,
+  sendServiceError,
   supportedHttpMethods
 };
 export type { HttpRouteHandler, TSupportedHttpMethod };

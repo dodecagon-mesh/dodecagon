@@ -98,3 +98,24 @@ export const getServerBridge = (): TServerBridge => {
 // lives in the bun process, so the caller can fall back to the bun api
 export const tryGetServerBridge = (): TServerBridge | null =>
   bridgeSlot[BRIDGE_KEY] ?? null;
+
+// both runtimes read the callback parameters off the url the provider redirected to, and
+// the whole search travels with them so the token request carries every parameter
+export const toOidcCallbackInput = (url: URL): TOidcCallbackInput => ({
+  state: url.searchParams.get('state'),
+  code: url.searchParams.get('code'),
+  error: url.searchParams.get('error'),
+  search: url.search
+});
+
+// the handoff code arrives in a body no route has validated yet, so anything that is not
+// a string becomes empty and the service rejects it with its own message
+export const getOidcHandoffCode = (body: unknown): string => {
+  if (typeof body !== 'object' || body === null || !('code' in body)) {
+    return '';
+  }
+
+  const { code } = body;
+
+  return typeof code === 'string' ? code : '';
+};
