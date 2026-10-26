@@ -25,6 +25,7 @@ import {
   memo,
   useCallback,
   useRef,
+  useState,
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
@@ -70,6 +71,7 @@ const VoiceCardContextMenu = memo(
     const { t } = useTranslation('common');
     const { getVolume, setVolume, toggleMute } = useVolumeControl();
     const sliderRef = useRef<HTMLSpanElement>(null);
+    const [isMenuOpen, setMenuOpen] = useState(false);
     const volume = volumeKey === undefined ? 100 : getVolume(volumeKey);
     const isMuted = volume === 0;
     const handleVolumeChange = useCallback(
@@ -122,10 +124,16 @@ const VoiceCardContextMenu = memo(
       !!zoom ||
       !!webcam ||
       !!demo?.isViewing;
+    if (!hasItems && isMenuOpen) setMenuOpen(false);
+
     // Resolving picture-in-picture support must not remount the media player.
 
     return (
-      <ContextMenu disabled={!hasItems}>
+      <ContextMenu
+        disabled={!hasItems}
+        open={isMenuOpen}
+        onOpenChange={setMenuOpen}
+      >
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
         <ContextMenuContent className="w-66 rounded-[10px] border-line bg-panel p-1.5 text-foreground [&_[data-slot=context-menu-item]]:min-h-9 [&_[data-slot=context-menu-item]]:p-2">
           {demo?.isViewing && (

@@ -6,6 +6,7 @@ import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { I18nextProvider } from 'react-i18next';
 import { expect, test, vi } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
 
 const state = vi.hoisted(() => ({
   stream: undefined as MediaStream | undefined,
@@ -307,13 +308,29 @@ test.each([
         );
         expect(document.querySelector('[role="menu"]')).toBeNull();
       }
+      if (ownUser && pipSupported) {
+        await page.elementLocator(video).click({ button: 'right' });
+        await expect.element(page.getByRole('menu')).toBeVisible();
+      }
       state.webcamStream = undefined;
       await render();
       expect(host.querySelector('video')).toBeNull();
+      if (ownUser && pipSupported) {
+        await expect.element(page.getByRole('menu')).not.toBeInTheDocument();
+      }
       state.webcamStream = stream;
       await render();
       await expect.poll(() => state.webcamRef.current?.srcObject).toBe(stream);
       await expect.poll(() => state.webcamRef.current?.videoWidth).toBe(64);
+      if (ownUser && pipSupported) {
+        await expect.element(page.getByRole('menu')).not.toBeInTheDocument();
+        await page.elementLocator(state.webcamRef.current!).click({
+          button: 'right'
+        });
+        await expect.element(page.getByRole('menu')).toBeVisible();
+        await userEvent.keyboard('{Escape}');
+        await expect.element(page.getByRole('menu')).not.toBeInTheDocument();
+      }
     } finally {
       root.unmount();
       host.remove();
