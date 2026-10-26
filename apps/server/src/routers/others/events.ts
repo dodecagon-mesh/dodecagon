@@ -1,12 +1,10 @@
 import { ServerEvents, type TServerUpdateState } from '@dodecagon/shared';
 import { observable } from '@trpc/server/observable';
 import { updater } from '../../helpers/updater';
-import { protectedProcedure } from '../../utils/trpc';
+import { eventSubscription, protectedProcedure } from '../../utils/trpc';
 
-const onServerSettingsUpdateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.SERVER_SETTINGS_UPDATE);
-  }
+const onServerSettingsUpdateRoute = eventSubscription(
+  ServerEvents.SERVER_SETTINGS_UPDATE
 );
 
 const onServerUpdateStateRoute = protectedProcedure.subscription(({ ctx }) =>

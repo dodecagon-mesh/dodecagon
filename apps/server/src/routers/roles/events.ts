@@ -1,16 +1,8 @@
 import { ServerEvents } from '@dodecagon/shared';
-import { protectedProcedure } from '../../utils/trpc';
+import { eventSubscription } from '../../utils/trpc';
 
-const onRoleCreateRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribe(ServerEvents.ROLE_CREATE);
-});
-
-const onRoleDeleteRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribe(ServerEvents.ROLE_DELETE);
-});
-
-const onRoleUpdateRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribe(ServerEvents.ROLE_UPDATE);
-});
+const onRoleCreateRoute = eventSubscription(ServerEvents.ROLE_CREATE);
+const onRoleDeleteRoute = eventSubscription(ServerEvents.ROLE_DELETE);
+const onRoleUpdateRoute = eventSubscription(ServerEvents.ROLE_UPDATE);
 
 export { onRoleCreateRoute, onRoleDeleteRoute, onRoleUpdateRoute };

@@ -1,49 +1,29 @@
 import { ServerEvents } from '@dodecagon/shared';
-import { protectedProcedure } from '../../utils/trpc';
+import { eventSubscription } from '../../utils/trpc';
 
-const onChannelCreateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.CHANNEL_CREATE);
-  }
+const onChannelCreateRoute = eventSubscription(
+  ServerEvents.CHANNEL_CREATE,
+  'caller'
 );
-
-const onChannelDeleteRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.CHANNEL_DELETE);
-  }
+const onChannelDeleteRoute = eventSubscription(
+  ServerEvents.CHANNEL_DELETE,
+  'caller'
 );
-
-const onChannelUpdateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.CHANNEL_UPDATE);
-  }
+const onChannelUpdateRoute = eventSubscription(
+  ServerEvents.CHANNEL_UPDATE,
+  'caller'
 );
-
-const onChannelPermissionsUpdateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(
-      ctx.userId,
-      ServerEvents.CHANNEL_PERMISSIONS_UPDATE
-    );
-  }
+const onChannelPermissionsUpdateRoute = eventSubscription(
+  ServerEvents.CHANNEL_PERMISSIONS_UPDATE,
+  'caller'
 );
-
-const onChannelReadStatesUpdateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(
-      ctx.userId,
-      ServerEvents.CHANNEL_READ_STATES_UPDATE
-    );
-  }
+const onChannelReadStatesUpdateRoute = eventSubscription(
+  ServerEvents.CHANNEL_READ_STATES_UPDATE,
+  'caller'
 );
-
-const onChannelReadStatesDeltaRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(
-      ctx.userId,
-      ServerEvents.CHANNEL_READ_STATES_DELTA
-    );
-  }
+const onChannelReadStatesDeltaRoute = eventSubscription(
+  ServerEvents.CHANNEL_READ_STATES_DELTA,
+  'caller'
 );
 
 export {

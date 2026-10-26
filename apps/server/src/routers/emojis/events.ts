@@ -1,16 +1,8 @@
 import { ServerEvents } from '@dodecagon/shared';
-import { protectedProcedure } from '../../utils/trpc';
+import { eventSubscription } from '../../utils/trpc';
 
-const onEmojiCreateRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribe(ServerEvents.EMOJI_CREATE);
-});
-
-const onEmojiDeleteRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribe(ServerEvents.EMOJI_DELETE);
-});
-
-const onEmojiUpdateRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribe(ServerEvents.EMOJI_UPDATE);
-});
+const onEmojiCreateRoute = eventSubscription(ServerEvents.EMOJI_CREATE);
+const onEmojiDeleteRoute = eventSubscription(ServerEvents.EMOJI_DELETE);
+const onEmojiUpdateRoute = eventSubscription(ServerEvents.EMOJI_UPDATE);
 
 export { onEmojiCreateRoute, onEmojiDeleteRoute, onEmojiUpdateRoute };
