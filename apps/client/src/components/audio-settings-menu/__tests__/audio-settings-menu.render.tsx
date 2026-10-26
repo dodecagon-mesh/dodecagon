@@ -10,8 +10,8 @@ import { I18nextProvider } from 'react-i18next';
 
 const noop = () => {};
 
-mock.module('@/features/server-screens/actions', () => ({
-  openServerScreen: noop
+mock.module('@/features/overlays/actions', () => ({
+  openOverlay: noop
 }));
 
 const i18n = i18next.createInstance();

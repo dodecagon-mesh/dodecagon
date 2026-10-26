@@ -8,15 +8,11 @@ import {
   openVoiceChatSidebar
 } from '@/features/app/actions';
 import {
-  openDialog,
-  requestConfirmation,
-  resetDialogs
-} from '@/features/dialogs/actions';
-import { dialogInfoSelector } from '@/features/dialogs/selectors';
-import {
-  closeServerScreens,
-  openServerScreen
-} from '@/features/server-screens/actions';
+  closeOverlay,
+  openOverlay,
+  requestConfirmation
+} from '@/features/overlays/actions';
+import { overlaySelector } from '@/features/overlays/selectors';
 import { markChannelAsRead, setDmsOpen } from '@/features/server/actions';
 import {
   setCurrentVoiceChannelId,
@@ -236,7 +232,7 @@ afterAll(() => {
 });
 
 beforeEach(async () => {
-  resetDialogs();
+  closeOverlay();
   closeThreadSidebar();
   setDmsOpen(false);
   setSelectedChannelId(1);
@@ -250,7 +246,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  closeServerScreens();
+  closeOverlay();
   toast.dismiss();
   for (let attempt = 0; attempt < 20; attempt++) {
     await waitForRender();
@@ -264,7 +260,11 @@ test('delete user asks for the typed confirmation and stays visibly destructive'
     await import('@/features/server/users/selectors');
   const state = store.getState();
   const user = userByIdSelector(state, 2)!;
-  openDialog(Dialog.DELETE_USER, { user, refetch: async () => undefined });
+  openOverlay({
+    kind: 'dialog',
+    name: Dialog.DELETE_USER,
+    props: { user, refetch: async () => undefined }
+  });
   const action = page.getByRole('button', { name: 'Delete user', exact: true });
   try {
     await expect.element(action).toBeVisible();
@@ -277,24 +277,22 @@ test('delete user asks for the typed confirmation and stays visibly destructive'
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     const currentState = store.getState();
     expect(userByIdSelector(currentState, user.id)).toBeDefined();
-    await expect
-      .poll(() => {
-        const nextState = store.getState();
-        const info = dialogInfoSelector(nextState);
-        return info.openDialog;
-      })
-      .toBeUndefined();
+    await expect.poll(() => overlaySelector(store.getState())).toBeUndefined();
   } finally {
-    resetDialogs();
+    closeOverlay();
   }
 });
 
 test('plugin security confirmation keeps the countdown and destructive action', async () => {
   const { store } = await import('@/features/store');
   const onConfirm = vi.fn();
-  openDialog(Dialog.PLUGIN_INSTALL_CONFIRM, {
-    pluginName: 'E2E Plugin',
-    onConfirm
+  openOverlay({
+    kind: 'dialog',
+    name: Dialog.PLUGIN_INSTALL_CONFIRM,
+    props: {
+      pluginName: 'E2E Plugin',
+      onConfirm
+    }
   });
   const action = page.getByRole('button', { name: /^Wait \(/ });
   try {
@@ -306,15 +304,9 @@ test('plugin security confirmation keeps the countdown and destructive action', 
     expect(onConfirm).not.toHaveBeenCalled();
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect(onConfirm).not.toHaveBeenCalled();
-    await expect
-      .poll(() => {
-        const nextState = store.getState();
-        const info = dialogInfoSelector(nextState);
-        return info.openDialog;
-      })
-      .toBeUndefined();
+    await expect.poll(() => overlaySelector(store.getState())).toBeUndefined();
   } finally {
-    resetDialogs();
+    closeOverlay();
   }
 });
 
@@ -362,17 +354,9 @@ test('destructive confirmation retains its danger color while Space is held', as
       await userEvent.keyboard('[/Space]');
       expect(await result).toBe(true);
     } else {
-      const state = store.getState();
-      const info = dialogInfoSelector(state);
-      info.props.onCancel?.();
+      overlaySelector(store.getState())?.props?.onCancel?.();
     }
-    await expect
-      .poll(() => {
-        const state = store.getState();
-        const info = dialogInfoSelector(state);
-        return info.openDialog;
-      })
-      .toBeUndefined();
+    await expect.poll(() => overlaySelector(store.getState())).toBeUndefined();
   }
 });
 
@@ -394,17 +378,9 @@ test('destructive confirmations use a solid high-contrast action', async () => {
     expect(getComputedStyle(dialog).backgroundColor).toBe('rgb(49, 51, 56)');
     expect(getComputedStyle(dialog).borderRadius).toBe('12px');
   } finally {
-    const state = store.getState();
-    const info = dialogInfoSelector(state);
-    info.props.onCancel?.();
+    overlaySelector(store.getState())?.props?.onCancel?.();
     expect(await result).toBe(false);
-    await expect
-      .poll(() => {
-        const nextState = store.getState();
-        const nextInfo = dialogInfoSelector(nextState);
-        return nextInfo.openDialog;
-      })
-      .toBeUndefined();
+    await expect.poll(() => overlaySelector(store.getState())).toBeUndefined();
   }
 });
 
@@ -429,14 +405,10 @@ test.each(['channel', 'category'] as const)(
       if (cancel.query()) {
         await cancel.click();
         await expect
-          .poll(() => {
-            const state = store.getState();
-            const info = dialogInfoSelector(state);
-            return info.openDialog;
-          })
+          .poll(() => overlaySelector(store.getState()))
           .toBeUndefined();
       }
-      resetDialogs();
+      closeOverlay();
     }
   }
 );
@@ -469,7 +441,7 @@ test('the shared shell uses compact headers without a global strip', async () =>
   ).toBe(48);
   await page.getByRole('button', { name: 'Close Members Sidebar' }).click();
 
-  openServerScreen(ServerScreen.USER_SETTINGS);
+  openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
   await expect
     .element(page.getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY).first())
     .toBeVisible();
@@ -1105,7 +1077,7 @@ test('screen sharing states match the Paper design', async () => {
 });
 
 test('user settings match the Paper design', async () => {
-  openServerScreen(ServerScreen.USER_SETTINGS);
+  openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
   await expect
     .element(page.getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY).first())
     .toBeVisible();
@@ -1140,7 +1112,7 @@ test('profile settings edit a live preview that matches the user popover', async
   updateUser(ownUser.id, { banner: null });
 
   try {
-    openServerScreen(ServerScreen.USER_SETTINGS);
+    openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
     const preview = page.getByRole('group', {
       name: 'Profile',
       exact: true
@@ -1256,7 +1228,7 @@ test('profile settings edit a live preview that matches the user popover', async
     await bioInput.fill('A live preview');
     await expect.element(bioInput).toHaveValue('A live preview');
 
-    closeServerScreens();
+    closeOverlay();
     updateUser(ownUser.id, { banner: originalBanner });
     await waitForRender();
     const sidebar = page.getByTestId(TestId.LEFT_SIDEBAR);
@@ -1293,8 +1265,8 @@ test('profile settings edit a live preview that matches the user popover', async
     });
     await userEvent.keyboard('{Escape}');
   } finally {
-    closeServerScreens();
-    resetDialogs();
+    closeOverlay();
+    closeOverlay();
     updateUser(ownUser.id, { banner: originalBanner });
   }
 });
@@ -1302,7 +1274,7 @@ test('profile settings edit a live preview that matches the user popover', async
 test('clicking the banner body opens the banner menu', async () => {
   try {
     await userEvent.unhover(document.body);
-    openServerScreen(ServerScreen.USER_SETTINGS);
+    openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
     const preview = page.getByRole('group', {
       name: 'Profile',
       exact: true
@@ -1313,15 +1285,15 @@ test('clicking the banner body opens the banner menu', async () => {
     await userEvent.click(banner);
     await expect.element(page.getByRole('menu')).toBeVisible();
   } finally {
-    closeServerScreens();
-    resetDialogs();
+    closeOverlay();
+    closeOverlay();
   }
 });
 
 test('Escape closes the banner menu without closing User settings', async () => {
   try {
     await userEvent.unhover(document.body);
-    openServerScreen(ServerScreen.USER_SETTINGS);
+    openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
     const preview = page.getByRole('group', {
       name: 'Profile',
       exact: true
@@ -1341,8 +1313,8 @@ test('Escape closes the banner menu without closing User settings', async () => 
     await expect.element(menu).not.toBeInTheDocument();
     await expect.element(preview).toBeVisible();
   } finally {
-    closeServerScreens();
-    resetDialogs();
+    closeOverlay();
+    closeOverlay();
   }
 });
 test('saved profile edits stay synchronized with the user popover', async () => {
@@ -1358,7 +1330,7 @@ test('saved profile edits stay synchronized with the user popover', async () => 
   let shouldRestoreProfile = false;
 
   try {
-    openServerScreen(ServerScreen.USER_SETTINGS);
+    openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
     const preview = page.getByRole('group', {
       name: 'Profile',
       exact: true
@@ -1412,7 +1384,7 @@ test('saved profile edits stay synchronized with the user popover', async () => 
       .poll(() => ownUserSelector(store.getState())?.profileColor)
       .toBe('#123abc');
 
-    closeServerScreens();
+    closeOverlay();
     await waitForRender();
     const sidebar = page.getByTestId(TestId.LEFT_SIDEBAR);
     const ownUserName = sidebar.getByText('Profile sync test', {
@@ -1435,8 +1407,8 @@ test('saved profile edits stay synchronized with the user popover', async () => 
     expect(popoverBannerStyle.backgroundColor).toBe('rgb(18, 58, 188)');
     await userEvent.keyboard('{Escape}');
   } finally {
-    closeServerScreens();
-    resetDialogs();
+    closeOverlay();
+    closeOverlay();
     if (shouldRestoreProfile) {
       await client.users.update.mutate({
         name: ownUser.name,
@@ -1454,7 +1426,7 @@ test('saved profile edits stay synchronized with the user popover', async () => 
 });
 
 test('personal theme preview applies to settings, chat and body portals', async () => {
-  openServerScreen(ServerScreen.USER_SETTINGS);
+  openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
   await page
     .getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY)
     .filter({ hasText: 'Appearance & language' })
@@ -1474,7 +1446,7 @@ test('personal theme preview applies to settings, chat and body portals', async 
     expect(localStorage.getItem('vite-ui-theme')).toBe('ryuko');
     const settings = document.querySelector('main')!;
     expect(getComputedStyle(settings).backgroundColor).toBe('rgb(20, 24, 37)');
-    closeServerScreens();
+    closeOverlay();
     await expect.element(page.getByTestId(TestId.SERVER_VIEW)).toBeVisible();
     expect(
       getComputedStyle(page.getByTestId(TestId.SERVER_VIEW).element())
@@ -1488,7 +1460,7 @@ test('personal theme preview applies to settings, chat and body portals', async 
     expect(getComputedStyle(portal).backgroundColor).toBe('rgb(12, 16, 27)');
   } finally {
     portal.remove();
-    openServerScreen(ServerScreen.USER_SETTINGS);
+    openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
     await page
       .getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY)
       .filter({ hasText: 'Appearance & language' })
@@ -1506,7 +1478,7 @@ test('personal theme preview applies to settings, chat and body portals', async 
 });
 
 test('theme confirmation floats above settings without moving the catalog', async () => {
-  openServerScreen(ServerScreen.USER_SETTINGS);
+  openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
   await page
     .getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY)
     .filter({ hasText: 'Appearance & language' })
@@ -1534,7 +1506,7 @@ test('theme confirmation floats above settings without moving the catalog', asyn
 });
 
 test('theme catalog is one searchable list containing every theme', async () => {
-  openServerScreen(ServerScreen.USER_SETTINGS);
+  openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
   await page
     .getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY)
     .filter({ hasText: 'Appearance & language' })
@@ -1581,7 +1553,7 @@ test('theme catalog is one searchable list containing every theme', async () => 
 
 test('Miku uses its pink rail accent and light mode reaches settings and dialogs', async () => {
   await markChannelAsRead(3, true);
-  openServerScreen(ServerScreen.USER_SETTINGS);
+  openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
   await page
     .getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY)
     .filter({ hasText: 'Appearance & language' })
@@ -1590,7 +1562,7 @@ test('Miku uses its pink rail accent and light mode reaches settings and dialogs
     .getByRole('button', { name: 'Preview Hatsune Miku', exact: true })
     .click();
   await page.getByRole('button', { name: 'Apply theme', exact: true }).click();
-  closeServerScreens();
+  closeOverlay();
   const sidebar = page.getByTestId(TestId.LEFT_SIDEBAR);
   try {
     await expect.element(sidebar).toBeVisible();
@@ -1614,7 +1586,7 @@ test('Miku uses its pink rail accent and light mode reaches settings and dialogs
     await expect(
       page.elementLocator(document.documentElement)
     ).toMatchScreenshot('theme-miku-chat', { timeout: 3_000 });
-    openServerScreen(ServerScreen.USER_SETTINGS);
+    openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
     await page
       .getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY)
       .filter({ hasText: 'Appearance & language' })
@@ -1641,8 +1613,8 @@ test('Miku uses its pink rail accent and light mode reaches settings and dialogs
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await result;
   } finally {
-    resetDialogs();
-    openServerScreen(ServerScreen.USER_SETTINGS);
+    closeOverlay();
+    openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
     await page
       .getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY)
       .filter({ hasText: 'Appearance & language' })
@@ -1660,7 +1632,7 @@ test('Miku uses its pink rail accent and light mode reaches settings and dialogs
 });
 
 test('theme settings keep the approved layout and remain usable on a narrow viewport', async () => {
-  openServerScreen(ServerScreen.USER_SETTINGS);
+  openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
   await page
     .getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY)
     .filter({ hasText: 'Appearance & language' })
@@ -1711,7 +1683,7 @@ test('theme settings keep the approved layout and remain usable on a narrow view
 });
 
 test('server settings match the Paper design', async () => {
-  openServerScreen(ServerScreen.SERVER_SETTINGS);
+  openOverlay({ kind: 'serverScreen', name: ServerScreen.SERVER_SETTINGS });
   await expect
     .element(page.getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY).first())
     .toBeVisible();
@@ -1720,7 +1692,11 @@ test('server settings match the Paper design', async () => {
 });
 
 test('channel settings match the Paper design', async () => {
-  openServerScreen(ServerScreen.CHANNEL_SETTINGS, { channelId: 1 });
+  openOverlay({
+    kind: 'serverScreen',
+    name: ServerScreen.CHANNEL_SETTINGS,
+    props: { channelId: 1 }
+  });
   await expect
     .element(page.getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY).first())
     .toBeVisible();
@@ -1729,7 +1705,11 @@ test('channel settings match the Paper design', async () => {
 });
 
 test('category settings match the Paper design', async () => {
-  openServerScreen(ServerScreen.CATEGORY_SETTINGS, { categoryId: 1 });
+  openOverlay({
+    kind: 'serverScreen',
+    name: ServerScreen.CATEGORY_SETTINGS,
+    props: { categoryId: 1 }
+  });
   await expect
     .element(page.getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY).first())
     .toBeVisible();
@@ -1738,7 +1718,7 @@ test('category settings match the Paper design', async () => {
 });
 
 test('plugin marketplace matches the Paper design', async () => {
-  openServerScreen(ServerScreen.SERVER_SETTINGS);
+  openOverlay({ kind: 'serverScreen', name: ServerScreen.SERVER_SETTINGS });
   // the updates panel renders a tall placeholder while it loads, so the page
   // height only settles once the release check came back
   await expect
@@ -1761,14 +1741,14 @@ test('plugin marketplace matches the Paper design', async () => {
 });
 
 test('search dialog matches the Paper design', async () => {
-  openDialog(Dialog.SEARCH);
+  openOverlay({ kind: 'dialog', name: Dialog.SEARCH });
   await expect.element(page.getByTestId(TestId.SEARCH_INPUT)).toBeVisible();
 
   await snapshot('search-dialog');
 });
 
 test('create channel uses the Paper sheet geometry and selectable options', async () => {
-  openDialog(Dialog.CREATE_CHANNEL);
+  openOverlay({ kind: 'dialog', name: Dialog.CREATE_CHANNEL });
   await expect.element(page.getByRole('dialog')).toBeVisible();
   const dialog = page.getByRole('dialog').element();
   expect(dialog.getBoundingClientRect().height).toBeLessThan(500);
@@ -1800,7 +1780,7 @@ test('create channel uses the Paper sheet geometry and selectable options', asyn
 });
 
 test('create channel type choices are keyboard operable', async () => {
-  openDialog(Dialog.CREATE_CHANNEL);
+  openOverlay({ kind: 'dialog', name: Dialog.CREATE_CHANNEL });
   await expect.element(page.getByRole('dialog')).toBeVisible();
   const text = page.getByRole('radio', { name: 'Text channel' });
   const voice = page.getByRole('radio', { name: 'Voice channel' });
@@ -1841,7 +1821,7 @@ test('create channel type choices are keyboard operable', async () => {
 });
 
 test('create channel dialog matches the Paper design', async () => {
-  openDialog(Dialog.CREATE_CHANNEL);
+  openOverlay({ kind: 'dialog', name: Dialog.CREATE_CHANNEL });
   await expect.element(page.getByRole('dialog')).toBeVisible();
   expect(
     getComputedStyle(page.getByRole('dialog').element()).borderRadius
@@ -1851,14 +1831,18 @@ test('create channel dialog matches the Paper design', async () => {
 });
 
 test('create category dialog matches the Paper design', async () => {
-  openDialog(Dialog.CREATE_CATEGORY);
+  openOverlay({ kind: 'dialog', name: Dialog.CREATE_CATEGORY });
   await expect.element(page.getByRole('dialog')).toBeVisible();
 
   await snapshot('create-category-dialog');
 });
 
 test('create invite dialog matches the Paper design', async () => {
-  openDialog(Dialog.CREATE_INVITE, { refetch: () => undefined });
+  openOverlay({
+    kind: 'dialog',
+    name: Dialog.CREATE_INVITE,
+    props: { refetch: () => undefined }
+  });
   await expect.element(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('textbox').first().fill('rnd-community-invite');
 
@@ -1866,7 +1850,7 @@ test('create invite dialog matches the Paper design', async () => {
 });
 
 test('profile setup dialog matches the Paper design', async () => {
-  openDialog(Dialog.WELCOME_PROFILE_SETUP);
+  openOverlay({ kind: 'dialog', name: Dialog.WELCOME_PROFILE_SETUP });
   await expect.element(page.getByRole('dialog')).toBeVisible();
 
   // The previous dialog's input can leave the pointer over the upload cover.
@@ -1878,7 +1862,7 @@ test('profile setup dialog matches the Paper design', async () => {
 
 test('voice diagnostics dialog matches the Paper design', async () => {
   clearVoiceDebugEvents();
-  openDialog(Dialog.VOICE_DEBUG);
+  openOverlay({ kind: 'dialog', name: Dialog.VOICE_DEBUG });
   await expect.element(page.getByRole('dialog')).toBeVisible();
 
   await expect(page).toMatchScreenshot('voice-diagnostics-dialog', {
@@ -1914,7 +1898,11 @@ test.each([
       await import('@/features/server/users/selectors');
     const state = store.getState();
     const user = userByIdSelector(state, 2)!;
-    openDialog(kind, { user, refetch: async () => undefined, ...props });
+    openOverlay({
+      kind: 'dialog',
+      name: kind,
+      props: { user, refetch: async () => undefined, ...props }
+    });
     const locator = page.getByRole(role);
     try {
       await expect.element(locator).toBeVisible();
@@ -1928,7 +1916,7 @@ test.each([
         innerHeight
       );
     } finally {
-      resetDialogs();
+      closeOverlay();
       await waitForRender();
     }
   }
@@ -1945,7 +1933,7 @@ test('plugin detail loads through the existing installed fixture and real server
       pluginId: 'e2e-plugin',
       enabled: true
     });
-    openServerScreen(ServerScreen.SERVER_SETTINGS);
+    openOverlay({ kind: 'serverScreen', name: ServerScreen.SERVER_SETTINGS });
     const entry = page
       .getByTestId(TestId.SETTINGS_SIDEBAR_ENTRY)
       .filter({ hasText: 'E2E Plugin' });
@@ -1964,7 +1952,7 @@ test('plugin detail loads through the existing installed fixture and real server
       .element(page.getByRole('tabpanel', { name: 'Logs' }))
       .toBeVisible();
   } finally {
-    closeServerScreens();
+    closeOverlay();
     await client.plugins.toggle.mutate({
       pluginId: 'e2e-plugin',
       enabled: wasEnabled
@@ -1981,7 +1969,7 @@ test('plugin detail loads through the existing installed fixture and real server
 });
 
 test('search results show real fixture matches with the shared surface hierarchy', async () => {
-  openDialog(Dialog.SEARCH);
+  openOverlay({ kind: 'dialog', name: Dialog.SEARCH });
   const dialog = page.getByRole('dialog');
   try {
     await page.getByTestId(TestId.SEARCH_INPUT).fill('voice controls');
@@ -2000,7 +1988,7 @@ test('search results show real fixture matches with the shared surface hierarchy
     expect(getComputedStyle(element).backgroundColor).toBe('rgb(49, 51, 56)');
     expect(getComputedStyle(element).borderRadius).toBe('12px');
   } finally {
-    resetDialogs();
+    closeOverlay();
     await waitForRender();
   }
 });
@@ -2094,7 +2082,11 @@ test('same-author messages across midnight retain both date separators', async (
 test('create-channel dialog submits and composer uploads and persists a message', async () => {
   const { store } = await import('@/features/store');
   const client = trpc.getTRPCClient();
-  openDialog(Dialog.CREATE_CHANNEL, { categoryId: 1 });
+  openOverlay({
+    kind: 'dialog',
+    name: Dialog.CREATE_CHANNEL,
+    props: { categoryId: 1 }
+  });
   await page
     .getByRole('textbox', { name: 'Channel name', exact: true })
     .fill('release-regression');

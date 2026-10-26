@@ -6,17 +6,11 @@ import {
   type TAppState
 } from './app/slice';
 import {
-  dialogInitialState,
-  dialogSliceReducer,
-  type TDialogAction,
-  type TDialogState
-} from './dialogs/slice';
-import {
-  serverScreenInitialState,
-  serverScreenSliceReducer,
-  type TServerScreenAction,
-  type TServerScreenState
-} from './server-screens/slice';
+  overlayInitialState,
+  overlaySliceReducer,
+  type TOverlayAction,
+  type TOverlayState
+} from './overlays/slice';
 import {
   serverInitialState,
   serverSliceReducer,
@@ -28,12 +22,10 @@ import { useStore } from './store-context';
 export interface IRootState {
   app: TAppState;
   server: IServerState;
-  dialog: TDialogState;
-  serverScreen: TServerScreenState;
+  overlay: TOverlayState;
 }
 
-export type TRootAction =
-  TAppAction | TDialogAction | TServerAction | TServerScreenAction;
+export type TRootAction = TAppAction | TOverlayAction | TServerAction;
 
 export interface IStore {
   getState(): IRootState;
@@ -44,13 +36,10 @@ export interface IStore {
 
 const isAppAction = (action: TRootAction): action is TAppAction =>
   action.type.startsWith('app/');
-const isDialogAction = (action: TRootAction): action is TDialogAction =>
-  action.type.startsWith('dialog/');
+const isOverlayAction = (action: TRootAction): action is TOverlayAction =>
+  action.type.startsWith('overlay/');
 const isServerAction = (action: TRootAction): action is TServerAction =>
   action.type.startsWith('server/');
-const isServerScreenAction = (
-  action: TRootAction
-): action is TServerScreenAction => action.type.startsWith('serverScreen/');
 
 const rootReducer = (
   currentState: IRootState,
@@ -62,23 +51,19 @@ const rootReducer = (
   const server = isServerAction(action)
     ? serverSliceReducer(currentState.server, action)
     : currentState.server;
-  const dialog = isDialogAction(action)
-    ? dialogSliceReducer(currentState.dialog, action)
-    : currentState.dialog;
-  const serverScreen = isServerScreenAction(action)
-    ? serverScreenSliceReducer(currentState.serverScreen, action)
-    : currentState.serverScreen;
+  const overlay = isOverlayAction(action)
+    ? overlaySliceReducer(currentState.overlay, action)
+    : currentState.overlay;
 
   if (
     app === currentState.app &&
     server === currentState.server &&
-    dialog === currentState.dialog &&
-    serverScreen === currentState.serverScreen
+    overlay === currentState.overlay
   ) {
     return currentState;
   }
 
-  return { app, server, dialog, serverScreen };
+  return { app, server, overlay };
 };
 
 // every request on the server gets its own instance, so the state of one
@@ -89,8 +74,7 @@ export const createStore = (): IStore => {
   let state: IRootState = {
     app: appInitialState,
     server: serverInitialState,
-    dialog: dialogInitialState,
-    serverScreen: serverScreenInitialState
+    overlay: overlayInitialState
   };
 
   const getState = () => state;

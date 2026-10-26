@@ -1,10 +1,10 @@
 import { UserAvatar } from '@/components/user-avatar';
 import { setModViewOpen } from '@/features/app/actions';
 import {
-  openDialog,
+  openOverlay,
   requestConfirmation,
   requestTextInput
-} from '@/features/dialogs/actions';
+} from '@/features/overlays/actions';
 import { useUserRoles } from '@/features/server/hooks';
 import { useOwnUserId, useUserStatus } from '@/features/server/users/hooks';
 import { getTRPCClient } from '@/lib/trpc';
@@ -188,10 +188,14 @@ const Header = memo(() => {
           variant="outline"
           size="sm"
           onClick={() =>
-            openDialog(Dialog.DELETE_USER, {
-              user,
-              refetch,
-              onDelete: () => setModViewOpen(false)
+            openOverlay({
+              kind: 'dialog',
+              name: Dialog.DELETE_USER,
+              props: {
+                user,
+                refetch,
+                onDelete: () => setModViewOpen(false)
+              }
             })
           }
           disabled={isOwnUser || isDeletedUser}
@@ -210,7 +214,13 @@ const Header = memo(() => {
           size="sm"
           className="h-6 px-2 text-xs"
           disabled={isDeletedUser}
-          onClick={() => openDialog(Dialog.ASSIGN_ROLE, { user, refetch })}
+          onClick={() =>
+            openOverlay({
+              kind: 'dialog',
+              name: Dialog.ASSIGN_ROLE,
+              props: { user, refetch }
+            })
+          }
         >
           <PlusIcon className="h-3 w-3" />
           {t('modViewAssignRoleBtn')}

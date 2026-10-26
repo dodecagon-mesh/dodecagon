@@ -71,8 +71,8 @@ mock.module('@/features/server/actions', () => ({
   setDmsOpen: () => undefined
 }));
 
-mock.module('@/features/dialogs/actions', () => ({
-  openDialog: () => undefined,
+mock.module('@/features/overlays/actions', () => ({
+  openOverlay: () => undefined,
   requestConfirmation: async () => true
 }));
 

@@ -23,7 +23,7 @@ import {
 import { TRPCClientError } from '@trpc/client';
 import { toast } from 'sonner';
 import { appSliceActions } from '../app/slice';
-import { openDialog } from '../dialogs/actions';
+import { openOverlay } from '../overlays/actions';
 import { store } from '../store';
 import {
   channelReadStateByIdSelector,
@@ -105,14 +105,18 @@ export const connect = async () => {
 
     if (hasPassword) {
       // show password prompt
-      openDialog(Dialog.SERVER_PASSWORD, { handshakeHash, serverId });
+      openOverlay({
+        kind: 'dialog',
+        name: Dialog.SERVER_PASSWORD,
+        props: { handshakeHash, serverId }
+      });
       return;
     }
 
     const { showWelcomeDialog } = await joinServer(handshakeHash);
 
     if (showWelcomeDialog) {
-      openDialog(Dialog.WELCOME_PROFILE_SETUP);
+      openOverlay({ kind: 'dialog', name: Dialog.WELCOME_PROFILE_SETUP });
     }
   } catch (error) {
     if (generation === reconnectGeneration && isAuthenticationFailure(error)) {
@@ -373,6 +377,6 @@ export const exposeServerDebugApi = () => {
 
   window.dodecagonDebug = {
     ...window.dodecagonDebug,
-    openSoundsModal: () => openDialog(Dialog.SOUNDS)
+    openSoundsModal: () => openOverlay({ kind: 'dialog', name: Dialog.SOUNDS })
   };
 };

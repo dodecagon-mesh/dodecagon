@@ -97,11 +97,8 @@ mock.module('@/features/app/actions', () => ({
   toggleChannelMuted: noop
 }));
 
-mock.module('@/features/server-screens/actions', () => ({
-  openServerScreen: noop
-}));
-
-mock.module('@/features/dialogs/actions', () => ({
+mock.module('@/features/overlays/actions', () => ({
+  openOverlay: noop,
   requestConfirmation: async () => true
 }));
 

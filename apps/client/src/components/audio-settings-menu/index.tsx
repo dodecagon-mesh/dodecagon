@@ -1,6 +1,6 @@
 import { useDevices } from '@/components/devices-provider/hooks/use-devices';
 import { ServerScreen } from '@/components/server-screens/screens';
-import { openServerScreen } from '@/features/server-screens/actions';
+import { openOverlay } from '@/features/overlays/actions';
 import { TestId } from '@dodecagon/shared';
 import {
   IconButton,
@@ -147,8 +147,12 @@ const AudioSettingsMenu = memo(
     const handleVoiceSettings = useCallback(() => {
       restoreFocusRef.current = false;
       setOpen(false);
-      openServerScreen(ServerScreen.USER_SETTINGS, {
-        initialEntryId: 'devices'
+      openOverlay({
+        kind: 'serverScreen',
+        name: ServerScreen.USER_SETTINGS,
+        props: {
+          initialEntryId: 'devices'
+        }
       });
     }, []);
 

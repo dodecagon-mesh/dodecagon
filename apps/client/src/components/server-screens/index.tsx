@@ -1,5 +1,5 @@
-import { closeServerScreens } from '@/features/server-screens/actions';
-import { useServerScreenInfo } from '@/features/server-screens/hooks';
+import { closeOverlay } from '@/features/overlays/actions';
+import { useOverlay } from '@/features/overlays/hooks';
 import { memoizeImport, warmImportsWhenIdle } from '@/helpers/prefetch';
 import {
   createElement,
@@ -38,7 +38,7 @@ const ScreensMap = {
 };
 
 const ServerScreensProvider = memo(() => {
-  const { isOpen, props, openServerScreen } = useServerScreenInfo();
+  const overlay = useOverlay();
 
   // the portal root belongs to the document shell, so it is only known once the
   // tree is mounted
@@ -48,10 +48,10 @@ const ServerScreensProvider = memo(() => {
     setPortalRoot(document.getElementById('portal'));
   }, []);
 
-  if (!isOpen || !openServerScreen || !ScreensMap[openServerScreen])
-    return null;
+  if (!overlay || overlay.kind !== 'serverScreen') return null;
 
-  const Screen = ScreensMap[openServerScreen];
+  const Screen = ScreensMap[overlay.name];
+  if (!Screen) return null;
   if (!portalRoot) return null;
 
   return createPortal(
@@ -59,9 +59,9 @@ const ServerScreensProvider = memo(() => {
       {createElement(
         Screen as unknown as ComponentType<Record<string, unknown>>,
         {
-          ...props,
-          isOpen,
-          close: closeServerScreens
+          ...overlay.props,
+          isOpen: true,
+          close: closeOverlay
         }
       )}
     </Suspense>,

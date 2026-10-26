@@ -1,4 +1,4 @@
-import { openDialog } from '@/features/dialogs/actions';
+import { openOverlay } from '@/features/overlays/actions';
 import { isAuthenticationFailure, joinServer } from '@/features/server/actions';
 import { useForm } from '@/hooks/use-form';
 import * as trpc from '@/lib/trpc';
@@ -44,7 +44,10 @@ const ServerPasswordDialog = memo(
 
         if (showWelcomeDialog) {
           setTimeout(() => {
-            openDialog(Dialog.WELCOME_PROFILE_SETUP);
+            openOverlay({
+              kind: 'dialog',
+              name: Dialog.WELCOME_PROFILE_SETUP
+            });
           }, 175);
         }
       } catch (error) {

@@ -17,9 +17,9 @@ mock.module('@/features/server/actions', () => ({
   }
 }));
 
-mock.module('@/features/dialogs/actions', () => ({
-  openDialog: (dialog: unknown) => {
-    records.trpc.openDialogCalls.push(dialog);
+mock.module('@/features/overlays/actions', () => ({
+  openOverlay: (overlay: unknown) => {
+    records.trpc.openDialogCalls.push(overlay);
   }
 }));
 

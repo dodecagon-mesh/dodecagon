@@ -1,3 +1,7 @@
+import { Dialog } from '@/components/dialogs/dialogs';
+import { closeOverlay, openOverlay } from '@/features/overlays/actions';
+import { overlaySelector } from '@/features/overlays/selectors';
+import { store } from '@/features/store';
 import '@/i18n';
 import { TestId } from '@dodecagon/shared';
 import { createElement } from 'react';
@@ -26,23 +30,17 @@ afterEach(() => {
 });
 
 test('closing a dialog is synchronous and cannot erase a newly opened dialog', async () => {
-  const { Dialog } = await import('@/components/dialogs/dialogs');
-  const { closeDialogs, openDialog, resetDialogs } =
-    await import('@/features/dialogs/actions');
-  const { dialogInfoSelector } = await import('@/features/dialogs/selectors');
-  const { store } = await import('@/features/store');
   try {
-    openDialog(Dialog.CONFIRM_ACTION);
-    closeDialogs();
-    expect(dialogInfoSelector(store.getState()).isOpen).toBe(false);
-    openDialog(Dialog.VOICE_DEBUG);
+    openOverlay({ kind: 'dialog', name: Dialog.CONFIRM_ACTION });
+    closeOverlay();
+    expect(overlaySelector(store.getState())).toBeUndefined();
+    openOverlay({ kind: 'dialog', name: Dialog.VOICE_DEBUG });
     await new Promise((resolve) => setTimeout(resolve, 180));
-    expect(dialogInfoSelector(store.getState()).openDialog).toBe(
-      Dialog.VOICE_DEBUG
-    );
-    expect(dialogInfoSelector(store.getState()).isOpen).toBe(true);
+    const overlay = overlaySelector(store.getState());
+    expect(overlay?.kind).toBe('dialog');
+    expect(overlay?.name).toBe(Dialog.VOICE_DEBUG);
   } finally {
-    resetDialogs();
+    closeOverlay();
   }
 });
 

@@ -38,7 +38,7 @@ mock.module('@/features/server/hooks', () => ({
   useCan: () => () => true
 }));
 
-mock.module('@/features/dialogs/actions', () => ({ openDialog: noop }));
+mock.module('@/features/overlays/actions', () => ({ openOverlay: noop }));
 
 mock.module('@/features/server/channels/actions', () => ({
   setSelectedChannelId: noop

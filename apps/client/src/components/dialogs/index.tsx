@@ -1,5 +1,5 @@
-import { closeDialogs } from '@/features/dialogs/actions';
-import { useDialogInfo } from '@/features/dialogs/hooks';
+import { closeOverlay } from '@/features/overlays/actions';
+import { useOverlay } from '@/features/overlays/hooks';
 import { memoizeImport, warmImportsWhenIdle } from '@/helpers/prefetch';
 import { createElement, lazy, memo, Suspense, type ComponentType } from 'react';
 import { Dialog } from './dialogs';
@@ -114,18 +114,20 @@ warmImportsWhenIdle([
 ]);
 
 const DialogsProvider = memo(() => {
-  const { isOpen, openDialog, props } = useDialogInfo();
-  if (!openDialog || !DialogsMap[openDialog]) return null;
+  const overlay = useOverlay();
+  if (!overlay || overlay.kind !== 'dialog') return null;
 
-  const DialogComponent = DialogsMap[openDialog];
+  const DialogComponent = DialogsMap[overlay.name];
+  if (!DialogComponent) return null;
+
   return (
     <Suspense fallback={null}>
       {createElement(
         DialogComponent as unknown as ComponentType<Record<string, unknown>>,
         {
-          ...props,
-          isOpen,
-          close: closeDialogs
+          ...overlay.props,
+          isOpen: true,
+          close: closeOverlay
         }
       )}
     </Suspense>

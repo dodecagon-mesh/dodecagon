@@ -65,9 +65,9 @@ mock.module('@/features/server/hooks', () => ({
   useCan: () => () => mode !== 'reader'
 }));
 
-mock.module('@/features/server-screens/actions', () => ({
-  openServerScreen: (screen: string) => {
-    records.screens.push(screen);
+mock.module('@/features/overlays/actions', () => ({
+  openOverlay: (overlay: { name: string }) => {
+    records.screens.push(overlay.name);
   }
 }));
 

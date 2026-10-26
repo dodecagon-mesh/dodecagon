@@ -1,9 +1,5 @@
 import { ServerScreen } from '@/components/server-screens/screens';
-import { resetDialogs } from '@/features/dialogs/actions';
-import {
-  closeServerScreens,
-  openServerScreen
-} from '@/features/server-screens/actions';
+import { closeOverlay, openOverlay } from '@/features/overlays/actions';
 import { setCurrentVoiceChannelId } from '@/features/server/channels/actions';
 import { updateOwnVoiceState } from '@/features/server/voice/actions';
 import { TestId } from '@dodecagon/shared';
@@ -41,7 +37,7 @@ beforeAll(async () => {
 afterAll(() => root.unmount());
 
 afterEach(async () => {
-  closeServerScreens();
+  closeOverlay();
   setCurrentVoiceChannelId(undefined);
   updateOwnVoiceState({ micMuted: false, soundMuted: false });
   await page.viewport(1440, 900);
@@ -148,7 +144,7 @@ test('profile controls retain the Paper spacing and Miku theme without crowding 
 });
 
 test('the profile banner menu opens to the right of the profile card and closes without trapping the focus', async () => {
-  openServerScreen(ServerScreen.USER_SETTINGS);
+  openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
 
   const heading = page.getByRole('heading', {
     name: 'Profile',
@@ -299,7 +295,7 @@ test('mobile profile settings keep the settings navigation reachable and keyboar
 
 test('mobile settings controls stay reachable while server settings scroll', async () => {
   await page.viewport(390, 400);
-  openServerScreen(ServerScreen.SERVER_SETTINGS);
+  openOverlay({ kind: 'serverScreen', name: ServerScreen.SERVER_SETTINGS });
 
   const heading = page.getByRole('heading', {
     name: 'Server overview',
@@ -348,7 +344,7 @@ test('mobile settings controls stay reachable while server settings scroll', asy
 });
 
 test('Escape confirms before discarding unsaved profile changes', async () => {
-  openServerScreen(ServerScreen.USER_SETTINGS);
+  openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
 
   const heading = page.getByRole('heading', {
     name: 'Profile',
@@ -376,7 +372,6 @@ test('Escape confirms before discarding unsaved profile changes', async () => {
     await discardButton.click();
     await expect.element(heading).not.toBeInTheDocument();
   } finally {
-    resetDialogs();
-    closeServerScreens();
+    closeOverlay();
   }
 });

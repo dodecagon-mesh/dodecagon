@@ -1,7 +1,7 @@
 import { SettingsSection } from '@/components/server-screens/settings-shell/section';
 import { useSettingsForm } from '@/components/server-screens/settings-shell/use-settings-form';
 import { UserStatusBadge } from '@/components/user-status';
-import { requestTextInput } from '@/features/dialogs/actions';
+import { requestTextInput } from '@/features/overlays/actions';
 import { useOwnPublicUser } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';

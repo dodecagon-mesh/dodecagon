@@ -15,7 +15,7 @@ import {
   useSelectedDmChannelId,
   useThreadSidebar
 } from '@/features/app/hooks';
-import { useServerScreenInfo } from '@/features/server-screens/hooks';
+import { useIsServerScreenOpen } from '@/features/overlays/hooks';
 import { setDmsOpen } from '@/features/server/actions';
 import { setSelectedChannelId } from '@/features/server/channels/actions';
 import { useDmsOpen, usePublicServerSettings } from '@/features/server/hooks';
@@ -91,7 +91,7 @@ const ServerView = memo(() => {
       }
     }
   }, [publicSettings?.directMessagesEnabled, dmsOpen]);
-  const { isOpen: isServerScreenOpen } = useServerScreenInfo();
+  const isServerScreenOpen = useIsServerScreenOpen();
 
   useEffect(() => {
     if (!isServerScreenOpen) return;

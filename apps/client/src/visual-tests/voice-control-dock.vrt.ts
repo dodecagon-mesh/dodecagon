@@ -44,7 +44,7 @@ const state = vi.hoisted(() => ({
   ),
   updateVoiceState: vi.fn(async (_state: { voiceOnlyMode: boolean }) => {}),
   setVoiceOnlyMode: vi.fn(async (_voiceOnlyMode: boolean) => false),
-  openDialog: vi.fn(),
+  openOverlay: vi.fn(),
   toastError: vi.fn(),
   toggleWebcam: vi.fn(),
   toggleScreenShare: vi.fn()
@@ -101,8 +101,8 @@ vi.mock('@/features/server/voice/hooks', () => ({
   })
 }));
 vi.mock('@/features/server/voice/actions', () => ({ leaveVoice: vi.fn() }));
-vi.mock('@/features/dialogs/actions', () => ({
-  openDialog: state.openDialog
+vi.mock('@/features/overlays/actions', () => ({
+  openOverlay: state.openOverlay
 }));
 vi.mock('@/lib/trpc', () => ({
   cleanup: vi.fn(),
@@ -214,7 +214,7 @@ afterEach(() => {
   });
   state.setVoiceOnlyMode.mockReset();
   state.setVoiceOnlyMode.mockImplementation(confirmMockVoiceOnlyMode);
-  state.openDialog.mockReset();
+  state.openOverlay.mockReset();
   state.toastError.mockReset();
   state.toggleWebcam.mockReset();
   state.toggleScreenShare.mockReset();
@@ -526,7 +526,7 @@ test('Wi-Fi connection badge opens transport stats by click and keyboard', async
   await expect
     .element(page.getByRole('heading', { name: 'Transport stats' }))
     .toBeInTheDocument();
-  expect(state.openDialog).not.toHaveBeenCalled();
+  expect(state.openOverlay).not.toHaveBeenCalled();
 
   await userEvent.keyboard('{Escape}');
   await vi.waitFor(() =>
@@ -536,7 +536,7 @@ test('Wi-Fi connection badge opens transport stats by click and keyboard', async
   await expect
     .element(page.getByRole('heading', { name: 'Transport stats' }))
     .toBeInTheDocument();
-  expect(state.openDialog).not.toHaveBeenCalled();
+  expect(state.openOverlay).not.toHaveBeenCalled();
 });
 
 test('advanced diagnostics closes transport stats before opening the dialog', async () => {
@@ -554,8 +554,11 @@ test('advanced diagnostics closes transport stats before opening the dialog', as
     .getByRole('button', { name: 'Voice diagnostics', exact: true })
     .click();
 
-  expect(state.openDialog).toHaveBeenCalledTimes(1);
-  expect(state.openDialog).toHaveBeenCalledWith(Dialog.VOICE_DEBUG);
+  expect(state.openOverlay).toHaveBeenCalledTimes(1);
+  expect(state.openOverlay).toHaveBeenCalledWith({
+    kind: 'dialog',
+    name: Dialog.VOICE_DEBUG
+  });
   await expect
     .element(page.getByRole('heading', { name: 'Transport stats' }))
     .not.toBeInTheDocument();

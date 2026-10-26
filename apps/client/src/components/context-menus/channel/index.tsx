@@ -1,8 +1,7 @@
 import { ServerScreen } from '@/components/server-screens/screens';
 import { toggleChannelMuted } from '@/features/app/actions';
 import { useIsChannelMuted } from '@/features/app/hooks';
-import { requestConfirmation } from '@/features/dialogs/actions';
-import { openServerScreen } from '@/features/server-screens/actions';
+import { openOverlay, requestConfirmation } from '@/features/overlays/actions';
 import { useChannelById } from '@/features/server/channels/hooks';
 import { useCan } from '@/features/server/hooks';
 import { getTRPCClient } from '@/lib/trpc';
@@ -64,7 +63,11 @@ const ChannelContextMenu = memo(
     }, [channelId, t]);
 
     const onEditClick = useCallback(() => {
-      openServerScreen(ServerScreen.CHANNEL_SETTINGS, { channelId });
+      openOverlay({
+        kind: 'serverScreen',
+        name: ServerScreen.CHANNEL_SETTINGS,
+        props: { channelId }
+      });
     }, [channelId]);
 
     return (

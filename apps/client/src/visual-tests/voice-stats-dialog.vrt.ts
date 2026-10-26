@@ -1,6 +1,6 @@
 import { DialogsProvider } from '@/components/dialogs';
 import { VoiceControl } from '@/components/left-sidebar/voice-control';
-import { resetDialogs } from '@/features/dialogs/actions';
+import { closeOverlay } from '@/features/overlays/actions';
 import { i18n } from '@/i18n';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -50,7 +50,7 @@ let root: Root | undefined;
 let host: HTMLDivElement | undefined;
 
 afterEach(() => {
-  resetDialogs();
+  closeOverlay();
   root?.unmount();
   root = undefined;
   host?.remove();

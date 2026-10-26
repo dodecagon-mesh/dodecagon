@@ -1,4 +1,4 @@
-import { openDialog } from '@/features/dialogs/actions';
+import { openOverlay } from '@/features/overlays/actions';
 import {
   useCategories,
   useCategoryById
@@ -58,7 +58,11 @@ const Category = memo(({ categoryId }: TCategoryProps) => {
   });
 
   const onCreateChannelClick = useCallback(() => {
-    openDialog(Dialog.CREATE_CHANNEL, { categoryId });
+    openOverlay({
+      kind: 'dialog',
+      name: Dialog.CREATE_CHANNEL,
+      props: { categoryId }
+    });
   }, [categoryId]);
 
   if (
