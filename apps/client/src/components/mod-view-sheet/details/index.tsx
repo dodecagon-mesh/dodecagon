@@ -1,6 +1,6 @@
 import { Protect } from '@/components/protect';
 import { useDateLocale } from '@/hooks/use-date-locale';
-import { Permission } from '@dodecagon/shared/src/statics/permissions';
+import { Permission } from '@dodecagon/shared';
 import {
   Card,
   CardContent,
