@@ -34,7 +34,7 @@ import { isLocalLoginDisabled } from '../oidc/settings';
 import { safeCompare } from '../safe-compare';
 import type { TServiceResult } from './service-result';
 
-// the same rules the http route applies, the service can be reached without it
+// the route forwards the body unvalidated, the service owns the rules and the messages
 const zLoginBody = z.object({
   identity: z
     .string()
@@ -199,7 +199,13 @@ const authenticateUserService = async (
 
     existingUser = await getUserByIdentity(identity);
 
+    // the registration committed but the row cannot be read back, which is a broken
+    // server and has to stay visible in the log instead of answering a field error
     if (!existingUser) {
+      logger.error(
+        `${chalk.dim('[Auth]')} User registration did not produce a user for "${identity}"`
+      );
+
       return {
         ok: false,
         error: { kind: 'internal', message: 'Internal server error' }

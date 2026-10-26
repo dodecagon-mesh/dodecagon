@@ -1,43 +1,46 @@
+import { getOidcHandoffCode } from '@dodecagon/shared';
 import type http from 'http';
-import z from 'zod';
 import type { getWsInfo } from '../../helpers/get-ws-info';
-import { clearStateCookie, hasStateCookie } from '../../helpers/oidc/cookies';
-import { oidcManager } from '../../helpers/oidc/manager';
-import { getJsonBody, isSecureRequest, sendJsonError } from '../helpers';
-import { guardOidcRoute } from './common';
+import { consumeOidcHandoffService } from '../../helpers/services/oidc';
+import {
+  getJsonBody,
+  getPublicOrigin,
+  isSecureRequest,
+  sendServiceError
+} from '../helpers';
 
-const zBody = z.object({
-  code: z.string().min(1).max(256)
-});
-
+// the service validates the code, this route only reads the body and writes the answer
 const oidcExchangeRouteHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse,
   { info }: { info: ReturnType<typeof getWsInfo> }
 ) => {
-  const guarded = guardOidcRoute(req, res, {
+  const body = await getJsonBody(req);
+
+  const result = await consumeOidcHandoffService(getOidcHandoffCode(body), {
+    origin: getPublicOrigin(req),
     ip: info?.ip,
-    route: '/oidc/exchange',
-    isNavigation: false
+    secure: isSecureRequest(req),
+    cookie: req.headers.cookie
   });
 
-  if (!guarded) return;
-
-  const data = zBody.parse(await getJsonBody(req));
-  const handoff = oidcManager.takeHandoff(data.code);
-
-  if (!handoff || !hasStateCookie(req.headers.cookie, handoff.state)) {
-    sendJsonError(res, 401, 'This sign in link has expired, please try again');
+  if (!result.ok) {
+    await sendServiceError(res, result.error);
 
     return;
   }
 
-  res.writeHead(200, {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Cache-Control': 'no-store',
-    'Set-Cookie': clearStateCookie(handoff.state, isSecureRequest(req))
-  });
-  res.end(JSON.stringify({ success: true, token: handoff.token }));
+    'Cache-Control': 'no-store'
+  };
+
+  if (result.body.cookie) {
+    headers['Set-Cookie'] = result.body.cookie;
+  }
+
+  res.writeHead(200, headers);
+  res.end(JSON.stringify({ success: true, token: result.body.token }));
 };
 
 export { oidcExchangeRouteHandler };

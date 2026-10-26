@@ -1,64 +1,33 @@
-import { getErrorMessage, OidcError } from '@dodecagon/shared';
 import type http from 'http';
-import * as client from 'openid-client';
 import type { getWsInfo } from '../../helpers/get-ws-info';
-import { buildStateCookie } from '../../helpers/oidc/cookies';
+import { createOidcLoginService } from '../../helpers/services/oidc';
 import {
-  oidcManager,
-  TRANSACTION_TTL_SECONDS
-} from '../../helpers/oidc/manager';
-import { logger } from '../../logger';
-import { isSecureRequest } from '../helpers';
-import { guardOidcRoute, redirectWithError } from './common';
+  getPublicOrigin,
+  isSecureRequest,
+  sendRedirect,
+  sendServiceError
+} from '../helpers';
 
+// the service owns the flow, this route only hands it the request and writes the redirect
 const oidcLoginRouteHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse,
   { info }: { info: ReturnType<typeof getWsInfo> }
 ) => {
-  const guarded = guardOidcRoute(req, res, {
+  const result = await createOidcLoginService({
+    origin: getPublicOrigin(req),
     ip: info?.ip,
-    route: '/oidc/login',
-    isNavigation: true
+    secure: isSecureRequest(req),
+    cookie: req.headers.cookie
   });
 
-  if (!guarded) return;
+  if (!result.ok) {
+    await sendServiceError(res, result.error);
 
-  try {
-    const oidcConfig = await oidcManager.getConfiguration();
-
-    const state = client.randomState();
-    const nonce = client.randomNonce();
-    const codeVerifier = client.randomPKCECodeVerifier();
-    const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
-    const redirectUri = oidcManager.resolveRedirectUri(req);
-
-    oidcManager.startTransaction(state, { nonce, codeVerifier, redirectUri });
-
-    const authorizationUrl = client.buildAuthorizationUrl(oidcConfig, {
-      redirect_uri: redirectUri,
-      scope: 'openid profile email',
-      code_challenge: codeChallenge,
-      code_challenge_method: 'S256',
-      state,
-      nonce
-    });
-
-    res.writeHead(302, {
-      'Cache-Control': 'no-store',
-      'Set-Cookie': buildStateCookie(
-        state,
-        TRANSACTION_TTL_SECONDS,
-        isSecureRequest(req)
-      ),
-      Location: authorizationUrl.href
-    });
-    res.end();
-  } catch (error) {
-    logger.error('OIDC login failed to start: %s', getErrorMessage(error));
-
-    redirectWithError(req, res, OidcError.SERVER_ERROR);
+    return;
   }
+
+  sendRedirect(res, result.body.location, result.body.cookie);
 };
 
 export { oidcLoginRouteHandler };
