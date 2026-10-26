@@ -16,7 +16,7 @@ each app to run.
 | Workspace             | What it is                                                                     |
 | --------------------- | ------------------------------------------------------------------------------ |
 | `apps/server`         | Bun + tRPC + Drizzle (SQLite) + mediasoup (voice SFU)                          |
-| `apps/client`         | React + Vite + Redux Toolkit + Tailwind                                        |
+| `apps/client`         | React + Vite + TanStack Start + Tailwind                                        |
 | `packages/shared`     | Types, enums, helpers shared by client and server. Cross-cutting types go here |
 | `packages/ui`         | Presentational components only, no app logic                                   |
 | `packages/plugin-sdk` | Public API surface for plugins                                                 |
@@ -25,6 +25,35 @@ each app to run.
 Client ↔ server talk over **tRPC**: queries/mutations plus WebSocket subscriptions for
 realtime events. Everything that can't be tRPC (login, uploads, static/public files,
 healthz, plugin bundles) lives in `apps/server/src/http`.
+
+### HTTP surface: two runtimes, one dispatcher
+
+The client is a **TanStack Start** app. Its pages are file routes in `apps/client/src/routes/`
+and they are served by the Start server, which runs **inside the Bun process**: the built
+server is packed into `server.zip`, embedded in the binary, and unpacked into the data
+directory at boot. In development the same server runs inside the Vite process.
+
+`apps/server/src/http/index.ts` is the dispatcher. `START_PATHS` lists the paths the Start
+server owns in a release; the Bun handlers keep them in development, where the Start bundle
+is never unpacked. **A new page route needs both registrations**: the client route file and
+the `START_PATHS` entry. A route that works in Vite can still 404 in the standalone binary.
+
+The Start server never sees the socket, so the caller cannot be trusted from headers. The
+Bun dispatcher computes the client address, the public origin, the secure flag and the body
+limit and passes them in `x-dodecagon-*` headers. Routes read only those headers. The header
+names live in `packages/shared/src/statics/start.ts`.
+
+Business logic for these routes lives in `apps/server/src/helpers/services/`. A service
+returns a `TServiceResult` and knows nothing about HTTP; the Bun handler and the Start
+route each turn that result into a response. Do not write the same logic twice, once per
+runtime.
+
+**Store, language and render time live in the request.** The store is created per request
+on the server (`features/store-context.tsx`), so one request never sees another's state;
+the browser keeps a single instance for the session. The language comes from the
+`dodecagon-language` cookie, falling back to `Accept-Language`, and the server ships the
+language resources with the page, so the server HTML and the first browser render match and
+the browser does not redraw the form.
 
 Server boot order is explicit in `apps/server/src/index.ts` (dirs → db → plugins →
 servers → mediasoup → voice runtimes → crons). The top imports there are order-sensitive;
@@ -262,11 +291,18 @@ reason — extend `seed.ts` or `helpers.ts` instead.
 
 `apps/client/src`:
 
-- `features/` — Redux Toolkit state, read through hooks/selectors, never by reaching into the
-  store shape. Top level slices (`app`, `dialogs`, `server-screens`, `server`) own a `slice.ts`;
-  the `server/*` domains have **none**, their reducers all live in `features/server/slice.ts`
-  and the domain folder holds `actions.ts`, `selectors.ts`, `hooks.ts` and `subscriptions.ts`.
-  A service that owns no state belongs in `helpers/` or `lib/`, not here.
+- `features/` — client state, read through hooks/selectors, never by reaching into the store
+  shape. The store is hand-written (`features/store.ts`): four slices (`app`, `dialogs`,
+  `server-screens`, `server`), plain reducers over immer drafts, and `useStoreSelector` on
+  `useSyncExternalStore`. There is no Redux and no Redux Toolkit. Top level slices own a
+  `slice.ts`; the `server/*` domains have **none**, their reducers all live in
+  `features/server/slice.ts` and the domain folder holds `actions.ts`, `selectors.ts`, `hooks.ts`
+  and `subscriptions.ts`. A service that owns no state belongs in `helpers/` or `lib/`, not here.
+- `features/server/messages/` — server messages live in a **TanStack DB** collection
+  (`database.ts`), not in the store. The collection is the single owner of message rows;
+  `delivery.ts` holds the optimistic draft and status collections and `hooks.ts` reads both
+  through `useLiveQuery`. The store still owns users, channels, roles, permissions and the
+  rest of the server state, so a message row reads its author from the store.
 - `components/` — app components, one folder per component with `index.tsx` plus its local
   parts, `helpers.ts` and `hooks/`. Keep component-local logic in that folder.
 - `screens/` — top-level routes. `hooks/` — generic reusable hooks (`use-*.ts`).
@@ -330,12 +366,12 @@ Name a hook after the thing it owns, not the event it reacts to:
 ### Selectors and caching
 
 Every selector runs on every dispatch, for every subscribed component. A selector that
-builds a new array or object **without memoizing** hands `useSelector` a new reference every
-time and re-renders its component on **unrelated** state changes. Pick the right tool:
+builds a new array or object **without memoizing** hands `useStoreSelector` a new reference
+every time and re-renders its component on **unrelated** state changes. Pick the right tool:
 
 - **Plain function** for a direct state read: `(state: IRootState) => state.server.x`.
   Nothing is derived, so there is nothing to memoize. `selectedChannelIdSelector`.
-- **`createSelector`** (`@reduxjs/toolkit`) the moment you `filter`, `map`, `sort`,
+- **`createSelector`** (`reselect`) the moment you `filter`, `map`, `sort`,
   `reduce`, or build an object/array. `directMessagesUnreadCountSelector`.
 - **`createCachedSelector`** (`re-reselect`) for a selector that takes a parameter, keyed
   by that parameter: `createCachedSelector([inputs, (_, id) => id], fn)((_, id) => id)`.
