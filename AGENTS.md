@@ -435,6 +435,8 @@ bun run synci18n
 
 This command will output a list of missing translations, including the language, key and file. You will need to add the missing translations to the appropriate files in `apps/client/src/i18n/locales/`. Make sure the translations are accurate and contextually appropriate for the application. Only fix translations that have been touched by your changes.
 
+The command exits with a non-zero code when a translation is missing, and the CI workflow runs it, so a missing translation fails the build.
+
 ### Tests
 
 Every new behaviour needs tests and the whole suite must pass, see [Testing](#testing).
@@ -494,8 +496,12 @@ Every new behaviour needs tests and the whole suite must pass, see [Testing](#te
 - A release also needs green hosted `Build & Test` and E2E jobs: the Release workflow waits
   for them after the merge, so a red advisory check does not block the merge but blocks
   publishing.
-- Visual tests (`bun run test:visual` in `apps/client`) need the Paper design as reference
-  for UI changes; see the sharkord-paper-ui-verification skill.
+- Visual tests are a local-only gate: no hosted workflow runs them, because they need a
+  browser and a local test server. Run them with `cd apps/client && bun run test:visual`,
+  refresh the PNG baselines with `cd apps/client && bun run test:visual:update`. The
+  baselines are Chromium-on-Linux images, so they only match on that platform and two PRs
+  that touch the same screen cannot be merged by hand. Visual tests need the Paper design
+  as reference for UI changes; see the sharkord-paper-ui-verification skill.
 
 ### Local sign-off (merge gate)
 

@@ -145,6 +145,22 @@ Make sure all checks are passing when you submit your PR. This includes linting,
 
 When applicable, please include unit and integration tests for your changes. This helps ensure the stability and reliability of the project. If your change is in a area that already has tests, please make sure to update or add tests as needed.
 
+## Visual Tests
+
+The visual tests are a local-only gate: they need a browser and a local test server, so no hosted workflow runs them. Run them from `apps/client`:
+
+```bash
+cd apps/client && bun run test:visual
+```
+
+Refresh the PNG baselines under `apps/client/src/visual-tests/__screenshots__/` with:
+
+```bash
+cd apps/client && bun run test:visual:update
+```
+
+The baselines are Chromium-on-Linux images, so they only match on that platform. They are binary, so two PRs that touch the same screen cannot be merged by hand: the second PR regenerates the baseline for that screen. Put the regenerated baselines in their own PR.
+
 ## Fork workflow (dodecagon-mesh/dodecagon)
 
 This fork has one long-lived branch, `master`. Upstream rules above still apply to code style and tests.
