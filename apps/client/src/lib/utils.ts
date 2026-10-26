@@ -1,6 +1,3 @@
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+// one class-name merge implementation for the whole tree. it lives next to the
+// components that style, so a fix cannot land in one copy and miss another.
+export { cn } from '@dodecagon/ui';
