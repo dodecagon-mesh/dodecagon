@@ -12,7 +12,11 @@ import {
   ChatBubbleLeftRightIcon,
   HashtagIcon
 } from '@heroicons/react/24/outline';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import {
+  useVirtualizer,
+  type VirtualItem,
+  type Virtualizer
+} from '@tanstack/react-virtual';
 import { format, isToday } from 'date-fns';
 import {
   forwardRef,
@@ -191,6 +195,13 @@ const HistoryRow = memo(
 const estimateMessageHeight = () => 40;
 const estimateCompactMessageHeight = () => 34;
 
+// late media above the reader must stay anchored during upward wheel input too
+const shouldAdjustForHistoryResize = (
+  item: VirtualItem,
+  _delta: number,
+  instance: Virtualizer<HTMLDivElement, Element>
+) => item.end <= (instance.scrollOffset ?? 0);
+
 export const MessageHistory = memo(
   forwardRef<TMessageHistoryHandle, TMessageHistoryProps>((props, ref) => {
     const {
@@ -237,6 +248,8 @@ export const MessageHistory = memo(
       directDomUpdates: true,
       directDomUpdatesMode: 'position'
     });
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
+      shouldAdjustForHistoryResize;
 
     // keep the mount guard aligned with the native virtualizer's effect lifetime
     useLayoutEffect(

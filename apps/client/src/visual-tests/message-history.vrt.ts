@@ -224,6 +224,38 @@ for (const compact of [false, true]) {
   }
 }
 
+for (const compact of [false, true]) {
+  for (const position of ['above', 'spanning'] as const) {
+    test(`late media in a row ${position} the viewport preserves ${compact ? 'thread' : 'channel'} reading after the first wheel`, async () => {
+      const view = await fixture(messages(1, 100), compact);
+      try {
+        await page.elementLocator(view.container).wheel({ delta: { y: -60 } });
+        await expect.poll(view.fromBottom).toBeGreaterThanOrEqual(59);
+        const before = readVisibleAnchor(view.host, view.container);
+        const viewport = view.container.getBoundingClientRect();
+        const candidates = Array.from(
+          view.host.querySelectorAll<HTMLElement>('[data-index]')
+        ).filter((row) => {
+          const bounds = row.getBoundingClientRect();
+          return position === 'above'
+            ? bounds.bottom <= viewport.top
+            : bounds.top < viewport.top && bounds.bottom > viewport.top;
+        });
+        const row = position === 'above' ? candidates.at(-1) : candidates[0];
+        expect(row).toBeDefined();
+        const media = row!.querySelector<HTMLElement>('[data-message-id]')!;
+        media.style.minHeight = '450px';
+        await settle();
+        const after = readVisibleAnchor(view.host, view.container);
+        expect(after.id).toBe(before.id);
+        expect(Math.abs(after.offset - before.offset)).toBeLessThanOrEqual(2);
+      } finally {
+        view.close();
+      }
+    });
+  }
+}
+
 for (const readerScrolledUp of [false, true]) {
   test(
     readerScrolledUp
