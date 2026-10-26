@@ -98,7 +98,7 @@ test('a held send leaves the editor free and its next draft survives confirmatio
   await expect(messageByText(page, content)).toHaveCount(1);
   await expect(editor).toHaveText('The next draft stays here!');
   await page.reload();
-  await loginAs(page, 'testowner', 'password123');
+  await expect(page.getByTestId(TestId.SERVER_VIEW)).toBeVisible();
   await openChannel(page, LIVE_MESSAGES_CHANNEL);
   await expect(messageByText(page, content)).toHaveCount(1);
   await expect(page.getByTestId(TestId.MESSAGE_COMPOSE_EDITOR)).toHaveText(
@@ -140,7 +140,7 @@ test('several messages can queue before the transport is released', async ({
   }
 
   await page.reload();
-  await loginAs(page, 'testowner', 'password123');
+  await expect(page.getByTestId(TestId.SERVER_VIEW)).toBeVisible();
   await openChannel(page, LIVE_MESSAGES_CHANNEL);
   for (const content of contents) {
     await expect(messageByText(page, content)).toHaveCount(1);
@@ -223,14 +223,14 @@ test('saving one channel draft does not erase a draft from another window', asyn
 
     await first.fill(`${prefix} A second`);
     await page.reload();
-    await loginAs(page, 'testowner', 'password123');
+    await expect(page.getByTestId(TestId.SERVER_VIEW)).toBeVisible();
     await openChannel(page, 'Infinite Scroll');
     await expect(page.getByTestId(TestId.MESSAGE_COMPOSE_EDITOR)).toHaveText(
       `${prefix} A second`
     );
 
     await other.reload();
-    await loginAs(other, 'testowner', 'password123');
+    await expect(other.getByTestId(TestId.SERVER_VIEW)).toBeVisible();
     await openChannel(other, LIVE_MESSAGES_CHANNEL);
     await expect(other.getByTestId(TestId.MESSAGE_COMPOSE_EDITOR)).toHaveText(
       `${prefix} B`
