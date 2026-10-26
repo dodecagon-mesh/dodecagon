@@ -69,7 +69,7 @@ Conventions:
 - Imports are auto-organized by prettier — don't hand-sort.
 - **ALWAYS** use modern ES6+ syntax: `const`/`let`, arrow functions, destructuring, template literals, etc.
 
-Run `bun run magic` (lint:fix + format + check-types) before finishing; CI enforces it.
+Run `bun run magic` (lint:fix + format + check-types) before finishing; `bun run signoff` is the merge gate.
 
 ### Don't repeat, and put code where it belongs
 
