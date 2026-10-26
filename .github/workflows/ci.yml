@@ -27,10 +27,17 @@ jobs:
         with:
           bun-version: 1.4.4
 
-      - name: Cache Bun dependencies
+      - name: Cache dependencies
         uses: actions/cache@v6
         with:
-          path: ~/.bun/install/cache
+          # node_modules is cached beside the bun store. the mediasoup postinstall
+          # compiles its C++ worker here, because the installer picks the prebuilt
+          # archive from the running kernel major and upstream publishes only a
+          # kernel6 one, so a store-only cache pays that compile on every run.
+          # a warm tree makes the postinstall a no-op.
+          path: |
+            ~/.bun/install/cache
+            node_modules
           key: bun-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/bun.lock') }}
           restore-keys: |
             bun-deps-${{ runner.os }}-${{ runner.arch }}-
