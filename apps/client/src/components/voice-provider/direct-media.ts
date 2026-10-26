@@ -27,6 +27,27 @@ export type TDirectMediaConnection = {
 type TDirectMediaStatus =
   'idle' | 'connecting' | 'direct' | 'relayed' | 'failed';
 type TTimerHandle = number | NodeJS.Timeout;
+type TReceivedScreenStream = Readonly<{
+  receiver: RTCRtpReceiver;
+  stream: MediaStream;
+}>;
+const directScreenDelivery = Symbol('directScreenDelivery');
+type TDirectScreenDeliveryEvidence = Readonly<{
+  screen: TReceivedScreenStream;
+  screenAudio?: TReceivedScreenStream;
+}>;
+export type TDirectScreenBundle = Readonly<{
+  screen: MediaStream;
+  screenAudio?: MediaStream;
+  [directScreenDelivery]: TDirectScreenDeliveryEvidence;
+}>;
+export type TDirectScreenRetirement = Readonly<{
+  restoreRelay: boolean;
+}>;
+const getRetirementSignal = (
+  retirement: TDirectScreenRetirement
+): TDirectMediaSignal =>
+  retirement.restoreRelay ? { type: 'fallback' } : { type: 'stop' };
 
 type TDirectMediaCallbacks = {
   kind: TDirectMediaKind;
@@ -43,6 +64,16 @@ type TDirectMediaCallbacks = {
     userId: number,
     kind: TScreenKind,
     stream: MediaStream
+  ) => void;
+  prepareScreenBundle: (
+    userId: number,
+    bundle: TDirectScreenBundle
+  ) => Promise<void>;
+  presentScreenBundle: (userId: number, bundle: TDirectScreenBundle) => boolean;
+  retireScreenBundle: (
+    userId: number,
+    bundle: TDirectScreenBundle,
+    retirement: TDirectScreenRetirement
   ) => void;
   onStatus: (status: TDirectMediaStatus) => void;
   onError: (error: unknown) => void;
@@ -63,6 +94,7 @@ type TOutgoingAttempt = {
   established: boolean;
   onFailure: (relayAllowed: boolean, peerId: number) => Promise<void>;
   peerId: number;
+  retirement: TDirectScreenRetirement;
   sessionId?: string;
   peer?: TDirectPeer;
 };
@@ -79,6 +111,15 @@ type TDirectPeer = {
   ready: boolean;
   readySending: boolean;
   streams: Map<TScreenKind, MediaStream>;
+  screenReceivers: Map<
+    StreamKind.SCREEN | StreamKind.SCREEN_AUDIO,
+    TReceivedScreenStream
+  >;
+  screenAudioExpected: boolean;
+  screenBundle?: TDirectScreenBundle;
+  screenBundlePresented: boolean;
+  deliveryChecking: boolean;
+  deliveryTimer?: TTimerHandle;
   timer?: TTimerHandle;
   outgoing?: TOutgoingAttempt;
   nativeMedia?: THolepunchMedia;
@@ -149,7 +190,8 @@ export class DirectMedia {
         settled: false,
         established: false,
         onFailure: options.onFailure,
-        peerId
+        peerId,
+        retirement: { restoreRelay: false }
       };
       this.outgoing.set(peerId, attempt);
       this.callbacks.onStatus('connecting');
@@ -202,7 +244,12 @@ export class DirectMedia {
     const { signal } = event;
     if (signal.type === 'fallback' || signal.type === 'stop') {
       this.pinIdentity(peer, event);
-      this.failPeer(peer, undefined, false, event.relayAllowed);
+      this.failPeer(peer, undefined, false, event.relayAllowed, {
+        restoreRelay:
+          event.relayAllowed &&
+          signal.type === 'fallback' &&
+          signal.reason !== 'unwatch'
+      });
       if (signal.type === 'stop' && peer.direction === 'incoming') {
         this.callbacks.onStopped?.(peer.peerId);
       }
@@ -257,24 +304,34 @@ export class DirectMedia {
     return false;
   };
 
-  stop = (): void => {
+  stop = (
+    retirement: TDirectScreenRetirement = { restoreRelay: false }
+  ): void => {
     for (const attempt of [...this.outgoing.values()]) {
-      this.stopAttempt(attempt.peerId);
+      this.stopAttempt(attempt.peerId, retirement);
     }
   };
 
-  private stopAttempt = (peerId: number): void => {
+  private stopAttempt = (
+    peerId: number,
+    retirement: TDirectScreenRetirement = { restoreRelay: false }
+  ): void => {
     const key = peerId;
     const attempt = this.outgoing.get(key);
     if (!attempt) return;
+    attempt.retirement = retirement;
     this.outgoing.delete(key);
     clearTimeout(attempt.timer);
     attempt.controller.abort();
     this.resolveAttempt(attempt, 'failed');
-    if (attempt.peer) this.retirePeer(attempt.peer);
+    if (attempt.peer) this.retirePeer(attempt.peer, retirement);
     if (attempt.sessionId) {
-      this.retiredSessions.set(attempt.sessionId, false);
-      this.sendBestEffort(attempt.sessionId, { type: 'stop' }, attempt.peerId);
+      this.retiredSessions.set(attempt.sessionId, retirement.restoreRelay);
+      this.sendBestEffort(
+        attempt.sessionId,
+        getRetirementSignal(retirement),
+        attempt.peerId
+      );
     }
     if (!this.outgoing.size) this.callbacks.onStatus('idle');
   };
@@ -290,7 +347,7 @@ export class DirectMedia {
     }
     for (const peer of this.peers.values()) {
       if (peer.direction !== 'incoming' || peer.peerId !== userId) continue;
-      this.retirePeer(peer);
+      this.retirePeer(peer, { restoreRelay: false });
       this.sendBestEffort(peer.sessionId, {
         type: 'fallback',
         reason: 'unwatch'
@@ -298,15 +355,17 @@ export class DirectMedia {
     }
   };
 
-  close = (): void => {
-    this.stop();
+  close = (
+    retirement: TDirectScreenRetirement = { restoreRelay: false }
+  ): void => {
+    this.stop(retirement);
     for (const pending of this.pendingOffers.values()) {
       this.retirePendingOffer(pending);
-      this.sendBestEffort(pending.sessionId, { type: 'stop' });
+      this.sendBestEffort(pending.sessionId, getRetirementSignal(retirement));
     }
     for (const peer of this.peers.values()) {
-      this.retirePeer(peer);
-      this.sendBestEffort(peer.sessionId, { type: 'stop' });
+      this.retirePeer(peer, retirement);
+      this.sendBestEffort(peer.sessionId, getRetirementSignal(retirement));
     }
   };
 
@@ -337,7 +396,10 @@ export class DirectMedia {
       if (!this.isCurrentAttempt(attempt)) {
         if (session) {
           try {
-            await this.callbacks.send(session.sessionId, { type: 'stop' });
+            await this.callbacks.send(
+              session.sessionId,
+              getRetirementSignal(attempt.retirement)
+            );
           } catch (error) {
             this.callbacks.onError(error);
           }
@@ -400,6 +462,10 @@ export class DirectMedia {
       ready: false,
       readySending: false,
       streams: new Map(),
+      screenReceivers: new Map(),
+      screenAudioExpected: false,
+      screenBundlePresented: false,
+      deliveryChecking: false,
       outgoing: attempt
     };
     attempt.peer = peer;
@@ -483,14 +549,20 @@ export class DirectMedia {
         phase: 'answering',
         ready: false,
         readySending: false,
-        streams: new Map()
+        streams: new Map(),
+        screenReceivers: new Map(),
+        screenAudioExpected:
+          this.callbacks.kind === StreamKind.SCREEN &&
+          /(?:^|\r?\n)m=audio\s+(?!0(?:\s|$))\d+/i.test(event.signal.sdp),
+        screenBundlePresented: false,
+        deliveryChecking: false
       };
       for (const previous of this.peers.values()) {
         if (
           previous.direction === 'incoming' &&
           previous.peerId === peer.peerId
         ) {
-          this.retirePeer(previous);
+          this.retirePeer(previous, { restoreRelay: true });
           this.sendBestEffort(previous.sessionId, { type: 'stop' });
         }
       }
@@ -503,7 +575,7 @@ export class DirectMedia {
       connection.addEventListener(
         'track',
         (trackEvent) => {
-          this.receiveTrack(incoming, trackEvent.track);
+          this.receiveTrack(incoming, trackEvent.track, trackEvent.receiver);
         },
         { signal: peer.controller.signal }
       );
@@ -618,7 +690,11 @@ export class DirectMedia {
     );
   };
 
-  private receiveTrack = (peer: TDirectPeer, track: MediaStreamTrack): void => {
+  private receiveTrack = (
+    peer: TDirectPeer,
+    track: MediaStreamTrack,
+    receiver: RTCRtpReceiver
+  ): void => {
     if (!this.isActivePeer(peer)) return;
     let kind: TScreenKind;
     if (track.kind === 'video' && this.callbacks.kind !== StreamKind.AUDIO) {
@@ -639,7 +715,15 @@ export class DirectMedia {
     try {
       const stream = new MediaStream([track]);
       peer.streams.set(kind, stream);
-      this.callbacks.onStream(peer.peerId, stream, kind);
+      if (this.callbacks.kind === StreamKind.SCREEN) {
+        const screenKind = kind as StreamKind.SCREEN | StreamKind.SCREEN_AUDIO;
+        peer.screenReceivers.set(screenKind, { receiver, stream });
+        if (screenKind === StreamKind.SCREEN_AUDIO) {
+          peer.screenAudioExpected = true;
+        }
+      } else {
+        this.callbacks.onStream(peer.peerId, stream, kind);
+      }
       this.readyIncoming(peer);
     } catch (error) {
       this.failPeer(peer, error);
@@ -656,6 +740,16 @@ export class DirectMedia {
     ) {
       return;
     }
+    if (this.callbacks.kind === StreamKind.SCREEN) {
+      if (
+        peer.screenAudioExpected &&
+        !peer.screenReceivers.has(StreamKind.SCREEN_AUDIO)
+      ) {
+        return;
+      }
+      this.checkScreenDelivery(peer);
+      return;
+    }
     peer.readySending = true;
     this.callbacks
       .send(peer.sessionId, { type: 'ready' })
@@ -666,6 +760,116 @@ export class DirectMedia {
         peer.timer = undefined;
       })
       .catch((error: unknown) => {
+        if (this.isActivePeer(peer)) this.failPeer(peer, error);
+      });
+  };
+
+  private getScreenBundle = (
+    peer: TDirectPeer
+  ): TDirectScreenBundle | undefined => {
+    const screen = peer.screenReceivers.get(StreamKind.SCREEN);
+    if (!screen) return;
+    const screenAudio = peer.screenReceivers.get(StreamKind.SCREEN_AUDIO);
+    if (peer.screenAudioExpected && !screenAudio) return;
+    return Object.freeze({
+      screen: screen.stream,
+      ...(screenAudio ? { screenAudio: screenAudio.stream } : {}),
+      [directScreenDelivery]: Object.freeze({
+        screen,
+        ...(screenAudio ? { screenAudio } : {})
+      })
+    });
+  };
+
+  private receiverDelivered = async (
+    receiver: RTCRtpReceiver,
+    kind: StreamKind.SCREEN | StreamKind.SCREEN_AUDIO
+  ): Promise<boolean> => {
+    const stats = await receiver.getStats();
+    const mediaKind =
+      kind === StreamKind.SCREEN ? ('video' as const) : ('audio' as const);
+    for (const report of stats.values()) {
+      const inbound = report as RTCStats & {
+        kind?: string;
+        mediaType?: string;
+        framesDecoded?: number;
+        packetsReceived?: number;
+      };
+      if (
+        inbound.type !== 'inbound-rtp' ||
+        (inbound.kind ?? inbound.mediaType) !== mediaKind
+      ) {
+        continue;
+      }
+      return mediaKind === 'video'
+        ? (inbound.framesDecoded ?? 0) > 0
+        : (inbound.packetsReceived ?? 0) > 0;
+    }
+    return false;
+  };
+
+  private checkScreenDelivery = (peer: TDirectPeer): void => {
+    if (peer.deliveryChecking || peer.readySending) return;
+    clearTimeout(peer.deliveryTimer);
+    peer.deliveryTimer = undefined;
+    peer.deliveryChecking = true;
+    const required: (StreamKind.SCREEN | StreamKind.SCREEN_AUDIO)[] = [
+      StreamKind.SCREEN
+    ];
+    if (peer.screenAudioExpected) required.push(StreamKind.SCREEN_AUDIO);
+    Promise.all(
+      required.map((kind) => {
+        const reception = peer.screenReceivers.get(kind);
+        return reception
+          ? this.receiverDelivered(reception.receiver, kind)
+          : Promise.resolve(false);
+      })
+    )
+      .then(async (delivered) => {
+        peer.deliveryChecking = false;
+        if (!this.isActivePeer(peer) || peer.readySending) return;
+        if (delivered.some((value) => !value)) {
+          peer.deliveryTimer = setTimeout(
+            () => this.checkScreenDelivery(peer),
+            50
+          );
+          return;
+        }
+        if (
+          peer.screenAudioExpected &&
+          !required.includes(StreamKind.SCREEN_AUDIO)
+        ) {
+          this.checkScreenDelivery(peer);
+          return;
+        }
+        const bundle = this.getScreenBundle(peer);
+        if (!bundle) return;
+        peer.readySending = true;
+        await this.callbacks.prepareScreenBundle(peer.peerId, bundle);
+        if (
+          !this.isActivePeer(peer) ||
+          this.getScreenBundle(peer)?.screen !== bundle.screen ||
+          this.getScreenBundle(peer)?.screenAudio !== bundle.screenAudio
+        ) {
+          return;
+        }
+        peer.screenBundle = bundle;
+        peer.screenBundlePresented = true;
+        if (!this.callbacks.presentScreenBundle(peer.peerId, bundle)) {
+          peer.screenBundle = undefined;
+          peer.screenBundlePresented = false;
+          this.failPeer(peer);
+          return;
+        }
+        if (!this.isActivePeer(peer)) return;
+        await this.callbacks.send(peer.sessionId, { type: 'ready' });
+        if (!this.isActivePeer(peer)) return;
+        peer.ready = true;
+        clearTimeout(peer.timer);
+        peer.timer = undefined;
+      })
+      .catch((error: unknown) => {
+        peer.deliveryChecking = false;
         if (this.isActivePeer(peer)) this.failPeer(peer, error);
       });
   };
@@ -743,14 +947,15 @@ export class DirectMedia {
     peer: TDirectPeer,
     error?: unknown,
     notify = true,
-    relayAllowed = true
+    relayAllowed = true,
+    retirement: TDirectScreenRetirement = { restoreRelay: relayAllowed }
   ): void => {
     if (!this.isActivePeer(peer)) return;
     if (peer.outgoing) {
       this.failOutgoing(peer.outgoing, error, notify, relayAllowed);
       return;
     }
-    this.retirePeer(peer);
+    this.retirePeer(peer, retirement);
     if (error !== undefined) this.callbacks.onError(error);
     if (notify) this.sendBestEffort(peer.sessionId, { type: 'fallback' });
   };
@@ -765,7 +970,7 @@ export class DirectMedia {
     this.outgoing.delete(attempt.peerId);
     clearTimeout(attempt.timer);
     attempt.controller.abort();
-    if (attempt.peer) this.retirePeer(attempt.peer);
+    if (attempt.peer) this.retirePeer(attempt.peer, { restoreRelay: false });
     if (attempt.sessionId) {
       this.retiredSessions.set(attempt.sessionId, false);
       if (notify)
@@ -793,12 +998,24 @@ export class DirectMedia {
     this.retiredSessions.set(event.sessionId, false);
   };
 
-  private retirePeer = (peer: TDirectPeer): void => {
+  private retirePeer = (
+    peer: TDirectPeer,
+    retirement: TDirectScreenRetirement
+  ): void => {
     if (this.peers.get(peer.sessionId) !== peer) return;
     this.peers.delete(peer.sessionId);
     this.retiredSessions.set(peer.sessionId, false);
     clearTimeout(peer.timer);
+    clearTimeout(peer.deliveryTimer);
     peer.controller.abort();
+    if (peer.screenBundlePresented && peer.screenBundle) {
+      this.callbacks.retireScreenBundle(
+        peer.peerId,
+        peer.screenBundle,
+        retirement
+      );
+      peer.screenBundlePresented = false;
+    }
     peer.connection.close();
     peer.unsubscribeNative?.();
     if (peer.nativeMedia) {
@@ -810,9 +1027,12 @@ export class DirectMedia {
     }
     for (const [kind, stream] of peer.streams) {
       stream.getTracks().forEach((track) => track.stop());
-      this.callbacks.onRemoveStream(peer.peerId, kind, stream);
+      if (this.callbacks.kind !== StreamKind.SCREEN) {
+        this.callbacks.onRemoveStream(peer.peerId, kind, stream);
+      }
     }
     peer.streams.clear();
+    peer.screenReceivers.clear();
   };
 
   private sendBestEffort = (

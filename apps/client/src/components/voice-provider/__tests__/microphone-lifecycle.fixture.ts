@@ -5,9 +5,13 @@ import type { Mock } from 'bun:test';
 import { beforeEach, expect, mock, test } from 'bun:test';
 import * as React from 'react';
 import * as ReactI18n from 'react-i18next';
-import { DirectMedia, type TDirectMediaResult } from '../direct-media';
+import {
+  DirectMedia,
+  type TDirectMediaResult,
+  type TDirectScreenBundle
+} from '../direct-media';
 import type { useDirectMedia } from '../hooks/use-direct-media';
-import type { useTransports } from '../hooks/use-transports';
+import type { TConsumeOptions, useTransports } from '../hooks/use-transports';
 
 // Run the real provider and channel-selection caller; substitute the scheduler,
 // browser capture/processing and network/transport boundaries only.
@@ -327,6 +331,24 @@ const consumeExistingProducers = mock(
     _options?: { isViewingDemo?: (id: number) => boolean }
   ) => {}
 );
+type TTestConsumer = {
+  closed: boolean;
+  track: Track;
+};
+const relayConsumers = {
+  current: {} as Record<number, Partial<Record<StreamKind, TTestConsumer>>>
+};
+const relayStreams = { current: new Map<string, Stream>() };
+const consumeOperations = { current: new Map<string, Promise<void>>() };
+const consumeRelay = mock(
+  async (
+    _remoteId: number,
+    _kind: StreamKind,
+    _rtpCapabilities: unknown,
+    _options?: TConsumeOptions
+  ) => {}
+);
+const consumeRelayRef = { current: consumeRelay };
 let transportCallbacks: Parameters<typeof useTransports>[0];
 mock.module('../hooks/use-transports', () => ({
   useTransports: (params: typeof transportCallbacks) => {
@@ -335,8 +357,10 @@ mock.module('../hooks/use-transports', () => ({
       producerTransport: send,
       consumerTransport: recv,
       sessionGenerationRef: generation,
-      consumers: { current: {} },
-      consumeRef: { current: null },
+      consumers: relayConsumers,
+      consumerStreams: relayStreams,
+      consumeOperationsInProgress: consumeOperations,
+      consumeRef: consumeRelayRef,
       createProducerTransport: async () => {
         send.current = transport();
       },
@@ -353,6 +377,7 @@ mock.module('../hooks/use-transports', () => ({
       },
       closeConsumer() {},
       closeConsumers() {},
+      markDemoConsumersPaused() {},
       pauseDemoConsumers() {},
       getConsumer() {},
       getConsumerCodec() {}
@@ -486,11 +511,17 @@ const flush = async () => {
 beforeEach(() => {
   consumerCreation = undefined;
   consumeExistingProducers.mockClear();
+  consumeRelay.mockReset();
+  consumeRelay.mockImplementation(async () => {});
+  consumeRelayRef.current = consumeRelay;
   slots = [];
   contexts.length = 0;
   generation.current = 0;
   send.current = recv.current = undefined;
   nextProduction = undefined;
+  relayConsumers.current = {};
+  relayStreams.current.clear();
+  consumeOperations.current.clear();
   channelId = 1;
   micMuted = false;
   devices.noiseGateEnabled = false;
@@ -676,6 +707,139 @@ test('a failed direct screen peer never takes down the relay share', async () =>
   expect(picker).toHaveBeenCalledTimes(1);
   expect(video.readyState).toBe('live');
   expect(audio.readyState).toBe('live');
+});
+
+test('direct fallback restores retained screen video after optional relay audio ends', async () => {
+  await initializeSession(1);
+  const relayVideoTrack = new Track();
+  relayVideoTrack.kind = 'video';
+  const relayAudioTrack = new Track();
+  const directVideoTrack = new Track();
+  directVideoTrack.kind = 'video';
+  const directAudioTrack = new Track();
+  const relayVideo = new Stream([relayVideoTrack]);
+  const relayAudio = new Stream([relayAudioTrack]);
+  const directVideo = new Stream([directVideoTrack]);
+  const directAudio = new Stream([directAudioTrack]);
+  relayConsumers.current[2] = {
+    [StreamKind.SCREEN]: { closed: false, track: relayVideoTrack },
+    [StreamKind.SCREEN_AUDIO]: { closed: false, track: relayAudioTrack }
+  };
+  relayStreams.current.set(`2-${StreamKind.SCREEN}`, relayVideo);
+  relayStreams.current.set(`2-${StreamKind.SCREEN_AUDIO}`, relayAudio);
+  voice.isViewingDemoRef.current = (id) => id === 2;
+  const directBundle = {
+    screen: directVideo,
+    screenAudio: directAudio
+  } as unknown as TDirectScreenBundle;
+
+  expect(directCallbacks.presentDirectScreenBundle(2, directBundle)).toBe(true);
+  render();
+  expect(voice.remoteUserStreams[2]?.[StreamKind.SCREEN]).toBe(
+    directVideo as unknown as MediaStream
+  );
+  delete relayConsumers.current[2]![StreamKind.SCREEN_AUDIO];
+  relayStreams.current.delete(`2-${StreamKind.SCREEN_AUDIO}`);
+
+  directCallbacks.retireDirectScreenBundle(2, directBundle, {
+    restoreRelay: true
+  });
+  render();
+
+  expect(voice.remoteUserStreams[2]?.[StreamKind.SCREEN]).toBe(
+    relayVideo as unknown as MediaStream
+  );
+  expect(voice.remoteUserStreams[2]?.[StreamKind.SCREEN_AUDIO]).toBeUndefined();
+  expect(relayVideoTrack.readyState).toBe('live');
+});
+
+test('direct fallback publishes a replacement relay bundle member', async () => {
+  await initializeSession(1);
+  const relayVideoTrack = new Track();
+  relayVideoTrack.kind = 'video';
+  const relayAudioTrack = new Track();
+  const directVideoTrack = new Track();
+  directVideoTrack.kind = 'video';
+  const directAudioTrack = new Track();
+  const relayVideo = new Stream([relayVideoTrack]);
+  const relayAudio = new Stream([relayAudioTrack]);
+  const directVideo = new Stream([directVideoTrack]);
+  const directAudio = new Stream([directAudioTrack]);
+  relayConsumers.current[2] = {
+    [StreamKind.SCREEN]: { closed: false, track: relayVideoTrack },
+    [StreamKind.SCREEN_AUDIO]: { closed: false, track: relayAudioTrack }
+  };
+  relayStreams.current.set(`2-${StreamKind.SCREEN}`, relayVideo);
+  relayStreams.current.set(`2-${StreamKind.SCREEN_AUDIO}`, relayAudio);
+  voice.isViewingDemoRef.current = (id) => id === 2;
+  const directBundle = {
+    screen: directVideo,
+    screenAudio: directAudio
+  } as unknown as TDirectScreenBundle;
+  expect(directCallbacks.presentDirectScreenBundle(2, directBundle)).toBe(true);
+
+  const replacementAudioTrack = new Track();
+  const replacementAudio = new Stream([replacementAudioTrack]);
+  relayConsumers.current[2]![StreamKind.SCREEN_AUDIO] = {
+    closed: false,
+    track: replacementAudioTrack
+  };
+  relayStreams.current.set(`2-${StreamKind.SCREEN_AUDIO}`, replacementAudio);
+  transportCallbacks.addRemoteUserStream(
+    2,
+    replacementAudio as unknown as MediaStream,
+    StreamKind.SCREEN_AUDIO
+  );
+  render();
+  expect(voice.remoteUserStreams[2]?.[StreamKind.SCREEN_AUDIO]).toBe(
+    directAudio as unknown as MediaStream
+  );
+
+  directCallbacks.retireDirectScreenBundle(2, directBundle, {
+    restoreRelay: true
+  });
+  render();
+
+  expect(voice.remoteUserStreams[2]?.[StreamKind.SCREEN_AUDIO]).toBe(
+    replacementAudio as unknown as MediaStream
+  );
+});
+
+test('direct preparation creates missing relay media without another direct request', async () => {
+  await initializeSession(1);
+  voice.isViewingDemoRef.current = (id) => id === 2;
+  consumeRelay.mockImplementation(
+    async (userId, kind, _rtpCapabilities, _options) => {
+      const track = new Track();
+      track.kind = kind === StreamKind.SCREEN ? 'video' : 'audio';
+      relayConsumers.current[userId] ??= {};
+      relayConsumers.current[userId]![kind] = { closed: false, track };
+      relayStreams.current.set(`${userId}-${kind}`, new Stream([track]));
+    }
+  );
+  const directVideoTrack = new Track();
+  directVideoTrack.kind = 'video';
+  const directAudioTrack = new Track();
+  const directBundle = {
+    screen: new Stream([directVideoTrack]),
+    screenAudio: new Stream([directAudioTrack])
+  } as unknown as TDirectScreenBundle;
+
+  await directCallbacks.prepareDirectScreenBundle(2, directBundle);
+
+  expect(
+    consumeRelay.mock.calls.map(([, kind, , options]) => ({ kind, options }))
+  ).toEqual([
+    {
+      kind: StreamKind.SCREEN,
+      options: { requestDirect: false }
+    },
+    {
+      kind: StreamKind.SCREEN_AUDIO,
+      options: { requestDirect: false }
+    }
+  ]);
+  expect(directCallbacks.presentDirectScreenBundle(2, directBundle)).toBe(true);
 });
 
 test('joining preserves a screen watch choice made while its consumer transport is preparing', async () => {
@@ -1040,6 +1204,9 @@ test('native P2P setup failure falls back to the SFU producer', async () => {
     send: async () => {},
     onStream() {},
     onRemoveStream() {},
+    prepareScreenBundle: async () => {},
+    presentScreenBundle: () => true,
+    retireScreenBundle: () => {},
     onStatus() {},
     onError() {}
   });

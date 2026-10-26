@@ -8,6 +8,12 @@ import { Device } from 'mediasoup-client';
 import type { Transport } from 'mediasoup-client/types';
 import { expect, test } from 'vitest';
 
+const delay = (ms: number) => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, ms);
+  return promise;
+};
+
 const connect = async (identity: string) => {
   const host = `localhost:${VITE_SERVER_PORT}`;
   const response = await fetch(`http://${host}/login`, {
@@ -29,7 +35,7 @@ const connect = async (identity: string) => {
   return { client, socket };
 };
 
-test('a late screen viewer receives a decoded first frame promptly on a warm SFU transport', async () => {
+test('a late screen viewer keeps one relay stream through direct fallback', async () => {
   const publisher = await connect('rnd332');
   const viewer = await connect('aria');
   const transports: Transport[] = [];
@@ -113,7 +119,7 @@ test('a late screen viewer receives a decoded first frame promptly on a warm SFU
       rtpParameters: audio.consumerRtpParameters
     });
     await expect.poll(() => receive.connectionState).toBe('connected');
-    await send.produce({
+    const screenProducer = await send.produce({
       track: source.getVideoTracks()[0],
       appData: { kind: StreamKind.SCREEN }
     });
@@ -123,7 +129,7 @@ test('a late screen viewer receives a decoded first frame promptly on a warm SFU
       rtpCapabilities: receiveDevice.rtpCapabilities
     });
     // a connected receiver must not spend its first keyframe before native receive exists.
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await delay(300);
     const consumer = await receive.consume({
       id: parameters.consumerId,
       producerId: parameters.producerId,
@@ -140,15 +146,17 @@ test('a late screen viewer receives a decoded first frame promptly on a warm SFU
       kind: StreamKind.SCREEN,
       consumerId: consumer.id
     });
+    const firstFrameDeadline = Promise.withResolvers<never>();
+    const firstFrameTimer = setTimeout(
+      () =>
+        firstFrameDeadline.reject(new Error('No decoded first screen frame')),
+      2000
+    );
     const firstFrame = await Promise.race([
       decoded.promise,
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error('No decoded first screen frame')),
-          2000
-        )
-      )
+      firstFrameDeadline.promise
     ]);
+    clearTimeout(firstFrameTimer);
     await playing;
     const elapsed = firstFrame - start;
     console.info('real SFU first screen frame ms:', Math.round(elapsed));
@@ -160,6 +168,110 @@ test('a late screen viewer receives a decoded first frame promptly on a warm SFU
         (entry) => entry.type === 'inbound-rtp' && entry.framesDecoded > 0
       )
     ).toBe(true);
+    const inboundFrames = async () => {
+      const record = [...(await consumer.getStats()).values()].find(
+        (entry) => entry.type === 'inbound-rtp' && entry.kind === 'video'
+      );
+      return typeof record?.framesDecoded === 'number'
+        ? record.framesDecoded
+        : 0;
+    };
+    const publisherDirectStarted = Promise.withResolvers<void>();
+    const viewerDirectStarted = Promise.withResolvers<void>();
+    const demandStarted = Promise.withResolvers<void>();
+    const producerEventsStarted = Promise.withResolvers<void>();
+    const publisherDirect =
+      publisher.client.voice.onDirectMediaSignal.subscribe(
+        { enabled: true, transport: 'holepunch' },
+        {
+          onStarted: () => publisherDirectStarted.resolve(),
+          onData: () => {},
+          onError: publisherDirectStarted.reject
+        }
+      );
+    const viewerDirect = viewer.client.voice.onDirectMediaSignal.subscribe(
+      { enabled: true, transport: 'holepunch' },
+      {
+        onStarted: () => viewerDirectStarted.resolve(),
+        onData: () => {},
+        onError: viewerDirectStarted.reject
+      }
+    );
+    const relayDemand = publisher.client.voice.onRelayDemand.subscribe(
+      undefined,
+      {
+        onStarted: () => demandStarted.resolve(),
+        onData: ({ kind, required }) => {
+          if (kind !== StreamKind.SCREEN) return;
+          if (required && screenProducer.paused) screenProducer.resume();
+          else if (!required && !screenProducer.paused) screenProducer.pause();
+        },
+        onError: demandStarted.reject
+      }
+    );
+    const announcedKinds: StreamKind[] = [];
+    const producerEvents = viewer.client.voice.onNewProducer.subscribe(
+      undefined,
+      {
+        onStarted: () => producerEventsStarted.resolve(),
+        onData: ({ kind }) => announcedKinds.push(kind),
+        onError: producerEventsStarted.reject
+      }
+    );
+    await Promise.all([
+      publisherDirectStarted.promise,
+      viewerDirectStarted.promise,
+      demandStarted.promise,
+      producerEventsStarted.promise
+    ]);
+
+    const session = await publisher.client.voice.startDirectMedia.mutate({
+      kind: StreamKind.SCREEN,
+      peerId: 2
+    });
+    if (!session) throw new Error('Expected direct screen session');
+    const sdp = 'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n';
+    await publisher.client.voice.signalDirectMedia.mutate({
+      sessionId: session.sessionId,
+      signal: { type: 'offer', sdp, publicKey: 'a'.repeat(64) }
+    });
+    await viewer.client.voice.signalDirectMedia.mutate({
+      sessionId: session.sessionId,
+      signal: { type: 'answer', sdp, publicKey: 'b'.repeat(64) }
+    });
+    await viewer.client.voice.signalDirectMedia.mutate({
+      sessionId: session.sessionId,
+      signal: { type: 'ready' }
+    });
+    await expect
+      .poll(() => screenProducer.paused, { timeout: 1_000, interval: 10 })
+      .toBe(true);
+    await delay(150);
+    const pausedFrames = await inboundFrames();
+    const originalTrack = consumer.track;
+    const fallbackStartedAt = performance.now();
+
+    await viewer.client.voice.signalDirectMedia.mutate({
+      sessionId: session.sessionId,
+      signal: { type: 'fallback' }
+    });
+    await expect
+      .poll(() => screenProducer.paused, { timeout: 1_000, interval: 10 })
+      .toBe(false);
+    await expect
+      .poll(inboundFrames, { timeout: 1_500, interval: 20 })
+      .toBeGreaterThan(pausedFrames);
+
+    expect(performance.now() - fallbackStartedAt).toBeLessThan(1_500);
+    expect(consumer.id).toBe(parameters.consumerId);
+    expect(consumer.closed).toBe(false);
+    expect(consumer.track).toBe(originalTrack);
+    expect(announcedKinds).not.toContain(StreamKind.SCREEN);
+
+    producerEvents.unsubscribe();
+    relayDemand.unsubscribe();
+    viewerDirect.unsubscribe();
+    publisherDirect.unsubscribe();
   } finally {
     clearInterval(animation);
     source.getTracks().forEach((track) => track.stop());

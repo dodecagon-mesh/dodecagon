@@ -12,7 +12,7 @@ type TCloseHandler = () => void;
 let nextProducerId = 0;
 
 const createProducerStub = () => {
-  const handlers: TCloseHandler[] = [];
+  const handlers = new Map<string, TCloseHandler[]>();
 
   const stub = {
     id: `producer-${nextProducerId++}`,
@@ -21,12 +21,17 @@ const createProducerStub = () => {
     kind: 'audio',
     observer: {
       on: (event: string, handler: TCloseHandler) => {
-        if (event === 'close') handlers.push(handler);
+        const eventHandlers = handlers.get(event) ?? [];
+        eventHandlers.push(handler);
+        handlers.set(event, eventHandlers);
+      },
+      emit: (event: string) => {
+        handlers.get(event)?.forEach((handler) => handler());
       }
     },
     close: () => {
       stub.closed = true;
-      handlers.forEach((handler) => handler());
+      stub.observer.emit('close');
     }
   };
 
@@ -34,13 +39,21 @@ const createProducerStub = () => {
 };
 
 const createConsumerStub = (producerId = 'producer-0') => {
-  const stub = createProducerStub();
-
-  return Object.assign(stub, {
+  const stub = Object.assign(createProducerStub(), {
     producerId,
     paused: false,
-    producerPaused: false
+    producerPaused: false,
+    pause: async () => {
+      stub.paused = true;
+      stub.observer.emit('pause');
+    },
+    resume: async () => {
+      stub.paused = false;
+      stub.observer.emit('resume');
+    }
   });
+
+  return stub;
 };
 
 let nextChannelId = 9000;
@@ -312,17 +325,19 @@ describe('VoiceRuntime screen viewers', () => {
     try {
       const session = runtime.startDirectMedia(2, StreamKind.SCREEN, 1);
       expect(session).not.toBeNull();
-      runtime.signalDirectMedia(session!.sessionId, 2, {
+      await runtime.signalDirectMedia(session!.sessionId, 2, {
         type: 'offer',
         publicKey: 'a'.repeat(64),
         sdp: 'v=0\r\n'
       });
-      runtime.signalDirectMedia(session!.sessionId, 1, {
+      await runtime.signalDirectMedia(session!.sessionId, 1, {
         type: 'answer',
         publicKey: 'b'.repeat(64),
         sdp: 'v=0\r\n'
       });
-      runtime.signalDirectMedia(session!.sessionId, 1, { type: 'ready' });
+      await runtime.signalDirectMedia(session!.sessionId, 1, {
+        type: 'ready'
+      });
 
       expect(runtime.getScreenViewers().demos[2]!.viewerIds).toEqual([1]);
 
@@ -886,7 +901,9 @@ describe('VoiceRuntime direct media fallback', () => {
       const session = runtime.startDirectMedia(1, StreamKind.AUDIO, 2);
       expect(session).not.toBeNull();
 
-      runtime.signalDirectMedia(session!.sessionId, 1, { type: 'fallback' });
+      await runtime.signalDirectMedia(session!.sessionId, 1, {
+        type: 'fallback'
+      });
 
       expect(runtime.getUserState(1).directMediaEnabled).toBe(true);
       expect(runtime.getUserState(2).directMediaEnabled).toBe(true);
@@ -1024,19 +1041,22 @@ test.each([StreamKind.AUDIO, StreamKind.VIDEO, StreamKind.SCREEN])(
     }
     try {
       const session = runtime.startDirectMedia(1, kind, 2)!;
-      runtime.signalDirectMedia(session.sessionId, 1, {
+      await runtime.signalDirectMedia(session.sessionId, 1, {
         type: 'offer',
         sdp: 'v=0\r\n',
         publicKey: 'a'.repeat(64)
       });
-      runtime.signalDirectMedia(session.sessionId, 2, {
+      await runtime.signalDirectMedia(session.sessionId, 2, {
         type: 'answer',
         sdp: 'v=0\r\n',
         publicKey: 'b'.repeat(64)
       });
-      runtime.signalDirectMedia(session.sessionId, 2, { type: 'ready' });
+      await runtime.signalDirectMedia(session.sessionId, 2, {
+        type: 'ready'
+      });
       if (kind === StreamKind.SCREEN) {
-        expect(screenAudioConsumer.closed).toBe(true);
+        expect(screenAudioConsumer.closed).toBe(false);
+        expect(screenAudioConsumer.paused).toBe(true);
         expect(screenAudio.closed).toBe(false);
         expect(runtime.getRemoteIds(2).remoteScreenAudioIds).toEqual([]);
       }

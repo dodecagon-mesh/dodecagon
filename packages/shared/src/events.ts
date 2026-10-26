@@ -172,6 +172,7 @@ export type TServerEventPayloads = {
     channelId: number;
     remoteId: number;
     kind: StreamKind;
+    replaceConsumerId?: string;
   };
   [ServerEvents.VOICE_ADD_EXTERNAL_STREAM]: {
     channelId: number;

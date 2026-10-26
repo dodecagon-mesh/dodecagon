@@ -58,12 +58,13 @@ const signalDirectMediaRoute = rateLimitedProcedure(protectedProcedure, {
     const runtime = ctx.currentVoiceChannelId
       ? VoiceRuntime.findById(ctx.currentVoiceChannelId)
       : undefined;
-    const session = runtime?.getDirectMediaSession(
-      input.sessionId,
-      ctx.user.id
-    );
     const terminal =
       input.signal.type === 'fallback' || input.signal.type === 'stop';
+    const session = runtime?.getDirectMediaSession(
+      input.sessionId,
+      ctx.user.id,
+      terminal
+    );
     if (terminal && !session) {
       // missing sessions return no metadata, even after leaving or runtime destruction.
       return;
@@ -101,7 +102,7 @@ const signalDirectMediaRoute = rateLimitedProcedure(protectedProcedure, {
         message: 'Direct screen session not found'
       }
     );
-    current.runtime.signalDirectMedia(
+    await current.runtime.signalDirectMedia(
       input.sessionId,
       ctx.user.id,
       input.signal
