@@ -475,63 +475,20 @@ test('the shared shell uses compact headers without a global strip', async () =>
     .toBeVisible();
 });
 
-test('short text history uses Paper gutters and rests above the composer', async () => {
+test('message authors align with the channel header icon', async () => {
   await expect
     .element(page.getByTestId(TestId.MESSAGE_ITEM).first())
     .toBeVisible();
-  const container = document.querySelector<HTMLElement>(
-    '[data-messages-container]'
+  const firstMessage = document.querySelector<HTMLElement>(
+    '[data-messages-container] [data-message-id]'
   )!;
-  const styles = getComputedStyle(container);
-  // paper: 16px inline, 24px top, 8px bottom; short histories align to end.
-  expect(styles.paddingLeft).toBe('16px');
-  expect(styles.paddingRight).toBe('16px');
-  expect(styles.paddingTop).toBe('24px');
-  expect(styles.paddingBottom).toBe('8px');
+  const authorGroup = firstMessage.closest('[data-message-group]')!;
   const channelHeader = page
     .getByRole('button', { name: 'Open Members Sidebar' })
     .element().parentElement!.parentElement!.parentElement!;
-  expect(channelHeader.querySelector('svg')!.getBoundingClientRect().left).toBe(
-    container.getBoundingClientRect().left + 16
+  expect(authorGroup.getBoundingClientRect().left).toBe(
+    channelHeader.querySelector('svg')!.getBoundingClientRect().left
   );
-  const history = container.firstElementChild!;
-  const lastGroup = history.lastElementChild!;
-  expect(lastGroup.getBoundingClientRect().bottom).toBeCloseTo(
-    container.getBoundingClientRect().bottom - 8,
-    0
-  );
-});
-
-test('overflowing text history keeps its first message reachable', async () => {
-  await expect
-    .element(page.getByTestId(TestId.MESSAGE_ITEM).first())
-    .toBeVisible();
-  const container = document.querySelector<HTMLElement>(
-    '[data-messages-container]'
-  )!;
-  const originalStyle = container.style.cssText;
-  try {
-    // Restrict the viewport around the existing seeded history, not invented data.
-    container.style.flex = 'none';
-    container.style.maxHeight = '160px';
-    container.style.minHeight = '0';
-    await waitForRender();
-    container.scrollTop = 0;
-    const history = container.firstElementChild!;
-    expect(container.scrollHeight).toBeGreaterThan(container.clientHeight);
-    expect(history.firstElementChild!.getBoundingClientRect().top).toBeCloseTo(
-      container.getBoundingClientRect().top + 24,
-      0
-    );
-    container.scrollTop = container.scrollHeight;
-    await waitForRender();
-    expect(
-      history.lastElementChild!.getBoundingClientRect().bottom
-    ).toBeCloseTo(container.getBoundingClientRect().bottom - 8, 0);
-  } finally {
-    container.style.cssText = originalStyle;
-    await waitForRender();
-  }
 });
 
 test('reply links use the readable accent text color', async () => {

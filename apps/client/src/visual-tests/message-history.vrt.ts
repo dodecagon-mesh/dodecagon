@@ -200,24 +200,28 @@ for (const compact of [false, true]) {
 }
 
 for (const compact of [false, true]) {
-  test(`a small upward scroll releases ${compact ? 'thread' : 'channel'} bottom lock before late media resize`, async () => {
-    const view = await fixture(messages(1, 100), compact);
-    try {
-      await page.elementLocator(view.container).wheel({ delta: { y: -60 } });
-      await expect.poll(view.fromBottom).toBeGreaterThanOrEqual(59);
-      const before = readVisibleAnchor(view.host, view.container);
-      const last = view.host.querySelector<HTMLElement>(
-        '[data-message-id="100"]'
-      )!;
-      last.style.minHeight = '450px';
-      await settle();
-      const after = readVisibleAnchor(view.host, view.container);
-      expect(after.id).toBe(before.id);
-      expect(Math.abs(after.offset - before.offset)).toBeLessThanOrEqual(2);
-    } finally {
-      view.close();
-    }
-  });
+  for (const delta of [24, 60]) {
+    test(`a ${delta}px upward scroll releases ${compact ? 'thread' : 'channel'} bottom lock before late media resize`, async () => {
+      const view = await fixture(messages(1, 100), compact);
+      try {
+        await page
+          .elementLocator(view.container)
+          .wheel({ delta: { y: -delta } });
+        await expect.poll(view.fromBottom).toBeGreaterThanOrEqual(delta - 1);
+        const before = readVisibleAnchor(view.host, view.container);
+        const last = view.host.querySelector<HTMLElement>(
+          '[data-message-id="100"]'
+        )!;
+        last.style.minHeight = '450px';
+        await settle();
+        const after = readVisibleAnchor(view.host, view.container);
+        expect(after.id).toBe(before.id);
+        expect(Math.abs(after.offset - before.offset)).toBeLessThanOrEqual(2);
+      } finally {
+        view.close();
+      }
+    });
+  }
 }
 
 for (const readerScrolledUp of [false, true]) {
