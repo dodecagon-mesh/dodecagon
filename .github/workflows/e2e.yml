@@ -61,9 +61,9 @@ jobs:
         working-directory: packages/e2e
         run: bun run seed:e2e && bunx playwright test --shard=${{ matrix.shard }}/4
 
-  # master requires a status check named "Run E2E Tests", and a matrix job reports under
-  # its own name per shard, so the shards would never satisfy that rule. this job keeps
-  # the required name and reports the shards' result, so a failed shard still blocks
+  # the shards already decide the workflow result; this job gives the matrix one summary
+  # name in the pull request checks list. master's merge gate is the signoff ruleset, not
+  # this check.
   complete:
     name: Run E2E Tests
     needs: [ci]
