@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import clientPackage from '../../apps/client/package.json' with { type: 'json' };
 import { e2eDataPath } from './tests/statics';
 
 const SERVER_PORT = 4991;
@@ -37,6 +38,7 @@ export default defineConfig({
       stdout: 'ignore',
       stderr: 'ignore',
       env: {
+        DODECAGON_BUILD_VERSION: clientPackage.version,
         DODECAGON_DATA_PATH: e2eDataPath
       }
     },
