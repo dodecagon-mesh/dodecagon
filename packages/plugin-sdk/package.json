@@ -1,6 +1,6 @@
 {
   "name": "@dodecagon/plugin-sdk",
-  "version": "0.0.71",
+  "version": "0.0.72",
   "type": "module",
   "sideEffects": false,
   "main": "src/index.ts",
