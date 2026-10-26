@@ -47,6 +47,11 @@ jobs:
       - name: Typecheck
         run: bun check-types
 
+      # fails when a locale is missing a key that the english locale has
+      - name: Check translations
+        working-directory: packages/scripts
+        run: bun run synci18n
+
       - name: Run tests
         run: bun run test
 

@@ -57,6 +57,12 @@ const missingTranslationsReport: {
   }[];
 }[] = [];
 
+const unreadableLocaleFiles: {
+  locale: string;
+  file: string;
+  error: string;
+}[] = [];
+
 for (const { name, path: filePath } of enFiles) {
   const content = await Bun.file(filePath).json();
   const flattenedContent = flatten(content);
@@ -85,6 +91,11 @@ for (const { name, path: filePath } of enFiles) {
       }
     } catch (error) {
       console.error(`Error reading file for locale ${locale}:`, error);
+      unreadableLocaleFiles.push({
+        locale,
+        file: `${locale}/${name}.json`,
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 }
@@ -103,4 +114,20 @@ if (missingTranslationsReport.length > 0) {
   }
 } else {
   console.log('All translations are up to date!');
+}
+
+// a locale file that cannot be read counts as missing, so the check fails on it
+// instead of silently skipping that locale
+if (unreadableLocaleFiles.length > 0) {
+  console.log('\nUnreadable Locale Files:');
+
+  for (const { locale, file, error } of unreadableLocaleFiles) {
+    console.log(`\nLocale: ${locale}`);
+    console.log(`File: ${file}`);
+    console.log(`Error: ${error}`);
+  }
+}
+
+if (missingTranslationsReport.length > 0 || unreadableLocaleFiles.length > 0) {
+  process.exit(1);
 }
