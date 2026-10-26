@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "test:e2e": "bun run seed:e2e && bunx playwright test",
+    "test:e2e:shards": "bun run seed:e2e && CI=1 bun x playwright test --shard=1/4 && bun run seed:e2e && CI=1 bun x playwright test --shard=2/4 && bun run seed:e2e && CI=1 bun x playwright test --shard=3/4 && bun run seed:e2e && CI=1 bun x playwright test --shard=4/4",
     "test:ui": "bun run seed:e2e && bunx playwright test --ui",
     "test:mocked": "bun run seed:e2e && RUN_MOCK=true bunx playwright test mocked.pw.ts",
     "test:headed": "bun run seed:e2e && bunx playwright test --headed",
