@@ -56,4 +56,4 @@ const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
 
 IconButton.displayName = 'IconButton';
 
-export { IconButton, iconButtonVariants, type TIconButtonSize };
+export { IconButton, type TIconButtonSize };
