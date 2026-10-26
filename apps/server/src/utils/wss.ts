@@ -4,7 +4,6 @@ import {
   DEFAULT_LOCALE,
   DisconnectCode,
   getErrorMessage,
-  OWNER_ROLE_ID,
   Permission,
   ServerEvents,
   UserStatus,
@@ -18,7 +17,7 @@ import {
 import http from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { channelUserCan } from '../db/queries/channels';
-import { getUserRoles } from '../db/queries/roles';
+import { userCan } from '../db/queries/roles';
 import { getUserById, getUserByToken } from '../db/queries/users';
 import { getWsInfo } from '../helpers/get-ws-info';
 import { logger } from '../logger';
@@ -104,31 +103,10 @@ const createContext = async ({
     message: 'Invalid authentication token'
   });
 
-  const hasPermission = async (targetPermission: Permission | Permission[]) => {
-    const user = await getUserById(decodedUser.id);
-
-    if (!user) return false;
-
-    const roles = await getUserRoles(user.id);
-
-    const hasOwnerRole = roles.some((r) => r.id === OWNER_ROLE_ID);
-
-    if (hasOwnerRole) return true; // owner always has all permissions
-
-    const permissionsSet = new Set<Permission>();
-
-    for (const role of roles) {
-      for (const permission of role.permissions) {
-        permissionsSet.add(permission);
-      }
-    }
-
-    if (Array.isArray(targetPermission)) {
-      return targetPermission.every((p) => permissionsSet.has(p));
-    }
-
-    return permissionsSet.has(targetPermission);
-  };
+  // the rule itself lives in db/queries/roles.ts, so the context and every other
+  // caller cannot drift apart
+  const hasPermission = async (targetPermission: Permission | Permission[]) =>
+    userCan(decodedUser.id, targetPermission);
 
   const hasChannelPermission = async (
     channelId: number,
