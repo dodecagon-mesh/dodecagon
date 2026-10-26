@@ -19,6 +19,7 @@
     "knip": "knip",
     "knip:production": "knip --production",
     "verify": "bun run format:check && bun run lint && bun run check-types && bun run test && bun run --filter '@dodecagon/server' build && bun run --filter '@dodecagon/server' test:bundle",
+    "signoff": "bun install --frozen-lockfile && bun run verify && bun run test:e2e && gh signoff build e2e",
     "magic": "bun run format && bun run check-types && bun run lint"
   },
   "devDependencies": {
