@@ -226,7 +226,9 @@ export const MessageHistory = memo(
         ? estimateCompactMessageHeight
         : estimateMessageHeight,
       getItemKey,
-      scrollMargin: compact ? 0 : 24,
+      // keep the native end anchor and DOM scroll range in the same coordinates
+      paddingStart: compact ? 0 : 24,
+      paddingEnd: compact ? 0 : 8,
       anchorTo: 'end',
       followOnAppend: true,
       // release bottom lock as soon as the reader scrolls into history
@@ -320,7 +322,7 @@ export const MessageHistory = memo(
         aria-label={compact ? t('thread') : channel?.name}
         className={cn(
           'flex-1 min-h-0 overflow-y-auto overflow-x-hidden',
-          compact ? 'px-6' : 'px-4 pt-6 pb-2'
+          compact ? 'px-6' : 'px-4'
         )}
         style={{ overflowAnchor: 'none' }}
       >
