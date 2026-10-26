@@ -13,8 +13,7 @@ import {
   selectedChannelTypeSelector
 } from './selectors';
 
-export const useChannels = () =>
-  useStoreSelector((state: IRootState) => channelsSelector(state));
+export const useChannels = () => useStoreSelector(channelsSelector);
 
 export const useChannelById = (channelId: number) =>
   useStoreSelector((state: IRootState) =>

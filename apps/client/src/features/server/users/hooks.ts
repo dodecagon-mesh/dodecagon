@@ -30,8 +30,7 @@ export const useUserById = (userId: number | null) =>
     userId !== null ? userByIdSelector(state, userId) : undefined
   );
 
-export const useOwnPublicUser = () =>
-  useStoreSelector((state: IRootState) => ownUserSelector(state));
+export const useOwnPublicUser = () => useStoreSelector(ownUserSelector);
 
 export const useUserStatus = (userId: number) =>
   useStoreSelector((state: IRootState) => userStatusSelector(state, userId));
