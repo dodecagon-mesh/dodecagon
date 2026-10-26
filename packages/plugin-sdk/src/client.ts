@@ -11,9 +11,7 @@ import type {
   TPluginTabs,
   TPluginUserData
 } from '@dodecagon/shared';
-// deep import: the barrel is tree shakeable now that the package declares
-// itself side effect free, and this does not rely on the bundler honouring it
-import { PluginCapabilityType } from '@dodecagon/shared/src/plugins/capabilities';
+import { PluginCapabilityType } from '@dodecagon/shared';
 import { useSyncExternalStore } from 'react';
 import { createCallAction as bindCallAction } from './actions';
 

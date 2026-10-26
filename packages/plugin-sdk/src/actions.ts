@@ -4,9 +4,7 @@ import type {
   TPluginActions,
   TPluginContract
 } from '@dodecagon/shared';
-// deep import: the barrel is tree shakeable now that the package declares
-// itself side effect free, and this does not rely on the bundler honouring it
-import { getPluginIdFromBundleUrl } from '@dodecagon/shared/src/plugins/client-sdk';
+import { getPluginIdFromBundleUrl } from '@dodecagon/shared';
 
 type TypedCallAction<TActions extends TActionContract> = <
   K extends keyof TActions & string
