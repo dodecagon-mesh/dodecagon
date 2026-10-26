@@ -69,7 +69,7 @@ Conventions:
 - Imports are auto-organized by prettier — don't hand-sort.
 - **ALWAYS** use modern ES6+ syntax: `const`/`let`, arrow functions, destructuring, template literals, etc.
 
-Run `bun run magic` (lint:fix + format + check-types) before finishing; `bun run signoff` is the merge gate.
+Run `bun run magic` (format + check-types + lint) before finishing; `bun run signoff` is the merge gate.
 
 ### Don't repeat, and put code where it belongs
 
@@ -455,6 +455,9 @@ Every new behaviour needs tests and the whole suite must pass, see [Testing](#te
   an advisory signal.
 - Do not bump the version unless the task is a release. Releases run on merge to `master`;
   without a bump the Release run stops at the existing-tag check and publishes nothing.
+- A release also needs green hosted `Build & Test` and E2E jobs: the Release workflow waits
+  for them after the merge, so a red advisory check does not block the merge but blocks
+  publishing.
 - Visual tests (`bun run test:visual` in `apps/client`) need the Paper design as reference
   for UI changes; see the sharkord-paper-ui-verification skill.
 
@@ -489,10 +492,13 @@ integration tests, server build, bundle test), runs the four E2E shards under Bu
 then posts `signoff/build` and `signoff/e2e` for the pushed HEAD.
 
 - Any new commit, amend or rebase changes the tested commit and invalidates the statuses.
-  Run `bun run signoff` again.
-- `gh signoff status` lists the contexts. `gh signoff check build e2e` checks the
-  requirement. Without arguments `gh signoff check` looks for the bare `signoff` context,
-  which this repository does not use.
+  Push the rewritten branch with `git push --force-with-lease`, then run `bun run signoff`
+  again. Never force-push `master`.
+- `gh signoff status` lists the contexts. It prints a red `✗ signoff` line for the bare
+  context this repository does not require; the gate is `✓ build` and `✓ e2e`.
+  `gh signoff check build e2e` checks the requirement. Without arguments
+  `gh signoff check` looks for the bare `signoff` context, which this repository does not
+  use.
 - Do not create the statuses by hand and do not use the ruleset admin bypass unless the user
   explicitly asks for it.
 - Do not run the E2E suite under Bun 1.4.4. The kick and ban tests rely on custom WebSocket

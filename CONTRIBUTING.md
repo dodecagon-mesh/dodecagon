@@ -33,11 +33,11 @@ Features aimed at enterprise-scale usage or feature parity with Discord are outs
 
 ## Before You Start
 
-You MUST create an issue before opening a pull request.
+You MUST create an issue before opening a pull request, or use the fork's Linear DOD task.
 
 This allows discussion, validation, and alignment with project goals.
 
-- PRs without a related issue will be closed.
+- PRs without a related issue or DOD task will be closed.
 - Check the [Roadmap](/ROADMAP.md) before proposing new features.
 - If a feature is not aligned with the project vision, it will not be accepted.
 
@@ -57,26 +57,27 @@ Once your issue has been discussed and validated, you may submit a PR.
 
 ### Requirements
 
-- Must reference an existing issue
+- Must reference an existing issue or a DOD task
 - Must target the `master` branch
 - One feature or fix per PR
 - Large architectural changes must be discussed and approved before implementation
-- All CI checks must pass before review (in this fork, run them locally and publish the sign-off; see [Fork workflow](#fork-workflow-dodecagon-meshdodecagon))
+- All checks must pass before review (in this fork, run them locally and publish the sign-off; see [Fork workflow](#fork-workflow-dodecagon-meshdodecagon))
 
 PRs that do not meet these requirements may be closed without review.
 
 ## PR Title Format
 
-Use the following format:
+Use the following format for fork work:
 
-- `fix(issue-number): short description`
-- `feat(issue-number): short description`
-- `chore(issue-number): short description`
+- `fix(DOD-123): short description`
+- `feat(DOD-123): short description`
+- `chore(DOD-123): short description`
+- `docs(DOD-123): short description`
 
 Example:
 
 ```
-feat(123): add channel mute support
+feat(DOD-123): add channel mute support
 ```
 
 PRs not following this format may be closed.
@@ -88,6 +89,9 @@ Commits must follow:
 - `fix: short description`
 - `feat: short description`
 - `chore: short description`
+- `docs: short description`
+
+Fork work puts the task id in the scope: `fix(DOD-123): short description`.
 
 Keep messages concise and descriptive.
 
@@ -143,10 +147,11 @@ When applicable, please include unit and integration tests for your changes. Thi
 
 ## Fork workflow (dodecagon-mesh/dodecagon)
 
-This fork has a single branch, `master`. Upstream rules above still apply to code style and tests.
+This fork has one long-lived branch, `master`. Upstream rules above still apply to code style and tests.
 
-- `master`: the only branch. Protected: no force-push, no deletion, linear history, changes via PR.
+- `master`: the only long-lived branch. Protected: no force-push, no deletion, linear history, changes via PR.
 - `agent/<task>` or `feat/<task>`: one change per branch, PR into `master`.
+- The task tracker is Linear, team `DOD`; use `DOD-<id>` in the branch and PR title. A separate GitHub issue is not required for fork work.
 - Release: a merge into `master` runs `.github/workflows/release.yml`. The version comes from
   `package.json`. The workflow fails if the tag already exists, so bump the version in the PR.
 - Before opening a PR: push the branch with `git push -u origin HEAD`, then run
