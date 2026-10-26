@@ -6,7 +6,7 @@ https://github.com/dodecagon-mesh/dodecagon/blob/master/CONTRIBUTING.md
 PRs that do not follow it may be closed without review. The ones people miss most:
 
   - the PR must target the `master` branch
-  - title: `feat|fix|chore(DOD-<id>): short description`
+  - title: `feat|fix|chore|docs(DOD-<id>): short description`
   - push the branch with `git push -u origin HEAD` before signing off
 
 Everything in these comment blocks is invisible in the submitted pull request,
