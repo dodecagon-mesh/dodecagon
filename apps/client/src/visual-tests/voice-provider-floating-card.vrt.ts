@@ -62,6 +62,8 @@ const state = vi.hoisted(() => {
       consumerTransport: { current: null },
       sessionGenerationRef: { current: 0 },
       consumers: { current: {} },
+      consumerStreams: { current: new Map() },
+      consumeOperationsInProgress: { current: new Map() },
       consumeRef: { current: null },
       createProducerTransport: asyncNoop,
       createConsumerTransport: asyncNoop,

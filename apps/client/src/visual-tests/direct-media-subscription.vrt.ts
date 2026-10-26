@@ -48,7 +48,10 @@ test('voice-only microphone publication waits for the direct subscription acknow
       canConsumeScreen: () => false,
       onRemoteDemoStoppedRef: { current: vi.fn() },
       addRemoteUserStream: vi.fn(),
-      removeRemoteUserStream: vi.fn()
+      removeRemoteUserStream: vi.fn(),
+      prepareDirectScreenBundle: vi.fn(async () => {}),
+      presentDirectScreenBundle: vi.fn(() => true),
+      retireDirectScreenBundle: vi.fn()
     });
     return null;
   };
@@ -114,7 +117,10 @@ test('a superseded subscription error cannot clear the replacement acknowledgeme
     canConsumeScreen: () => false,
     onRemoteDemoStoppedRef: { current: vi.fn() },
     addRemoteUserStream: vi.fn(),
-    removeRemoteUserStream: vi.fn()
+    removeRemoteUserStream: vi.fn(),
+    prepareDirectScreenBundle: vi.fn(async () => {}),
+    presentDirectScreenBundle: vi.fn(() => true),
+    retireDirectScreenBundle: vi.fn()
   };
   let subject: ReturnType<typeof useDirectMedia> | undefined;
   const Fixture = ({ channelId }: { channelId: number }) => {

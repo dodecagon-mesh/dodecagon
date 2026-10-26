@@ -1855,11 +1855,7 @@ test('retains one paused screen relay bundle through direct playback and resumes
   await listen(sender);
   await listen(receiver);
   await runtime.init();
-  const screen = await addScreenRelayMedia(
-    runtime,
-    StreamKind.SCREEN,
-    7711
-  );
+  const screen = await addScreenRelayMedia(runtime, StreamKind.SCREEN, 7711);
   const screenAudio = await addScreenRelayMedia(
     runtime,
     StreamKind.SCREEN_AUDIO,
@@ -1910,16 +1906,254 @@ test('retains one paused screen relay bundle through direct playback and resumes
   }
 });
 
+test('screen audio resume preserves a newly pending direct screen attempt', async () => {
+  const { runtime, sender, receiver } = await pair();
+  await listen(sender);
+  await listen(receiver);
+  await runtime.init();
+  const screen = await addScreenRelayMedia(runtime, StreamKind.SCREEN, 7716);
+  const screenAudio = await addScreenRelayMedia(
+    runtime,
+    StreamKind.SCREEN_AUDIO,
+    7717
+  );
+  try {
+    await receiver.voice.resumeConsumer({
+      remoteId: 1,
+      kind: StreamKind.SCREEN,
+      consumerId: screen.consumer.id,
+      requestDirect: false
+    });
+    const session = await sender.voice.startDirectMedia({
+      kind: StreamKind.SCREEN,
+      peerId: 2
+    });
+    expect(session).not.toBeNull();
+    expect(runtime.getDirectMediaSession(session!.sessionId, 1)?.phase).toBe(
+      'pending'
+    );
+
+    await receiver.voice.resumeConsumer({
+      remoteId: 1,
+      kind: StreamKind.SCREEN_AUDIO,
+      consumerId: screenAudio.consumer.id,
+      requestDirect: false
+    });
+
+    expect(runtime.getDirectMediaSession(session!.sessionId, 1)?.phase).toBe(
+      'pending'
+    );
+  } finally {
+    screen.transport.close();
+    screenAudio.transport.close();
+  }
+});
+
+test('pre-activation fallback resumes the paused screen relay bundle', async () => {
+  const { runtime, sender, receiver } = await pair();
+  await listen(sender);
+  await listen(receiver);
+  await runtime.init();
+  const screen = await addScreenRelayMedia(runtime, StreamKind.SCREEN, 7718);
+  const screenAudio = await addScreenRelayMedia(
+    runtime,
+    StreamKind.SCREEN_AUDIO,
+    7719
+  );
+  try {
+    await receiver.voice.pauseConsumer({
+      remoteId: 1,
+      kind: StreamKind.SCREEN
+    });
+    await receiver.voice.pauseConsumer({
+      remoteId: 1,
+      kind: StreamKind.SCREEN_AUDIO
+    });
+    const session = await sender.voice.startDirectMedia({
+      kind: StreamKind.SCREEN,
+      peerId: 2
+    });
+    await sender.voice.signalDirectMedia({
+      sessionId: session!.sessionId,
+      signal: offer
+    });
+    await receiver.voice.signalDirectMedia({
+      sessionId: session!.sessionId,
+      signal: answer
+    });
+
+    await receiver.voice.signalDirectMedia({
+      sessionId: session!.sessionId,
+      signal: { type: 'fallback' }
+    });
+
+    expect(screen.consumer.paused).toBe(false);
+    expect(screenAudio.consumer.paused).toBe(false);
+  } finally {
+    screen.transport.close();
+    screenAudio.transport.close();
+  }
+});
+
+test('rewatch during relay activation wins over the earlier unwatch', async () => {
+  const { runtime, sender, receiver } = await pair();
+  await listen(sender);
+  await listen(receiver);
+  await runtime.init();
+  const screen = await addScreenRelayMedia(runtime, StreamKind.SCREEN, 7713);
+  const session = await sender.voice.startDirectMedia({
+    kind: StreamKind.SCREEN,
+    peerId: 2
+  });
+  await sender.voice.signalDirectMedia({
+    sessionId: session!.sessionId,
+    signal: offer
+  });
+  await receiver.voice.signalDirectMedia({
+    sessionId: session!.sessionId,
+    signal: answer
+  });
+  const pauseStarted = Promise.withResolvers<void>();
+  const releasePause = Promise.withResolvers<void>();
+  const originalPause = screen.consumer.pause.bind(screen.consumer);
+  const pauseSpy = spyOn(screen.consumer, 'pause').mockImplementation(
+    async () => {
+      pauseStarted.resolve();
+      await releasePause.promise;
+      await originalPause();
+    }
+  );
+  try {
+    const activating = receiver.voice.signalDirectMedia({
+      sessionId: session!.sessionId,
+      signal: { type: 'ready' }
+    });
+    await pauseStarted.promise;
+    const unwatch = receiver.voice.signalDirectMedia({
+      sessionId: session!.sessionId,
+      signal: { type: 'fallback', reason: 'unwatch' }
+    });
+    for (
+      let turn = 0;
+      turn < 50 &&
+      runtime.getDirectMediaSession(session!.sessionId, 2, true)?.phase !==
+        'retiring';
+      turn++
+    ) {
+      await Promise.resolve();
+    }
+    expect(
+      runtime.getDirectMediaSession(session!.sessionId, 2, true)?.phase
+    ).toBe('retiring');
+    const rewatch = receiver.voice.resumeConsumer({
+      remoteId: 1,
+      kind: StreamKind.SCREEN,
+      consumerId: screen.consumer.id,
+      requestDirect: false
+    });
+    releasePause.resolve();
+    await Promise.all([activating, unwatch, rewatch]);
+    expect(screen.consumer.paused).toBe(false);
+    expect(
+      runtime.getDirectMediaSession(session!.sessionId, 2, true)
+    ).toBeUndefined();
+  } finally {
+    pauseSpy.mockRestore();
+    screen.transport.close();
+  }
+});
+
+test('unwatch during relay restoration leaves the retained consumer paused', async () => {
+  const { runtime, sender, receiver } = await pair();
+  await listen(sender);
+  await listen(receiver);
+  await runtime.init();
+  const screen = await addScreenRelayMedia(runtime, StreamKind.SCREEN, 7714);
+  const session = await readyDirectScreen(sender, receiver);
+  const resumeStarted = Promise.withResolvers<void>();
+  const releaseResume = Promise.withResolvers<void>();
+  const originalResume = screen.consumer.resume.bind(screen.consumer);
+  const resumeSpy = spyOn(screen.consumer, 'resume').mockImplementation(
+    async () => {
+      resumeStarted.resolve();
+      await releaseResume.promise;
+      await originalResume();
+    }
+  );
+  try {
+    const fallback = receiver.voice.signalDirectMedia({
+      sessionId: session.sessionId,
+      signal: { type: 'fallback' }
+    });
+    await resumeStarted.promise;
+    const unwatch = receiver.voice.pauseConsumer({
+      remoteId: 1,
+      kind: StreamKind.SCREEN
+    });
+    for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+    releaseResume.resolve();
+    await Promise.all([fallback, unwatch]);
+    expect(screen.consumer.paused).toBe(true);
+    expect(
+      runtime.getDirectMediaSession(session.sessionId, 2, true)
+    ).toBeUndefined();
+  } finally {
+    resumeSpy.mockRestore();
+    screen.transport.close();
+  }
+});
+
+test('a disappearing retained consumer cannot strand direct retirement', async () => {
+  const { runtime, sender, receiver } = await pair();
+  await listen(sender);
+  await listen(receiver);
+  await runtime.init();
+  const screen = await addScreenRelayMedia(runtime, StreamKind.SCREEN, 7715);
+  const discovery: unknown[] = [];
+  subscriptions.push(
+    (await receiver.voice.onNewProducer()).subscribe({
+      next: (event) => discovery.push(event)
+    })
+  );
+  const session = await readyDirectScreen(sender, receiver);
+  const resumeSpy = spyOn(screen.consumer, 'resume').mockImplementation(
+    async () => {
+      screen.consumer.close();
+      throw new Error('retained consumer disappeared');
+    }
+  );
+  try {
+    await expect(
+      receiver.voice.signalDirectMedia({
+        sessionId: session.sessionId,
+        signal: { type: 'stop' }
+      })
+    ).resolves.toBeUndefined();
+    expect(
+      runtime.getDirectMediaSession(session.sessionId, 2, true)
+    ).toBeUndefined();
+    expect(runtime.getConsumer(2, 1, StreamKind.SCREEN)).toBeUndefined();
+    expect(discovery).toEqual([
+      {
+        channelId: 2,
+        remoteId: 1,
+        kind: StreamKind.SCREEN,
+        replaceConsumerId: screen.consumer.id
+      }
+    ]);
+    expect(runtime.startDirectMedia(1, StreamKind.SCREEN, 2)).not.toBeNull();
+  } finally {
+    resumeSpy.mockRestore();
+    screen.transport.close();
+  }
+});
+
 test('discovers only a missing member of a retained screen relay bundle on fallback', async () => {
   const { runtime, sender, receiver } = await pair();
   await listen(sender);
   await listen(receiver);
   await runtime.init();
-  const screen = await addScreenRelayMedia(
-    runtime,
-    StreamKind.SCREEN,
-    7721
-  );
+  const screen = await addScreenRelayMedia(runtime, StreamKind.SCREEN, 7721);
   const screenAudio = await addScreenRelayMedia(
     runtime,
     StreamKind.SCREEN_AUDIO,
@@ -1932,10 +2166,25 @@ test('discovers only a missing member of a retained screen relay bundle on fallb
     })
   );
   try {
-    const session = await readyDirectScreen(sender, receiver);
+    const session = await sender.voice.startDirectMedia({
+      kind: StreamKind.SCREEN,
+      peerId: 2
+    });
+    await sender.voice.signalDirectMedia({
+      sessionId: session!.sessionId,
+      signal: offer
+    });
+    await receiver.voice.signalDirectMedia({
+      sessionId: session!.sessionId,
+      signal: answer
+    });
     screenAudio.consumer.close();
     await receiver.voice.signalDirectMedia({
-      sessionId: session.sessionId,
+      sessionId: session!.sessionId,
+      signal: { type: 'ready' }
+    });
+    await receiver.voice.signalDirectMedia({
+      sessionId: session!.sessionId,
       signal: { type: 'fallback' }
     });
     expect(runtime.getConsumer(2, 1, StreamKind.SCREEN)).toBe(screen.consumer);
@@ -1944,16 +2193,73 @@ test('discovers only a missing member of a retained screen relay bundle on fallb
       {
         channelId: 2,
         remoteId: 1,
-        kind: StreamKind.SCREEN_AUDIO
+        kind: StreamKind.SCREEN_AUDIO,
+        replaceConsumerId: screenAudio.consumer.id
       }
     ]);
 
     await receiver.voice.signalDirectMedia({
-      sessionId: session.sessionId,
+      sessionId: session!.sessionId,
       signal: { type: 'fallback' }
     });
     expect(discovery).toHaveLength(1);
   } finally {
+    screen.transport.close();
+    screenAudio.transport.close();
+  }
+});
+
+test('fallback discovers a relay member that disappears during sibling restoration', async () => {
+  const { runtime, sender, receiver } = await pair();
+  await listen(sender);
+  await listen(receiver);
+  await runtime.init();
+  const screen = await addScreenRelayMedia(runtime, StreamKind.SCREEN, 7723);
+  const screenAudio = await addScreenRelayMedia(
+    runtime,
+    StreamKind.SCREEN_AUDIO,
+    7724
+  );
+  const discovery: unknown[] = [];
+  subscriptions.push(
+    (await receiver.voice.onNewProducer()).subscribe({
+      next: (event) => discovery.push(event)
+    })
+  );
+  const session = await readyDirectScreen(sender, receiver);
+  const audioResumeStarted = Promise.withResolvers<void>();
+  const releaseAudioResume = Promise.withResolvers<void>();
+  const originalAudioResume = screenAudio.consumer.resume.bind(
+    screenAudio.consumer
+  );
+  const resumeSpy = spyOn(screenAudio.consumer, 'resume').mockImplementation(
+    async () => {
+      audioResumeStarted.resolve();
+      await releaseAudioResume.promise;
+      await originalAudioResume();
+    }
+  );
+  try {
+    const fallback = receiver.voice.signalDirectMedia({
+      sessionId: session.sessionId,
+      signal: { type: 'fallback' }
+    });
+    await audioResumeStarted.promise;
+    screen.consumer.close();
+    releaseAudioResume.resolve();
+    await fallback;
+
+    expect(discovery).toEqual([
+      {
+        channelId: 2,
+        remoteId: 1,
+        kind: StreamKind.SCREEN,
+        replaceConsumerId: screen.consumer.id
+      }
+    ]);
+  } finally {
+    resumeSpy.mockRestore();
+    releaseAudioResume.resolve();
     screen.transport.close();
     screenAudio.transport.close();
   }
@@ -1966,11 +2272,7 @@ test.each(['unwatch', 'voice-only', 'producer-close'] as const)(
     await listen(sender);
     await listen(receiver);
     await runtime.init();
-    const screen = await addScreenRelayMedia(
-      runtime,
-      StreamKind.SCREEN,
-      7731
-    );
+    const screen = await addScreenRelayMedia(runtime, StreamKind.SCREEN, 7731);
     const screenAudio = await addScreenRelayMedia(
       runtime,
       StreamKind.SCREEN_AUDIO,

@@ -61,6 +61,11 @@ type TUseTransportParams = {
   clearRemoteConsumerMetadata: () => void;
 };
 
+export type TConsumeOptions = {
+  requestDirect?: boolean;
+  replaceConsumerId?: string;
+};
+
 type TConsumerOperationToken = {
   cancelled: boolean;
   producerId?: string;
@@ -73,6 +78,8 @@ const createConsumerOperationToken = (): TConsumerOperationToken => ({
   closedProducerIds: new Set(),
   retryAfterProducerClose: false
 });
+
+const DEMO_STREAM_KINDS = [StreamKind.SCREEN, StreamKind.SCREEN_AUDIO] as const;
 
 const useTransports = ({
   voiceOnlyMode,
@@ -429,20 +436,29 @@ const useTransports = ({
     }
   }, []);
 
+  const markDemoConsumersPaused = useCallback((remoteId: number): void => {
+    for (const kind of DEMO_STREAM_KINDS) {
+      const consumer = consumers.current[remoteId]?.[kind];
+      if (
+        !consumer ||
+        consumer.closed ||
+        consumer.track.readyState !== 'live'
+      ) {
+        continue;
+      }
+      pendingConsumerResumes.current.add(consumer.id);
+    }
+  }, []);
+
   const pauseDemoConsumers = useCallback(
     async (remoteId: number): Promise<void> => {
       const trpc = getTRPCClient();
       const transport = consumerTransport.current;
       const generation = nonVoiceGenerationRef.current;
       const pending: Promise<void>[] = [];
-      for (const kind of [
-        StreamKind.SCREEN,
-        StreamKind.SCREEN_AUDIO
-      ] as const) {
+      for (const kind of DEMO_STREAM_KINDS) {
         const consumer = consumers.current[remoteId]?.[kind];
         if (!consumer || consumer.closed) continue;
-        consumer.pause();
-
         const operationKey = `${remoteId}-${kind}`;
         const token =
           consumerOperationTokens.current.get(operationKey) ??
@@ -469,6 +485,18 @@ const useTransports = ({
               return;
             }
             await trpc.voice.pauseConsumer.mutate({ remoteId, kind });
+            if (
+              token.cancelled ||
+              transport !== consumerTransport.current ||
+              transport.closed ||
+              voiceOnlyModeRef.current ||
+              generation !== nonVoiceGenerationRef.current ||
+              consumer.closed ||
+              consumers.current[remoteId]?.[kind] !== consumer
+            ) {
+              return;
+            }
+            pendingConsumerResumes.current.add(consumer.id);
           } finally {
             if (
               consumeOperationsInProgress.current.get(operationKey) ===
@@ -494,8 +522,9 @@ const useTransports = ({
       remoteId: number,
       kind: StreamKind,
       rtpCapabilities: RtpCapabilities,
-      requestDirect = true
+      options: TConsumeOptions = {}
     ): Promise<void> => {
+      const { requestDirect = true, replaceConsumerId } = options;
       if (kind !== StreamKind.AUDIO && voiceOnlyModeRef.current) return;
       const isScreen =
         kind === StreamKind.SCREEN || kind === StreamKind.SCREEN_AUDIO;
@@ -534,12 +563,7 @@ const useTransports = ({
           !voiceOnlyModeRef.current &&
           canConsumeScreen(remoteId)
         ) {
-          return consumeRef.current(
-            remoteId,
-            kind,
-            rtpCapabilities,
-            requestDirect
-          );
+          return consumeRef.current(remoteId, kind, rtpCapabilities, options);
         }
         return;
       }
@@ -573,33 +597,41 @@ const useTransports = ({
             existing.track.readyState === 'live'
           ) {
             if (
-              !existing.paused &&
-              !pendingConsumerResumes.current.has(existing.id)
-            )
+              replaceConsumerId !== undefined &&
+              existing.id === replaceConsumerId
+            ) {
+              existing.close();
+            } else {
+              if (
+                !existing.paused &&
+                !pendingConsumerResumes.current.has(existing.id)
+              )
+                return;
+              await trpc.voice.resumeConsumer.mutate({
+                remoteId,
+                kind,
+                consumerId: existing.id,
+                requestDirect
+              });
+              pendingConsumerResumes.current.delete(existing.id);
+              const isSameConsumer = () =>
+                isCurrent() &&
+                existing.track.readyState === 'live' &&
+                consumers.current[remoteId]?.[kind] === existing;
+              if (isSameConsumer() && existing.paused) existing.resume();
+              if (isSameConsumer() && canConsumeScreen(remoteId)) {
+                const stream = consumerStreams.current.get(operationKey);
+                if (stream) addRemoteUserStream(remoteId, stream, kind);
+                return;
+              }
+              if (isSameConsumer()) {
+                await trpc.voice.pauseConsumer.mutate({ remoteId, kind });
+                if (isSameConsumer()) {
+                  pendingConsumerResumes.current.add(existing.id);
+                }
+              }
               return;
-            await trpc.voice.resumeConsumer.mutate({
-              remoteId,
-              kind,
-              consumerId: existing.id,
-              requestDirect
-            });
-            pendingConsumerResumes.current.delete(existing.id);
-            if (
-              canContinue() &&
-              existing.track.readyState === 'live' &&
-              consumers.current[remoteId]?.[kind] === existing
-            ) {
-              if (existing.paused) existing.resume();
-            } else if (
-              isCurrent() &&
-              !existing.closed &&
-              consumers.current[remoteId]?.[kind] === existing &&
-              !canConsumeScreen(remoteId)
-            ) {
-              existing.pause();
-              await trpc.voice.pauseConsumer.mutate({ remoteId, kind });
             }
-            return;
           }
 
           const {
@@ -773,8 +805,6 @@ const useTransports = ({
             consumerStreams.current.set(`${remoteId}-${consumerKind}`, stream);
             addRemoteUserStream(remoteId, stream, consumerKind);
           }
-          // direct playback may synchronously retire a relay that lost the
-          // handoff race. Never resume that closed consumer on the server.
           if (newConsumer.closed || !canContinue()) return;
 
           // the server holds video until native receive and its stream owner are ready.
@@ -787,7 +817,8 @@ const useTransports = ({
             await trpc.voice.resumeConsumer.mutate({
               remoteId,
               kind: consumerKind,
-              consumerId: newConsumer.id
+              consumerId: newConsumer.id,
+              requestDirect
             });
             pendingConsumerResumes.current.delete(newConsumer.id);
             if (
@@ -797,8 +828,14 @@ const useTransports = ({
               !newConsumer.closed &&
               consumers.current[remoteId]?.[consumerKind] === newConsumer
             ) {
-              newConsumer.pause();
               await trpc.voice.pauseConsumer.mutate({ remoteId, kind });
+              if (
+                isCurrent() &&
+                !newConsumer.closed &&
+                consumers.current[remoteId]?.[consumerKind] === newConsumer
+              ) {
+                pendingConsumerResumes.current.add(newConsumer.id);
+              }
             }
           }
         } catch (error) {
@@ -980,7 +1017,10 @@ const useTransports = ({
     consumerTransport,
     sessionGenerationRef,
     consumers,
+    consumerStreams,
+    consumeOperationsInProgress,
     consumeRef,
+    markDemoConsumersPaused,
     pauseDemoConsumers,
     createProducerTransport,
     createConsumerTransport,

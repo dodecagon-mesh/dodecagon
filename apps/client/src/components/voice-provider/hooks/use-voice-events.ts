@@ -12,6 +12,7 @@ import type { RtpCapabilities } from 'mediasoup-client/types';
 import type { RefObject } from 'react';
 import { type MutableRefObject, useEffect } from 'react';
 import { isOwnProducerEvent } from '../helpers';
+import type { TConsumeOptions } from './use-transports';
 
 type TEvents = {
   consumeRef: MutableRefObject<
@@ -19,7 +20,7 @@ type TEvents = {
         remoteId: number,
         kind: StreamKind,
         rtpCapabilities: RtpCapabilities,
-        requestDirect?: boolean
+        options?: TConsumeOptions
       ) => Promise<void>)
     | null
   >;
@@ -79,7 +80,7 @@ const useVoiceEvents = ({
     const onVoiceNewProducerSub = trpc.voice.onNewProducer.subscribe(
       undefined,
       {
-        onData: ({ remoteId, kind, channelId }) => {
+        onData: ({ remoteId, kind, channelId, replaceConsumerId }) => {
           if (currentVoiceChannelId !== channelId || isCleaningUp) return;
 
           if (isOwnProducerEvent(remoteId, ownUserId, kind)) {
@@ -118,7 +119,9 @@ const useVoiceEvents = ({
             return;
           }
           try {
-            consumeRef.current?.(remoteId, kind, rtpCapabilities);
+            consumeRef.current?.(remoteId, kind, rtpCapabilities, {
+              replaceConsumerId
+            });
           } catch (error) {
             logVoiceError('events: consuming new producer failed', error, {
               remoteId,

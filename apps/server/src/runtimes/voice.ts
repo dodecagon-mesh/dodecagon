@@ -152,14 +152,38 @@ type TExternalStreamInternal = {
 
 const EXTERNAL_STREAM_ID_BASE = 1_000_000;
 
+type TRetainedDirectMediaConsumer = Readonly<{
+  kind: TRelayDemandEvent['kind'];
+  consumer: Consumer<AppData>;
+}>;
+
+type TDirectMediaEndOptions = Readonly<{
+  type: 'fallback' | 'stop';
+  latchFailure?: boolean;
+  reason?: 'unwatch';
+  restoreRelay: boolean;
+}>;
+
+type TConsumerPlaybackState = 'active' | 'paused';
+
+type TConsumerPlaybackIntent = Readonly<{
+  state: TConsumerPlaybackState;
+}>;
+
 type TDirectMediaRuntimeSession = {
   kind: TDirectMediaKind;
   id: string;
   senderId: number;
   peerId: number;
-  phase: 'pending' | 'offered' | 'answered' | 'ready';
+  phase:
+    'pending' | 'offered' | 'answered' | 'activating' | 'ready' | 'retiring';
   producerId?: string;
   deadline?: NodeJS.Timeout;
+  relayConsumers?: readonly TRetainedDirectMediaConsumer[];
+  relayConsumerIds?: ReadonlyMap<TRelayDemandEvent['kind'], string>;
+  transition?: Promise<void>;
+  relayIntent?: TConsumerPlaybackState;
+  retirement?: TDirectMediaEndOptions;
 };
 
 class VoiceRuntime {
@@ -207,6 +231,14 @@ class VoiceRuntime {
   private directMediaOutgoing = new Map<string, string>();
   private directMediaMovedMembers = new Set<number>();
   private directMediaFailedPairs = new Set<string>();
+  private consumerPlaybackIntents = new WeakMap<
+    Consumer<AppData>,
+    TConsumerPlaybackIntent
+  >();
+  private consumerPlaybackOperations = new WeakMap<
+    Consumer<AppData>,
+    Promise<void>
+  >();
   private destroyed = false;
 
   private externalCounter = EXTERNAL_STREAM_ID_BASE;
@@ -376,7 +408,7 @@ class VoiceRuntime {
   public destroy = async () => {
     if (this.destroyed) return;
     this.destroyed = true;
-    this.endAllDirectMediaSessions('stop');
+    await this.endAllDirectMediaSessions('stop', false);
     this.directMediaSubscriptions.clear();
     this.directMediaMovedMembers.clear();
     this.directMediaFailedPairs.clear();
@@ -580,6 +612,81 @@ class VoiceRuntime {
     return this.consumers[userId]?.[this.getConsumerKey(remoteId, kind)];
   };
 
+  public applyConsumerPlaybackState = async (
+    userId: number,
+    remoteId: number,
+    kind: StreamKind,
+    consumer: Consumer<AppData>,
+    state: TConsumerPlaybackState
+  ): Promise<boolean> => {
+    const intent: TConsumerPlaybackIntent = { state };
+    this.consumerPlaybackIntents.set(consumer, intent);
+    const pendingSession = this.getDirectMediaRelaySession(
+      remoteId,
+      userId,
+      kind
+    );
+    if (pendingSession) pendingSession.relayIntent = state;
+    const previous = this.consumerPlaybackOperations.get(consumer);
+    let applied = false;
+    const operation = (previous ?? Promise.resolve())
+      .catch(() => {})
+      .then(async () => {
+        if (this.consumerPlaybackIntents.get(consumer) !== intent) return;
+        const session = this.getDirectMediaRelaySession(remoteId, userId, kind);
+        if (
+          session &&
+          (state === 'paused' ||
+            session.phase === 'activating' ||
+            session.phase === 'ready' ||
+            session.phase === 'retiring')
+        ) {
+          session.relayIntent = state;
+          await this.endDirectMediaSession(
+            session,
+            state === 'active'
+              ? { type: 'fallback', restoreRelay: true }
+              : {
+                  type: 'fallback',
+                  reason: 'unwatch',
+                  restoreRelay: false
+                }
+          );
+        }
+        if (this.consumerPlaybackIntents.get(consumer) !== intent) return;
+        const current = this.getConsumer(userId, remoteId, kind);
+        if (current !== consumer || consumer.closed) return;
+        try {
+          if (state === 'paused' && !consumer.paused) {
+            await consumer.pause();
+          } else if (state === 'active' && consumer.paused) {
+            await consumer.resume();
+          }
+        } catch (error) {
+          if (
+            this.getConsumer(userId, remoteId, kind) !== consumer ||
+            consumer.closed
+          ) {
+            return;
+          }
+          throw error;
+        }
+        if (this.consumerPlaybackIntents.get(consumer) !== intent) return;
+        applied =
+          this.getConsumer(userId, remoteId, kind) === consumer &&
+          !consumer.closed;
+      });
+    this.consumerPlaybackOperations.set(consumer, operation);
+    try {
+      await operation;
+    } finally {
+      if (this.consumerPlaybackOperations.get(consumer) === operation) {
+        this.consumerPlaybackOperations.delete(consumer);
+      }
+    }
+    return applied;
+  };
+
   public getConsumerById = (userId: number, consumerId: string) => {
     const userConsumers = this.consumers[userId];
 
@@ -629,7 +736,7 @@ class VoiceRuntime {
     };
     if (voiceOnlyMode) {
       this.nonVoiceMediaGenerations.set(userId, ++this.nonVoiceMediaSequence);
-      this.endDirectMediaSessionsForUser(userId, true);
+      this.endDirectMediaSessionsForUser(userId, true, false);
       this.removeProducer(userId, StreamKind.VIDEO);
       this.removeProducer(userId, StreamKind.SCREEN);
       this.removeProducer(userId, StreamKind.SCREEN_AUDIO);
@@ -646,7 +753,10 @@ class VoiceRuntime {
       for (const session of this.directMediaSessions.values()) {
         if (session.senderId !== userId || session.kind !== StreamKind.SCREEN)
           continue;
-        this.endDirectMediaSession(session, 'stop');
+        void this.endDirectMediaSession(session, {
+          type: 'stop',
+          restoreRelay: false
+        });
       }
     }
   };
@@ -712,7 +822,7 @@ class VoiceRuntime {
       this.directMediaMovedMembers.add(userId);
     this.directMediaSubscriptions.delete(userId);
     this.publishDirectMediaCapability(userId, false);
-    this.endDirectMediaSessionsForUser(userId);
+    this.endDirectMediaSessionsForUser(userId, false, false);
   };
 
   private canStartDirectMediaPair = (
@@ -761,13 +871,23 @@ class VoiceRuntime {
       producerId: this.getProducer(kind, senderId)?.id,
       phase: 'pending'
     };
+    if (kind === StreamKind.SCREEN) {
+      this.updateDirectMediaRelayConsumers(
+        session,
+        this.captureDirectMediaRelayConsumers(senderId, peer.userId, kind)
+      );
+    }
     const timeout =
       kind === StreamKind.AUDIO
         ? DIRECT_MEDIA_SERVER_AUDIO_CONNECT_TIMEOUT_MS
         : DIRECT_MEDIA_SERVER_CONNECT_TIMEOUT_MS;
     session.deadline = setTimeout(() => {
       if (this.directMediaSessions.get(session.id) !== session) return;
-      this.endDirectMediaSession(session, 'fallback', true);
+      void this.endDirectMediaSession(session, {
+        type: 'fallback',
+        latchFailure: true,
+        restoreRelay: true
+      });
     }, timeout);
     session.deadline.unref();
     this.directMediaSessions.set(session.id, session);
@@ -780,23 +900,49 @@ class VoiceRuntime {
     };
   };
 
-  public getDirectMediaSession = (sessionId: string, userId: number) => {
+  public getDirectMediaSession = (
+    sessionId: string,
+    userId: number,
+    includeRetiring = false
+  ) => {
     const session = this.directMediaSessions.get(sessionId);
-    return session && (session.senderId === userId || session.peerId === userId)
+    return session &&
+      (includeRetiring || session.phase !== 'retiring') &&
+      (session.senderId === userId || session.peerId === userId)
       ? session
       : undefined;
   };
 
-  public signalDirectMedia = (
+  public signalDirectMedia = async (
     sessionId: string,
     userId: number,
     signal: TDirectMediaSignal
-  ) => {
+  ): Promise<void> => {
     if (
       (signal.type === 'fallback' || signal.type === 'stop') &&
       !this.directMediaSessions.has(sessionId)
     )
       return;
+    const retiring = this.directMediaSessions.get(sessionId);
+    if (
+      (signal.type === 'fallback' || signal.type === 'stop') &&
+      retiring?.phase === 'retiring'
+    ) {
+      const unwatch =
+        signal.type === 'fallback' &&
+        signal.reason === 'unwatch' &&
+        userId === retiring.peerId;
+      if (unwatch) {
+        await this.endDirectMediaSession(retiring, {
+          type: 'fallback',
+          reason: 'unwatch',
+          restoreRelay: false
+        });
+      } else {
+        await retiring.transition;
+      }
+      return;
+    }
     const session = this.getDirectMediaSession(sessionId, userId);
     invariant(session, {
       code: 'NOT_FOUND',
@@ -808,12 +954,12 @@ class VoiceRuntime {
         code: 'FORBIDDEN',
         message: 'Only the receiver can cancel watching'
       });
-      this.endDirectMediaSession(
-        session,
-        signal.type,
-        signal.type === 'fallback' && !unwatch,
-        unwatch ? 'unwatch' : undefined
-      );
+      await this.endDirectMediaSession(session, {
+        type: signal.type,
+        latchFailure: signal.type === 'fallback' && !unwatch,
+        reason: unwatch ? 'unwatch' : undefined,
+        restoreRelay: !unwatch
+      });
       return;
     }
     invariant(config.webRtc.holepunchMediaEnabled && !this.destroyed, {
@@ -848,13 +994,12 @@ class VoiceRuntime {
         code: 'BAD_REQUEST',
         message: 'Unexpected direct screen ready signal'
       });
-      session.phase = 'ready';
-      clearTimeout(session.deadline);
-      session.deadline = undefined;
-      this.closeDirectMediaRelayConsumers(session);
-      this.publishScreenViewers();
+      await this.activateDirectMediaSession(session);
+      const active = this.directMediaSessions.get(session.id);
+      if (active !== session || active.phase !== 'ready') return;
     }
     this.publishRelayDemand(session.senderId);
+    if (signal.type === 'ready') this.publishScreenViewers();
     this.publishDirectMediaSignal(session, userId, signal, [
       userId === session.senderId ? session.peerId : session.senderId
     ]);
@@ -880,68 +1025,255 @@ class VoiceRuntime {
     pubsub.publishFor(recipients, ServerEvents.DIRECT_MEDIA_SIGNAL, event);
   };
 
+  private getDirectMediaRetirement = (
+    session: TDirectMediaRuntimeSession,
+    fallback: TDirectMediaEndOptions
+  ): TDirectMediaEndOptions => {
+    const retirement = session.retirement ?? fallback;
+    if (retirement.type === 'stop') return retirement;
+    if (session.relayIntent === 'paused') {
+      return {
+        type: 'fallback',
+        ...(retirement.latchFailure ? { latchFailure: true } : {}),
+        reason: 'unwatch',
+        restoreRelay: false
+      };
+    }
+    if (session.relayIntent === 'active') {
+      return {
+        type: 'fallback',
+        ...(retirement.latchFailure ? { latchFailure: true } : {}),
+        restoreRelay: true
+      };
+    }
+    return retirement;
+  };
+
+  private discardDirectMediaRelayConsumer = (
+    session: TDirectMediaRuntimeSession,
+    kind: TRelayDemandEvent['kind'],
+    consumer: Consumer<AppData>
+  ): boolean => {
+    const key = this.getConsumerKey(session.senderId, kind);
+    const current = this.consumers[session.peerId]?.[key];
+    if (current && current !== consumer && !current.closed) return false;
+    if (current === consumer) {
+      if (!consumer.closed) consumer.close();
+      if (this.consumers[session.peerId]?.[key] === consumer) {
+        delete this.consumers[session.peerId]?.[key];
+      }
+    }
+    const remaining = this.consumers[session.peerId]?.[key];
+    return !remaining || remaining.closed;
+  };
+
   private endDirectMediaSession = (
     session: TDirectMediaRuntimeSession,
-    type: 'fallback' | 'stop',
-    latchFailure = false,
-    reason?: 'unwatch'
-  ) => {
-    if (this.directMediaSessions.get(session.id) !== session) return;
-    this.directMediaSessions.delete(session.id);
-    this.directMediaOutgoing.delete(
-      this.getDirectMediaOutgoingKey(
-        session.senderId,
-        session.kind,
-        session.peerId
-      )
-    );
+    options: TDirectMediaEndOptions
+  ): Promise<void> => {
+    if (this.directMediaSessions.get(session.id) !== session)
+      return Promise.resolve();
+    if (options.type === 'stop') {
+      session.relayIntent = undefined;
+    } else if (options.reason === 'unwatch') {
+      session.relayIntent = 'paused';
+    }
+    const latchFailure =
+      session.retirement?.latchFailure === true ||
+      options.latchFailure === true;
+    session.retirement = {
+      ...options,
+      ...(latchFailure ? { latchFailure: true } : {})
+    };
+    if (session.phase === 'retiring') {
+      return session.transition ?? Promise.resolve();
+    }
+    const previousTransition = session.transition;
+    session.phase = 'retiring';
     clearTimeout(session.deadline);
-    if (latchFailure) {
-      this.directMediaFailedPairs.add(
+    session.deadline = undefined;
+    const transition = (async () => {
+      if (previousTransition) await previousTransition.catch(() => {});
+      if (
+        this.directMediaSessions.get(session.id) !== session ||
+        session.phase !== 'retiring'
+      ) {
+        return;
+      }
+      const shouldRestoreRelay = () =>
+        this.getDirectMediaRetirement(session, options).restoreRelay &&
+        this.canRestoreDirectMediaRelay(session);
+      const restoreRelay = shouldRestoreRelay();
+      const missingConsumers = new Map<
+        TRelayDemandEvent['kind'],
+        string | undefined
+      >();
+      if (session.kind === StreamKind.SCREEN && restoreRelay) {
+        for (const kind of this.getDirectMediaRelayKinds(session.kind)) {
+          const key = this.getConsumerKey(session.senderId, kind);
+          const current = this.consumers[session.peerId]?.[key];
+          const retained = session.relayConsumers?.find(
+            (entry) => entry.kind === kind
+          )?.consumer;
+          if (!current || current.closed) {
+            missingConsumers.set(
+              kind,
+              current?.id ?? retained?.id ?? session.relayConsumerIds?.get(kind)
+            );
+            continue;
+          }
+          if (current !== retained || !current.paused) continue;
+          try {
+            await current.resume();
+          } catch {
+            if (this.discardDirectMediaRelayConsumer(session, kind, current)) {
+              missingConsumers.set(kind, current.id);
+            }
+            continue;
+          }
+          if (
+            this.directMediaSessions.get(session.id) !== session ||
+            session.phase !== 'retiring'
+          ) {
+            return;
+          }
+          const resumed = this.consumers[session.peerId]?.[key];
+          if (resumed !== current || current.closed) {
+            if (!resumed || resumed.closed) {
+              missingConsumers.set(kind, current.id);
+            }
+            continue;
+          }
+          if (!shouldRestoreRelay()) {
+            try {
+              await current.pause();
+            } catch {
+              if (
+                this.discardDirectMediaRelayConsumer(session, kind, current)
+              ) {
+                missingConsumers.set(kind, current.id);
+              }
+              continue;
+            }
+            if (
+              this.directMediaSessions.get(session.id) !== session ||
+              session.phase !== 'retiring'
+            ) {
+              return;
+            }
+            const paused = this.consumers[session.peerId]?.[key];
+            if (paused !== current || current.closed) {
+              if (!paused || paused.closed) {
+                missingConsumers.set(kind, current.id);
+              }
+            }
+          }
+        }
+      } else if (restoreRelay) {
+        for (const kind of this.getDirectMediaRelayKinds(session.kind)) {
+          const key = this.getConsumerKey(session.senderId, kind);
+          const current = this.consumers[session.peerId]?.[key];
+          if (!current || current.closed) {
+            missingConsumers.set(kind, current?.id);
+          }
+        }
+      }
+      if (
+        this.directMediaSessions.get(session.id) !== session ||
+        session.phase !== 'retiring'
+      ) {
+        return;
+      }
+      this.directMediaSessions.delete(session.id);
+      this.directMediaOutgoing.delete(
         this.getDirectMediaOutgoingKey(
           session.senderId,
           session.kind,
           session.peerId
         )
       );
-    }
-    const signal: TDirectMediaSignal =
-      type === 'fallback' ? { type, ...(reason ? { reason } : {}) } : { type };
-    this.publishDirectMediaSignal(session, session.peerId, signal, [
-      session.senderId
-    ]);
-    this.publishDirectMediaSignal(session, session.senderId, signal, [
-      session.peerId
-    ]);
-    for (const kind of this.getDirectMediaRelayKinds(session.kind)) {
-      if (!this.getProducer(kind, session.senderId)) continue;
-      pubsub.publishFor([session.peerId], ServerEvents.VOICE_NEW_PRODUCER, {
-        channelId: this.id,
-        remoteId: session.senderId,
-        kind
-      });
-    }
-    this.publishRelayDemand(session.senderId);
-    this.publishScreenViewers();
+      const retirement = this.getDirectMediaRetirement(session, options);
+      if (retirement.latchFailure) {
+        this.directMediaFailedPairs.add(
+          this.getDirectMediaOutgoingKey(
+            session.senderId,
+            session.kind,
+            session.peerId
+          )
+        );
+      }
+      if (shouldRestoreRelay()) {
+        for (const kind of this.getDirectMediaRelayKinds(session.kind)) {
+          const current =
+            this.consumers[session.peerId]?.[
+              this.getConsumerKey(session.senderId, kind)
+            ];
+          if (!current || current.closed) {
+            missingConsumers.set(
+              kind,
+              current?.id ??
+                session.relayConsumerIds?.get(kind) ??
+                missingConsumers.get(kind)
+            );
+          }
+        }
+      }
+      const signal: TDirectMediaSignal =
+        retirement.type === 'fallback'
+          ? {
+              type: retirement.type,
+              ...(retirement.reason ? { reason: retirement.reason } : {})
+            }
+          : { type: retirement.type };
+      this.publishDirectMediaSignal(session, session.peerId, signal, [
+        session.senderId
+      ]);
+      this.publishDirectMediaSignal(session, session.senderId, signal, [
+        session.peerId
+      ]);
+      if (shouldRestoreRelay()) {
+        for (const [kind, replaceConsumerId] of missingConsumers) {
+          if (!this.getProducer(kind, session.senderId)) continue;
+          pubsub.publishFor([session.peerId], ServerEvents.VOICE_NEW_PRODUCER, {
+            channelId: this.id,
+            remoteId: session.senderId,
+            kind,
+            ...(replaceConsumerId ? { replaceConsumerId } : {})
+          });
+        }
+      }
+      this.publishRelayDemand(session.senderId);
+      this.publishScreenViewers();
+    })();
+    session.transition = transition;
+    return transition;
   };
 
   private endDirectMediaSessionsForUser = (
     userId: number,
-    nonVoiceOnly = false
+    nonVoiceOnly = false,
+    restoreRelay = true
   ) => {
     for (const session of this.directMediaSessions.values()) {
       if (nonVoiceOnly && session.kind === StreamKind.AUDIO) continue;
       if (session.senderId === userId || session.peerId === userId) {
-        this.endDirectMediaSession(session, 'fallback');
+        void this.endDirectMediaSession(session, {
+          type: 'fallback',
+          restoreRelay
+        });
       }
     }
   };
 
-  private endAllDirectMediaSessions = (type: 'fallback' | 'stop') => {
-    for (const session of this.directMediaSessions.values()) {
-      this.endDirectMediaSession(session, type);
-    }
-  };
+  private endAllDirectMediaSessions = (
+    type: 'fallback' | 'stop',
+    restoreRelay: boolean
+  ) =>
+    Promise.all(
+      [...this.directMediaSessions.values()].map((session) =>
+        this.endDirectMediaSession(session, { type, restoreRelay })
+      )
+    );
 
   private getDirectMediaRelayKinds = (
     kind: TDirectMediaKind
@@ -949,6 +1281,52 @@ class VoiceRuntime {
     kind === StreamKind.SCREEN
       ? [StreamKind.SCREEN, StreamKind.SCREEN_AUDIO]
       : [kind];
+
+  private captureDirectMediaRelayConsumers = (
+    senderId: number,
+    peerId: number,
+    kind: TDirectMediaKind
+  ): readonly TRetainedDirectMediaConsumer[] =>
+    Object.freeze(
+      this.getDirectMediaRelayKinds(kind).flatMap(
+        (relayKind): TRetainedDirectMediaConsumer[] => {
+          const consumer =
+            this.consumers[peerId]?.[this.getConsumerKey(senderId, relayKind)];
+          return consumer && !consumer.closed
+            ? [{ kind: relayKind, consumer }]
+            : [];
+        }
+      )
+    );
+
+  private updateDirectMediaRelayConsumers = (
+    session: TDirectMediaRuntimeSession,
+    consumers: readonly TRetainedDirectMediaConsumer[]
+  ) => {
+    const consumerIds = new Map(session.relayConsumerIds);
+    for (const { kind, consumer } of consumers) {
+      consumerIds.set(kind, consumer.id);
+    }
+    session.relayConsumerIds = consumerIds;
+    session.relayConsumers = consumers;
+  };
+
+  private getDirectMediaRelaySession = (
+    senderId: number,
+    peerId: number,
+    kind: StreamKind
+  ): TDirectMediaRuntimeSession | undefined => {
+    if (kind !== StreamKind.SCREEN && kind !== StreamKind.SCREEN_AUDIO) return;
+    for (const session of this.directMediaSessions.values()) {
+      if (
+        session.kind === StreamKind.SCREEN &&
+        session.senderId === senderId &&
+        session.peerId === peerId
+      ) {
+        return session;
+      }
+    }
+  };
 
   public hasReadyDirectMedia = (
     senderId: number,
@@ -965,6 +1343,155 @@ class VoiceRuntime {
         session.phase === 'ready'
       )
         return true;
+    }
+    return false;
+  };
+
+  private activateDirectMediaSession = async (
+    session: TDirectMediaRuntimeSession
+  ): Promise<void> => {
+    if (session.kind !== StreamKind.SCREEN) {
+      session.phase = 'ready';
+      clearTimeout(session.deadline);
+      session.deadline = undefined;
+      this.closeDirectMediaRelayConsumers(session);
+      return;
+    }
+    session.phase = 'activating';
+    const retained = this.captureDirectMediaRelayConsumers(
+      session.senderId,
+      session.peerId,
+      session.kind
+    );
+    this.updateDirectMediaRelayConsumers(session, retained);
+    const transition = (async () => {
+      try {
+        for (const entry of retained) {
+          if (
+            this.directMediaSessions.get(session.id) !== session ||
+            session.phase !== 'activating'
+          ) {
+            return;
+          }
+          if (!this.hasExactRetainedConsumers(session)) {
+            throw new Error('Direct media relay consumer changed');
+          }
+          await entry.consumer.pause();
+          if (
+            this.directMediaSessions.get(session.id) !== session ||
+            session.phase !== 'activating'
+          ) {
+            return;
+          }
+          if (!this.hasExactRetainedConsumers(session)) {
+            throw new Error('Direct media relay consumer changed');
+          }
+        }
+        if (
+          this.directMediaSessions.get(session.id) !== session ||
+          session.phase !== 'activating'
+        ) {
+          return;
+        }
+        if (!this.hasExactRetainedConsumers(session)) {
+          throw new Error('Direct media relay consumer changed');
+        }
+        session.phase = 'ready';
+        clearTimeout(session.deadline);
+        session.deadline = undefined;
+      } catch (error) {
+        if (
+          this.directMediaSessions.get(session.id) === session &&
+          session.phase === 'activating'
+        ) {
+          for (const entry of retained) {
+            const key = this.getConsumerKey(session.senderId, entry.kind);
+            if (
+              this.consumers[session.peerId]?.[key] !== entry.consumer ||
+              entry.consumer.closed ||
+              !entry.consumer.paused
+            ) {
+              continue;
+            }
+            try {
+              await entry.consumer.resume();
+            } catch {
+              this.discardDirectMediaRelayConsumer(
+                session,
+                entry.kind,
+                entry.consumer
+              );
+              continue;
+            }
+            if (
+              this.directMediaSessions.get(session.id) !== session ||
+              session.phase !== 'activating'
+            ) {
+              return;
+            }
+            if (
+              this.consumers[session.peerId]?.[key] !== entry.consumer ||
+              entry.consumer.closed
+            ) {
+              continue;
+            }
+          }
+          session.phase = 'answered';
+        }
+        throw error;
+      }
+    })();
+    session.transition = transition;
+    try {
+      await transition;
+    } finally {
+      if (session.transition === transition) session.transition = undefined;
+    }
+  };
+
+  private hasExactRetainedConsumers = (
+    session: TDirectMediaRuntimeSession
+  ): boolean =>
+    session.relayConsumers?.every(
+      ({ kind, consumer }) =>
+        !consumer.closed &&
+        this.consumers[session.peerId]?.[
+          this.getConsumerKey(session.senderId, kind)
+        ] === consumer
+    ) ?? true;
+
+  private canRestoreDirectMediaRelay = (
+    session: TDirectMediaRuntimeSession
+  ): boolean =>
+    !this.destroyed &&
+    !!this.getUser(session.senderId) &&
+    !!this.getUser(session.peerId) &&
+    (session.kind === StreamKind.AUDIO ||
+      !this.getUserState(session.peerId).voiceOnlyMode) &&
+    !!this.getProducer(session.kind, session.senderId);
+
+  private isTransitioningDirectMediaConsumer = (
+    senderId: number,
+    peerId: number,
+    kind: StreamKind,
+    consumer: Consumer<AppData>
+  ): boolean => {
+    for (const session of this.directMediaSessions.values()) {
+      if (
+        session.kind !== StreamKind.SCREEN ||
+        session.senderId !== senderId ||
+        session.peerId !== peerId ||
+        (session.phase !== 'activating' && session.phase !== 'retiring')
+      ) {
+        continue;
+      }
+      if (
+        session.relayConsumers?.some(
+          (entry) => entry.kind === kind && entry.consumer === consumer
+        )
+      ) {
+        return true;
+      }
     }
     return false;
   };
@@ -1002,7 +1529,10 @@ class VoiceRuntime {
         session.kind === kind &&
         session.producerId === producerId
       )
-        this.endDirectMediaSession(session, 'stop');
+        void this.endDirectMediaSession(session, {
+          type: 'stop',
+          restoreRelay: false
+        });
     }
   };
 
@@ -1392,19 +1922,65 @@ class VoiceRuntime {
 
     this.consumers[userId][streamKey]?.close();
     this.consumers[userId][streamKey] = consumer;
+    const directSession = this.getDirectMediaRelaySession(
+      remoteId,
+      userId,
+      kind
+    );
+    if (
+      directSession &&
+      (directSession.phase === 'pending' ||
+        directSession.phase === 'offered' ||
+        directSession.phase === 'answered')
+    ) {
+      this.updateDirectMediaRelayConsumers(
+        directSession,
+        this.captureDirectMediaRelayConsumers(
+          remoteId,
+          userId,
+          directSession.kind
+        )
+      );
+    }
 
     consumer.observer.on('close', () => {
       if (this.consumers[userId]?.[streamKey] !== consumer) return;
-
+      const transitioning = this.isTransitioningDirectMediaConsumer(
+        remoteId,
+        userId,
+        kind,
+        consumer
+      );
       delete this.consumers[userId]?.[streamKey];
-      this.publishRelayDemand(remoteId);
-
-      if (kind === StreamKind.SCREEN) {
+      if (!transitioning) this.publishRelayDemand(remoteId);
+      if (kind === StreamKind.SCREEN && !transitioning) {
         this.publishScreenViewers();
       }
     });
-    consumer.observer.on('pause', () => this.publishRelayDemand(remoteId));
-    consumer.observer.on('resume', () => this.publishRelayDemand(remoteId));
+    consumer.observer.on('pause', () => {
+      if (
+        !this.isTransitioningDirectMediaConsumer(
+          remoteId,
+          userId,
+          kind,
+          consumer
+        )
+      ) {
+        this.publishRelayDemand(remoteId);
+      }
+    });
+    consumer.observer.on('resume', () => {
+      if (
+        !this.isTransitioningDirectMediaConsumer(
+          remoteId,
+          userId,
+          kind,
+          consumer
+        )
+      ) {
+        this.publishRelayDemand(remoteId);
+      }
+    });
     this.publishRelayDemand(remoteId);
 
     if (kind === StreamKind.SCREEN) {
