@@ -6,7 +6,7 @@
   [![License](https://img.shields.io/github/license/dodecagon-mesh/dodecagon)](LICENSE)
   [![Last Commit](https://img.shields.io/github/last-commit/dodecagon-mesh/dodecagon)](https://github.com/dodecagon-mesh/dodecagon/commits)
 
-  [![Bun](https://img.shields.io/badge/Bun-v1.4.3-green.svg)](https://bun.sh)
+  [![Bun](https://img.shields.io/badge/Bun-v1.4.4-green.svg)](https://bun.sh)
   [![Mediasoup](https://img.shields.io/badge/Mediasoup-v3.19.19-green.svg)](https://mediasoup.org)
 </div>
 

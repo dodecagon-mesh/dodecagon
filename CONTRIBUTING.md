@@ -172,7 +172,7 @@ This fork has one long-lived branch, `master`. Upstream rules above still apply 
   `package.json`. The workflow fails if the tag already exists, so bump the version in the PR.
 - Before opening a PR: push the branch with `git push -u origin HEAD`, then run
   `bun run signoff`. It runs the build, unit, integration and E2E checks under the pinned
-  Bun 1.4.3 and posts the required `signoff/build` and `signoff/e2e` statuses. Install the
+  Bun 1.4.4 and posts the required `signoff/build` and `signoff/e2e` statuses. Install the
   extension once with `gh extension install basecamp/gh-signoff`. GitHub Actions still runs
   but does not block the merge. Any new commit invalidates the sign-off, so rerun the command.
   Add tests for new behaviour.

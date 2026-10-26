@@ -530,8 +530,8 @@ bun run signoff
 ```
 
 It installs the locked dependencies, runs `verify` (format, lint, typecheck, unit and
-integration tests, server build, bundle test), runs the four E2E shards under Bun 1.4.3,
-then posts `signoff/build` and `signoff/e2e` for the pushed HEAD.
+integration tests, server build, bundle test), runs the four E2E shards, then posts
+`signoff/build` and `signoff/e2e` for the pushed HEAD.
 
 - Any new commit, amend or rebase changes the tested commit and invalidates the statuses.
   Push the rewritten branch with `git push --force-with-lease`, then run `bun run signoff`
@@ -543,8 +543,12 @@ then posts `signoff/build` and `signoff/e2e` for the pushed HEAD.
   use.
 - Do not create the statuses by hand and do not use the ruleset admin bypass unless the user
   explicitly asks for it.
-- Do not run the E2E suite under Bun 1.4.4. The kick and ban tests rely on custom WebSocket
-  close codes that 1.4.4 does not deliver; `bun run signoff` and `bun run test:e2e` use the
-  pinned 1.4.3.
 - If `gh signoff` refuses the commit, check `git status` for uncommitted changes and confirm
   the branch was pushed with `-u`.
+- **WebSocket close codes must be legal.** `DisconnectCode` in
+  `packages/shared/src/statics/index.ts` uses 4001-4004, inside the RFC 6455 private-use range.
+  A code above 4999 makes the close throw on Bun 1.4.4 (`First argument must be a valid error
+  code number`), the frame never leaves, and the client shows a reconnect instead of the kick
+  or ban reason. This was the real cause of the two session E2E failures that were once blamed
+  on the runtime and answered by pinning 1.4.3, so do not re-pin defensively: a failing close
+  is a code problem, and the 4000-4999 range is the contract.
