@@ -41,6 +41,7 @@ import {
   Permission,
   PLUGIN_SDK_VERSION,
   PluginSlot,
+  ServerEvents,
   StreamKind
 } from '@dodecagon/shared';
 import type { IncomingMessage, ServerResponse } from 'http';
@@ -133,46 +134,111 @@ export type TPluginHttpRouteHandler = (
 ) => Promise<unknown> | unknown;
 
 /**
+ * The server's `ServerEvents` list is the source of truth. This record is the
+ * one place the two spellings meet: each server event either has a plugin-facing
+ * name or is explicitly `null` because plugins do not hear about it. Adding a
+ * server event without an entry here fails to typecheck.
+ *
+ * The names on the right are a published ABI, installed plugins listen for
+ * them, so they must never change.
+ */
+export const SERVER_EVENT_TO_PLUGIN_EVENT = {
+  [ServerEvents.NEW_MESSAGE]: 'message:created',
+  [ServerEvents.MESSAGE_UPDATE]: 'message:updated',
+  [ServerEvents.MESSAGE_DELETE]: 'message:deleted',
+  [ServerEvents.MESSAGE_TYPING]: null,
+  [ServerEvents.THREAD_REPLY_COUNT_UPDATE]: null,
+
+  [ServerEvents.USER_JOIN]: 'user:joined',
+  [ServerEvents.USER_LEAVE]: 'user:left',
+
+  [ServerEvents.CHANNEL_CREATE]: 'channel:created',
+  [ServerEvents.CHANNEL_UPDATE]: 'channel:updated',
+  [ServerEvents.CHANNEL_DELETE]: 'channel:deleted',
+  [ServerEvents.CHANNEL_PERMISSIONS_UPDATE]: null,
+  [ServerEvents.CHANNEL_READ_STATES_UPDATE]: null,
+  [ServerEvents.CHANNEL_READ_STATES_DELTA]: null,
+
+  [ServerEvents.USER_JOIN_VOICE]: 'user:joined_voice',
+  [ServerEvents.USER_LEAVE_VOICE]: 'user:left_voice',
+  [ServerEvents.USER_VOICE_STATE_UPDATE]: null,
+  [ServerEvents.USER_VOICE_MOVED]: null,
+  [ServerEvents.USER_VOICE_REACTION]: null,
+
+  [ServerEvents.VOICE_ADD_EXTERNAL_STREAM]: null,
+  [ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM]: null,
+  [ServerEvents.VOICE_REMOVE_EXTERNAL_STREAM]: null,
+  [ServerEvents.VOICE_NEW_PRODUCER]: 'voice:producer_added',
+  [ServerEvents.VOICE_PRODUCER_CLOSED]: 'voice:producer_removed',
+  [ServerEvents.VOICE_SCREEN_CONSUMER_STARTED]: null,
+  [ServerEvents.VOICE_SCREEN_VIEWERS_CHANGED]: null,
+  [ServerEvents.VOICE_RELAY_DEMAND]: null,
+  [ServerEvents.DIRECT_MEDIA_SIGNAL]: null,
+
+  [ServerEvents.EMOJI_CREATE]: null,
+  [ServerEvents.EMOJI_UPDATE]: null,
+  [ServerEvents.EMOJI_DELETE]: null,
+
+  [ServerEvents.ROLE_CREATE]: 'role:created',
+  [ServerEvents.ROLE_UPDATE]: 'role:updated',
+  [ServerEvents.ROLE_DELETE]: 'role:deleted',
+
+  [ServerEvents.USER_CREATE]: 'user:created',
+  [ServerEvents.USER_UPDATE]: 'user:updated',
+  [ServerEvents.USER_DELETE]: 'user:deleted',
+
+  [ServerEvents.SERVER_SETTINGS_UPDATE]: null,
+  [ServerEvents.SERVER_UPDATE_STATE]: null,
+
+  [ServerEvents.PLUGIN_LOG]: null,
+  [ServerEvents.PLUGIN_COMMANDS_CHANGE]: null,
+  [ServerEvents.PLUGIN_COMPONENTS_CHANGE]: null,
+  [ServerEvents.PLUGIN_CAPABILITY_ACCESS_CHANGE]: null,
+  [ServerEvents.PLUGIN_METADATA_CHANGE]: null,
+  [ServerEvents.PLUGIN_PUSH]: null,
+
+  [ServerEvents.CATEGORY_CREATE]: 'category:created',
+  [ServerEvents.CATEGORY_UPDATE]: 'category:updated',
+  [ServerEvents.CATEGORY_DELETE]: 'category:deleted',
+
+  [ServerEvents.DM_CONVERSATION_OPEN]: null
+} as const satisfies Record<ServerEvents, string | null>;
+
+// Events the server emits to plugins without a matching realtime event, so
+// there is no `ServerEvents` member to derive them from.
+export const PLUGIN_ONLY_EVENTS = [
+  'voice:runtime_initialized',
+  'voice:runtime_closed',
+  'setting:set',
+  'reaction:added',
+  'reaction:removed',
+  'message:pinned',
+  'message:unpinned',
+  'user:banned',
+  'user:unbanned',
+  'user:kicked',
+  'role:assigned',
+  'role:removed'
+] as const;
+
+type TMappedPluginEvent = Exclude<
+  (typeof SERVER_EVENT_TO_PLUGIN_EVENT)[ServerEvents],
+  null
+>;
+
+/**
  * Everything a plugin can listen to with `ctx.events.on`. Each name's payload
  * is in `EventPayloads`, so the handler argument is typed from the name.
  */
 export type ServerEvent =
-  | 'user:joined'
-  | 'user:left'
-  | 'user:joined_voice'
-  | 'user:left_voice'
-  | 'message:created'
-  | 'message:updated'
-  | 'message:deleted'
-  | 'voice:runtime_initialized'
-  | 'voice:runtime_closed'
-  | 'voice:producer_added'
-  | 'voice:producer_removed'
-  | 'setting:set'
-  | 'reaction:added'
-  | 'reaction:removed'
-  | 'message:pinned'
-  | 'message:unpinned'
-  | 'user:banned'
-  | 'user:unbanned'
-  | 'user:kicked'
-  | 'user:created'
-  | 'user:deleted'
-  | 'role:assigned'
-  | 'role:removed'
-  | 'channel:created'
-  | 'channel:updated'
-  | 'channel:deleted'
-  | 'category:created'
-  | 'category:updated'
-  | 'category:deleted'
-  | 'role:created'
-  | 'role:updated'
-  | 'role:deleted'
-  | 'user:updated';
+  TMappedPluginEvent | (typeof PLUGIN_ONLY_EVENTS)[number];
 
-/** What each event hands its handler. */
-export interface EventPayloads {
+/**
+ * What each event hands its handler. The server keeps its own payload map in
+ * shared; for the events both sides see this is the narrower plugin ABI shape,
+ * so the event bus hands plugins exactly these fields.
+ */
+interface TEventPayloadMap {
   'user:joined': {
     userId: number;
     username: string;
@@ -336,6 +402,17 @@ export interface EventPayloads {
     value: unknown;
   };
 }
+
+type TUncoveredPluginEvents = Exclude<ServerEvent, keyof TEventPayloadMap>;
+
+// a plugin event without a payload would reach its handler as `never`; the
+// constraint fails the build at the declaration instead of at the plugin
+type TAssertNever<T extends never> = T;
+
+/** What each event hands its handler. */
+export type EventPayloads = TEventPayloadMap & {
+  [E in TAssertNever<TUncoveredPluginEvents>]: never;
+};
 
 // this API is probably going to change a lot in the future
 // so consider it as experimental for now
