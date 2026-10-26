@@ -9,14 +9,13 @@ import {
   LocalStorageKey,
   setLocalStorageItemBool
 } from '@/helpers/storage';
-import type { TDevices, TMessageJumpToTarget } from '@/types';
+import type { TMessageJumpToTarget } from '@/types';
 import { castDraft, produce } from 'immer';
 
 export interface TAppState {
   appLoading: boolean;
   isAutoConnecting: boolean;
   loadingPlugins: boolean;
-  devices: TDevices | undefined;
   modViewOpen: boolean;
   modViewUserId: number | undefined;
   threadSidebarOpen: boolean;
@@ -46,7 +45,6 @@ const initialState: TAppState = {
   appLoading: true,
   isAutoConnecting: false,
   loadingPlugins: true,
-  devices: undefined,
   modViewOpen: false,
   modViewUserId: undefined,
   threadSidebarOpen: false,
@@ -174,8 +172,6 @@ export const hydrateAppFromStorage = (): {
 const appSliceActions = {
   setAppLoading: (payload: boolean) =>
     ({ type: 'app/setAppLoading', payload }) as const,
-  setDevices: (payload: TDevices) =>
-    ({ type: 'app/setDevices', payload }) as const,
   setLoadingPlugins: (payload: boolean) =>
     ({ type: 'app/setLoadingPlugins', payload }) as const,
   setModViewOpen: (payload: { modViewOpen: boolean; userId?: number }) =>
@@ -262,9 +258,6 @@ const appSliceReducer = (state: TAppState, action: TAppAction): TAppState =>
       }
       case 'app/setAppLoading':
         draft.appLoading = action.payload;
-        break;
-      case 'app/setDevices':
-        draft.devices = action.payload;
         break;
       case 'app/setLoadingPlugins':
         draft.loadingPlugins = action.payload;
