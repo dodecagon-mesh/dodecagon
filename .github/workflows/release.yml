@@ -88,12 +88,23 @@ jobs:
             org.opencontainers.image.version=${{ steps.get_version.outputs.version }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
+      # the tag is pushed before the release so the release attaches to an
+      # annotated tag it did not have to create, and so publishing never leaves
+      # an artifact-less tag behind on its own
+      - name: Create and push Git tag
+        run: |
+          TAG="v${{ steps.get_version.outputs.version }}"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.get_version.outputs.version }}
           name: v${{ steps.get_version.outputs.version }}
-          draft: true
+          # a published release, not a draft: a merge is the only manual step
+          make_latest: true
+          generate_release_notes: true
           files: |
             apps/server/build/out/dodecagon-linux-x64
             apps/server/build/out/dodecagon-linux-arm64
@@ -101,15 +112,7 @@ jobs:
             apps/server/build/out/dodecagon-macos-arm64
             apps/server/build/out/release.json
           body: |
-            ## Changes
-            (TODO)
-
             ## Docker Image
             ```bash
             docker pull ${{ steps.get_image.outputs.name }}:v${{ steps.get_version.outputs.version }}
             ```
-      - name: Create and push Git tag
-        run: |
-          TAG="v${{ steps.get_version.outputs.version }}"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin "$TAG"
