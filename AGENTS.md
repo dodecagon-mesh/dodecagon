@@ -450,8 +450,53 @@ Every new behaviour needs tests and the whole suite must pass, see [Testing](#te
 
 - Work on a branch `agent/<task>` from `master`. Never push to `master` directly; open a PR
   into `master`.
-- Before reporting done, run and report: `bun run format:check`, `bun run check-types`,
-  `bun run lint`, `bun run test`. Report any gate you could not run.
-- Do not bump the version unless the task is a release. Releases run on merge to `master`.
+- `master` merges are gated by the `signoff` ruleset, not by GitHub Actions. Run
+  `bun run signoff` on the pushed branch and report its result; GitHub Actions still runs as
+  an advisory signal.
+- Do not bump the version unless the task is a release. Releases run on merge to `master`;
+  without a bump the Release run stops at the existing-tag check and publishes nothing.
 - Visual tests (`bun run test:visual` in `apps/client`) need the Paper design as reference
   for UI changes; see the sharkord-paper-ui-verification skill.
+
+### Local sign-off (merge gate)
+
+`master` requires the status contexts `signoff/build` and `signoff/e2e`. They are produced
+locally by `basecamp/gh-signoff`; the GitHub Actions checks `Build & Test` and
+`Run E2E Tests` stay visible but do not block a merge.
+
+One-time setup on the machine:
+
+```bash
+gh extension install basecamp/gh-signoff
+```
+
+Before the first sign-off, push the branch with its upstream. `gh signoff` refuses a dirty
+tree and a HEAD that is not contained in the branch's push target, and a branch created from
+`origin/master` without `-u` does not have one:
+
+```bash
+git push -u origin HEAD
+```
+
+After the final commit and push, run the single gate command:
+
+```bash
+bun run signoff
+```
+
+It installs the locked dependencies, runs `verify` (format, lint, typecheck, unit and
+integration tests, server build, bundle test), runs the four E2E shards under Bun 1.4.3,
+then posts `signoff/build` and `signoff/e2e` for the pushed HEAD.
+
+- Any new commit, amend or rebase changes the tested commit and invalidates the statuses.
+  Run `bun run signoff` again.
+- `gh signoff status` lists the contexts. `gh signoff check build e2e` checks the
+  requirement. Without arguments `gh signoff check` looks for the bare `signoff` context,
+  which this repository does not use.
+- Do not create the statuses by hand and do not use the ruleset admin bypass unless the user
+  explicitly asks for it.
+- Do not run the E2E suite under Bun 1.4.4. The kick and ban tests rely on custom WebSocket
+  close codes that 1.4.4 does not deliver; `bun run signoff` and `bun run test:e2e` use the
+  pinned 1.4.3.
+- If `gh signoff` refuses the commit, check `git status` for uncommitted changes and confirm
+  the branch was pushed with `-u`.

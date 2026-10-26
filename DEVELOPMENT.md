@@ -158,6 +158,10 @@ bun run test
 
 (if you only run `bun test` it's gonna fail, you NEED to run `bun run test`)
 
+For the full local gate (format, lint, typecheck, tests, build and the four E2E shards),
+run `bun run signoff`. See [AGENTS.md](AGENTS.md) for the one-time `gh-signoff` setup and the
+pushed-branch requirement.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
