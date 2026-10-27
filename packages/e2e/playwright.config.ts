@@ -2,8 +2,11 @@ import { defineConfig, devices } from '@playwright/test';
 import clientPackage from '../../apps/client/package.json' with { type: 'json' };
 import { e2eDataPath } from './tests/statics';
 
-const SERVER_PORT = 4991;
-const CLIENT_PORT = 5173;
+// a dev server of the project can already hold the default ports, so the suite
+// takes the ports from the environment and keeps the defaults for CI
+const SERVER_PORT = Number(process.env.DOD_E2E_SERVER_PORT ?? 4991);
+const CLIENT_PORT = Number(process.env.DOD_E2E_CLIENT_PORT ?? 5173);
+const WEBRTC_PORT = Number(process.env.DOD_E2E_WEBRTC_PORT ?? 40000);
 
 export default defineConfig({
   testDir: './tests',
@@ -39,17 +42,20 @@ export default defineConfig({
       stderr: 'ignore',
       env: {
         DODECAGON_BUILD_VERSION: clientPackage.version,
-        DODECAGON_DATA_PATH: e2eDataPath
+        DODECAGON_DATA_PATH: e2eDataPath,
+        DODECAGON_PORT: String(SERVER_PORT),
+        DODECAGON_WEBRTC_PORT: String(WEBRTC_PORT)
       }
     },
     {
-      command: 'bun dev',
+      command: `bun dev --port ${CLIENT_PORT} --strictPort`,
       cwd: '../../apps/client',
       port: CLIENT_PORT,
       stderr: 'ignore',
       stdout: 'ignore',
       reuseExistingServer: false,
-      timeout: 15_000
+      timeout: 15_000,
+      env: { SERVER_PORT: String(SERVER_PORT) }
     }
   ]
 });
