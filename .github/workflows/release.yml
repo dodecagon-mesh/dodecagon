@@ -59,6 +59,10 @@ jobs:
         uses: ./.github/actions/build-dodecagon
         with:
           bump: none
+          # a sentry dsn is public by design: the browser needs it to report
+          # before anyone signs in, so it is a repository variable, not a secret
+          sentry_client_dsn: ${{ vars.SENTRY_CLIENT_DSN || secrets.SENTRY_CLIENT_DSN }}
+          sentry_environment: production
 
       - name: Get new version
         id: get_version

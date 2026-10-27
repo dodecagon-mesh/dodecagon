@@ -1,7 +1,7 @@
 import { Dialog } from '@/components/dialogs/dialogs';
 import { logDebug } from '@/helpers/browser-logger';
 import { getHostFromServer } from '@/helpers/get-file-url';
-import { initSentry } from '@/helpers/sentry';
+import { initAppSentry } from '@/helpers/sentry';
 import { playSound } from '@/helpers/sounds';
 import {
   getLocalStorageItem,
@@ -42,8 +42,6 @@ import { SoundType, type TDisconnectInfo } from './types';
 
 let unsubscribeFromServer: (() => void) | null = null;
 let reconnectGeneration = 0;
-const compiledSentryDsn =
-  typeof VITE_SENTRY_DSN === 'undefined' ? undefined : VITE_SENTRY_DSN;
 
 export const setServerUpdateState = (state: TServerUpdateState) => {
   store.dispatch(serverSliceActions.setUpdateState(state));
@@ -78,7 +76,7 @@ export const setPublicServerSettings = (
   settings: TPublicServerSettings | undefined
 ) => {
   store.dispatch(serverSliceActions.setPublicSettings(settings));
-  initSentry(settings?.sentryDsn ?? compiledSentryDsn);
+  initAppSentry(settings?.sentryDsn);
 };
 
 export const setInfo = (info: TServerInfo | undefined) => {
@@ -152,7 +150,7 @@ export const joinServer = async (handshakeHash: string, password?: string) => {
   assertCurrentConnection(generation);
 
   store.dispatch(serverSliceActions.setInitialData(data));
-  initSentry(data.publicSettings?.sentryDsn ?? compiledSentryDsn);
+  initAppSentry(data.publicSettings?.sentryDsn);
   unsubscribeFromServer = initSubscriptions();
 
   setPluginCommands(data.commands);

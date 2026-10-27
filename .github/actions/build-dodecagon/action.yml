@@ -10,6 +10,14 @@ inputs:
     description: Version bump mode (none, patch, minor, major)
     required: false
     default: none
+  sentry_client_dsn:
+    description: DSN of the client error project, baked into the browser bundle
+    required: false
+    default: ''
+  sentry_environment:
+    description: Environment label of the baked browser bundle and the server
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -25,6 +33,9 @@ runs:
 
     - name: Build app
       shell: bash
+      env:
+        SENTRY_CLIENT_DSN: ${{ inputs.sentry_client_dsn }}
+        SENTRY_ENVIRONMENT: ${{ inputs.sentry_environment }}
       run: |
         cd apps/server
         bun run build --bump "${{ inputs.bump }}"
