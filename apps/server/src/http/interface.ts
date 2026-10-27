@@ -56,7 +56,9 @@ const CONTENT_SECURITY_POLICY = [
   "img-src 'self' data: blob: https:",
   "media-src 'self' blob:",
   "font-src 'self' data:",
-  "connect-src 'self' ws: wss: https://raw.githubusercontent.com",
+  // the marketplace registry now comes from this server, so no third party host
+  // belongs in connect-src
+  "connect-src 'self' ws: wss:",
   "worker-src 'self' blob:",
   "frame-ancestors 'none'",
   "base-uri 'self'",

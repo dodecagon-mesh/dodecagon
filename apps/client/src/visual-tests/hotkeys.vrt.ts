@@ -1,4 +1,5 @@
 import { Dialog } from '@/components/dialogs/dialogs';
+import { ServerScreen } from '@/components/server-screens/screens';
 import { resetAllShortcutBindings } from '@/features/app/actions';
 import { closeOverlay, openOverlay } from '@/features/overlays/actions';
 import { overlaySelector } from '@/features/overlays/selectors';
@@ -393,6 +394,11 @@ test('removing a shortcut disables its action and restoring the default makes it
 
 test('recording rejects conflicts and debug keys without executing voice or debug actions', async () => {
   await openKeybindings();
+  const settings = overlaySelector(store.getState());
+  expect(settings).toMatchObject({
+    kind: 'serverScreen',
+    name: ServerScreen.USER_SETTINGS
+  });
   await page
     .getByRole('button', {
       name: 'Record shortcut for Toggle microphone',
@@ -405,7 +411,13 @@ test('recording rejects conflicts and debug keys without executing voice or debu
   for (const code of ['F4', 'F5', 'F9']) {
     const event = dispatchKey({ code, key: code });
     expect(event.defaultPrevented).toBe(true);
-    expect(overlaySelector(store.getState())).toBeUndefined();
+    expect(overlaySelector(store.getState())).toBe(settings);
+    expect(voiceState()).toMatchObject({ micMuted: false, soundMuted: false });
+    await expect
+      .element(
+        page.getByRole('heading', { name: 'User Settings', exact: true })
+      )
+      .toBeVisible();
   }
   await expect.element(page.getByRole('alert')).toBeVisible();
   dispatchKey({

@@ -1,6 +1,7 @@
 import {
   clearVoiceDebugEvents,
   collectVoiceDebugSnapshot,
+  createVoiceDebugReport,
   getVoiceDebugEvents,
   type TVoiceDebugEvent,
   type TVoiceDebugSnapshot
@@ -68,7 +69,7 @@ const VoiceDebugDialog = memo(({ isOpen, close }: TDialogBaseProps) => {
   }, [isOpen, paused]);
 
   const json = useMemo(
-    () => JSON.stringify({ snapshot, events }, null, 2),
+    () => createVoiceDebugReport(snapshot, events),
     [snapshot, events]
   );
 

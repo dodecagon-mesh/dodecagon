@@ -1,10 +1,10 @@
 import {
   ChannelPermission,
   ServerEvents,
-  type StreamKind,
   type TDirectMediaEvent,
   type TRelayDemandEvent,
-  type TScreenViewersSnapshot
+  type TScreenViewersSnapshot,
+  type TServerEventPayloads
 } from '@dodecagon/shared';
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
@@ -17,15 +17,11 @@ import {
   rateLimitedProcedure
 } from '../../utils/trpc';
 
-type TVoiceProducerEvent = {
-  channelId: number;
-  remoteId: number;
-  kind: StreamKind;
-};
+type TVoiceProducerEvent =
+  TServerEventPayloads[ServerEvents.VOICE_NEW_PRODUCER];
 
-type TVoiceProducerClosedEvent = TVoiceProducerEvent & {
-  producerId: string;
-};
+type TVoiceProducerClosedEvent =
+  TServerEventPayloads[ServerEvents.VOICE_PRODUCER_CLOSED];
 
 type TScreenConsumerStartedEvent = {
   channelId: number;

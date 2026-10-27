@@ -28,10 +28,15 @@ const pauseConsumerRoute = protectedProcedure
       message: 'Consumer not found'
     });
 
-    if (consumer.paused) return;
-
-    await consumer.pause();
+    const applied = await runtime.applyConsumerPlaybackState(
+      ctx.user.id,
+      input.remoteId,
+      input.kind,
+      consumer,
+      'paused'
+    );
     assertCurrent();
+    if (!applied) return;
 
     if (input.kind === StreamKind.SCREEN) {
       runtime.publishScreenViewers();

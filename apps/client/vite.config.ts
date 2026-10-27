@@ -56,7 +56,9 @@ export default defineConfig(({ command, mode }) => {
         '/manifest.json': `http://localhost:${env.SERVER_PORT || 4991}`,
         // sanitizing rewrites message image urls to same-origin paths, which in dev is
         // this vite server rather than the one holding the files
-        '/public': `http://localhost:${env.SERVER_PORT || 4991}`
+        '/public': `http://localhost:${env.SERVER_PORT || 4991}`,
+        // the marketplace registry is fetched from the server, not from a third party
+        '/plugins/registry': `http://localhost:${env.SERVER_PORT || 4991}`
       }
     }
   };

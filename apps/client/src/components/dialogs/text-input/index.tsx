@@ -11,7 +11,7 @@ import {
   Input
 } from '@dodecagon/ui';
 import { CheckIcon } from '@heroicons/react/24/outline';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useState, type ComponentProps } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TDialogBaseProps } from '../types';
 
@@ -27,6 +27,7 @@ type TTextInputDialogProps = TDialogBaseProps & {
   allowEmpty?: boolean;
   isModalOpen: boolean;
   type?: 'text' | 'password';
+  finalFocus?: React.RefObject<HTMLElement | null>;
 };
 
 const TextInputDialog = memo(
@@ -42,7 +43,8 @@ const TextInputDialog = memo(
     confirmLabel,
     cancelLabel,
     allowEmpty,
-    type
+    type,
+    finalFocus
   }: TTextInputDialogProps) => {
     const { t } = useTranslation('dialogs');
     const [value, setValue] = useState<string | undefined>(undefined);
@@ -56,11 +58,23 @@ const TextInputDialog = memo(
       close();
     }, [onCancel, close]);
 
+    const onOpenChange = useCallback<
+      NonNullable<ComponentProps<typeof AlertDialog>['onOpenChange']>
+    >(
+      (open, eventDetails) => {
+        if (!open && eventDetails.reason === 'escape-key') onCancelClick();
+      },
+      [onCancelClick]
+    );
+
     const fieldLabel = label ?? t('textInputLabel');
 
     return (
-      <AlertDialog open={isOpen}>
-        <AlertDialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0">
+      <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
+        <AlertDialogContent
+          finalFocus={finalFocus}
+          className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0"
+        >
           <AlertDialogHeader className="shrink-0 gap-1.5 px-6 pt-6 pb-5">
             <AlertDialogTitle className="text-[20px] leading-7 font-bold tracking-[-0.025em]">
               {title}

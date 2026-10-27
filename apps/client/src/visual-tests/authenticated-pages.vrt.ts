@@ -35,11 +35,7 @@ import {
 import { store } from '@/features/store';
 import { clearVoiceDebugEvents } from '@/helpers/voice-debug';
 import * as trpc from '@/lib/trpc';
-import {
-  MARKETPLACE_REGISTRY_URL,
-  TestId,
-  type TFile
-} from '@dodecagon/shared';
+import { TestId, type TFile } from '@dodecagon/shared';
 import { toast } from 'sonner';
 import {
   afterAll,
@@ -60,8 +56,10 @@ const addRoot = (id: string) => {
   document.body.append(element);
 };
 
-const snapshot = (name: string) =>
-  expect(page).toMatchScreenshot(name, { timeout: 3_000 });
+const snapshot = async (name: string) => {
+  await document.fonts.ready;
+  await expect(page).toMatchScreenshot(name, { timeout: 3_000 });
+};
 
 const messageAuthor = (name: string) => {
   const container = document.querySelector('[data-messages-container]')!;
@@ -193,7 +191,7 @@ const marketplaceEntries = [
 const nativeFetch = window.fetch.bind(window);
 const visualFetch = (input: RequestInfo | URL, init?: RequestInit) => {
   const url = input instanceof Request ? input.url : String(input);
-  if (url === MARKETPLACE_REGISTRY_URL) {
+  if (url.endsWith('/plugins/registry')) {
     return Promise.resolve(Response.json(marketplaceEntries));
   }
 
@@ -248,6 +246,12 @@ beforeEach(async () => {
 afterEach(async () => {
   closeOverlay();
   toast.dismiss();
+
+  const directChannels = document.querySelector<HTMLButtonElement>(
+    'button[aria-label="Direct Channels"][aria-expanded="true"]'
+  );
+  directChannels?.click();
+
   for (let attempt = 0; attempt < 20; attempt++) {
     await waitForRender();
     if (!document.querySelector('[data-sonner-toast]')) break;
@@ -1209,6 +1213,9 @@ test('profile settings edit a live preview that matches the user popover', async
     const previewBannerImage = banner.querySelector('img');
     expect(previewBannerImage).toBeNull();
 
+    const bioInput = preview.getByRole('textbox', { name: 'Bio' });
+    await bioInput.fill('A live preview');
+
     const nameButton = preview.getByRole('button', { name: /Edit name/ });
     await nameButton.click();
     const nameDialog = page.getByRole('alertdialog');
@@ -1223,10 +1230,13 @@ test('profile settings edit a live preview that matches the user popover', async
       .element(nameButton)
       .toHaveAccessibleName('Preview name Edit name');
 
-    // the bio is a plain field in the preview, it saves itself
-    const bioInput = preview.getByRole('textbox', { name: 'Bio' });
-    await bioInput.fill('A live preview');
     await expect.element(bioInput).toHaveValue('A live preview');
+    expect(banner.querySelector('img')).toBeNull();
+    expect(getComputedStyle(banner).backgroundColor).toBe('rgb(171, 205, 239)');
+    await bioInput.fill('The profile bio is still editable');
+    await expect
+      .element(bioInput)
+      .toHaveValue('The profile bio is still editable');
 
     closeOverlay();
     updateUser(ownUser.id, { banner: originalBanner });
@@ -1347,8 +1357,11 @@ test('saved profile edits stay synchronized with the user popover', async () => 
       exact: true
     });
     await saveNameButton.click();
+    await expect.element(preview).toBeVisible();
+    await expect
+      .element(nameButton)
+      .toHaveAccessibleName('Profile sync test Edit name');
 
-    // the bio is a plain field in the preview, it saves itself
     const bioInput = preview.getByRole('textbox', { name: 'Bio' });
     await bioInput.fill('Profile sync bio');
 
@@ -1641,6 +1654,7 @@ test('theme settings keep the approved layout and remain usable on a narrow view
     .element(page.getByRole('button', { name: 'Preview Ryūko', exact: true }))
     .toBeVisible();
   await userEvent.unhover(document.body);
+  await document.fonts.ready;
   await expect(page.elementLocator(document.documentElement)).toMatchScreenshot(
     'theme-settings',
     { timeout: 3_000 }

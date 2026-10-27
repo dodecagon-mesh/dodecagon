@@ -17,64 +17,41 @@ const PUBLIC_IP_TIMEOUT_MS = 3000;
 const fetchWithTimeout = async (url: string): Promise<Response> =>
   fetch(url, { signal: AbortSignal.timeout(PUBLIC_IP_TIMEOUT_MS) });
 
-const getPublicIpFromIpify = async (): Promise<string | undefined> => {
+// providers answer either a bare address or a json body with an `ip` field, and
+// the configured list decides which hosts get asked and in what order
+const readPublicIp = async (url: string): Promise<string | undefined> => {
   try {
-    const response = await fetchWithTimeout(
-      'https://api.ipify.org?format=json'
-    );
-    const data = (await response.json()) as {
-      ip: string;
-    };
+    const response = await fetchWithTimeout(url);
+    const body = (await response.text()).trim();
 
-    return data.ip;
+    if (!body) return undefined;
+
+    if (body.startsWith('{')) {
+      const data = JSON.parse(body) as { ip?: unknown };
+
+      return typeof data.ip === 'string' ? data.ip : undefined;
+    }
+
+    return body;
   } catch {
     return undefined;
   }
 };
 
-// fallback since it can return ipv6 sometimes
-const getPublicIpFromIfconfig = async (): Promise<string | undefined> => {
-  try {
-    const response = await fetchWithTimeout('https://ifconfig.me/ip');
-    const ip = (await response.text()).trim();
+const getPublicIp = async (echoUrls: readonly string[]) => {
+  for (const url of echoUrls) {
+    const ip = await readPublicIp(url);
 
-    return ip;
-  } catch {
-    return undefined;
-  }
-};
-
-const getPublicIpFromIcanhazip = async (): Promise<string | undefined> => {
-  try {
-    const response = await fetchWithTimeout('https://ipv4.icanhazip.com');
-    const ip = (await response.text()).trim();
-
-    return ip;
-  } catch {
-    return undefined;
-  }
-};
-
-const getPublicIp = async () => {
-  let ip = await getPublicIpFromIcanhazip();
-
-  if (!ip) {
-    ip = await getPublicIpFromIpify();
+    if (ip) return ip;
   }
 
-  if (!ip) {
-    ip = await getPublicIpFromIfconfig();
-  }
+  // logger imports config, which imports this file, so console keeps the
+  // boot path free of a circular import
+  console.warn(
+    'Could not determine the public IP address from any provider. Set webRtc.announcedAddress in config.ini if voice does not work.'
+  );
 
-  if (!ip) {
-    // logger imports config, which imports this file, so console keeps the
-    // boot path free of a circular import
-    console.warn(
-      'Could not determine the public IP address from any provider. Set webRtc.announcedAddress in config.ini if voice does not work.'
-    );
-  }
-
-  return ip;
+  return undefined;
 };
 
 // the single answer to "is this a routable public address". an allowlist of one range

@@ -31,6 +31,7 @@ import { oidcCallbackRouteHandler } from './oidc/callback';
 import { oidcExchangeRouteHandler } from './oidc/exchange';
 import { oidcLoginRouteHandler } from './oidc/login';
 import { pluginBundleRouteHandler } from './plugin-bundle';
+import { pluginRegistryRouteHandler } from './plugin-registry';
 import { runPluginRoute } from './plugin-route';
 import { pluginsComponentsRouteHandler } from './plugins-components';
 import { publicRouteHandler } from './public';
@@ -112,7 +113,10 @@ const routeHandlers: Partial<
       '/info': infoRouteHandler,
       '/manifest.json': manifestRouteHandler,
       '/oidc/login': oidcLoginRouteHandler,
-      '/oidc/callback': oidcCallbackRouteHandler
+      '/oidc/callback': oidcCallbackRouteHandler,
+      // exact match so it wins over the plugin route parser, which would read
+      // `registry` as a plugin id
+      '/plugins/registry': pluginRegistryRouteHandler
     },
     prefix: {
       '/public': publicRouteHandler,

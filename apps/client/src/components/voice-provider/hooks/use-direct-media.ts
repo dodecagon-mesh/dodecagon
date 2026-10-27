@@ -6,7 +6,11 @@ import {
   type TProducibleStreamKind
 } from '@dodecagon/shared';
 import { useEffect, useMemo, useRef, type MutableRefObject } from 'react';
-import { DirectMedia } from '../direct-media';
+import {
+  DirectMedia,
+  type TDirectScreenBundle,
+  type TDirectScreenRetirement
+} from '../direct-media';
 import { getHolepunchMedia } from '../holepunch-media';
 
 type TDirectMediaParams = {
@@ -26,6 +30,19 @@ type TDirectMediaParams = {
     kind: TProducibleStreamKind,
     expectedStream?: MediaStream
   ) => void;
+  prepareDirectScreenBundle: (
+    userId: number,
+    bundle: TDirectScreenBundle
+  ) => Promise<void>;
+  presentDirectScreenBundle: (
+    userId: number,
+    bundle: TDirectScreenBundle
+  ) => boolean;
+  retireDirectScreenBundle: (
+    userId: number,
+    bundle: TDirectScreenBundle,
+    retirement: TDirectScreenRetirement
+  ) => void;
 };
 
 type TReadyWaiter = (error?: unknown) => void;
@@ -38,7 +55,10 @@ const useDirectMedia = ({
   canConsumeScreen,
   onRemoteDemoStoppedRef,
   addRemoteUserStream,
-  removeRemoteUserStream
+  removeRemoteUserStream,
+  prepareDirectScreenBundle,
+  presentDirectScreenBundle,
+  retireDirectScreenBundle
 }: TDirectMediaParams) => {
   const nativeEnabled = enabled && !!getHolepunchMedia();
   const enabledRef = useRef(nativeEnabled);
@@ -110,6 +130,9 @@ const useDirectMedia = ({
           addRemoteUserStream(userId, stream, streamKind);
         },
         onRemoveStream: removeRemoteUserStream,
+        prepareScreenBundle: prepareDirectScreenBundle,
+        presentScreenBundle: presentDirectScreenBundle,
+        retireScreenBundle: retireDirectScreenBundle,
         onStatus: (status) =>
           logVoice('direct media: path changed', {
             kind,
@@ -128,6 +151,9 @@ const useDirectMedia = ({
   }, [
     addRemoteUserStream,
     removeRemoteUserStream,
+    prepareDirectScreenBundle,
+    presentDirectScreenBundle,
+    retireDirectScreenBundle,
     canConsumeScreen,
     onRemoteDemoStoppedRef
   ]);
@@ -165,7 +191,9 @@ const useDirectMedia = ({
           subscribed.current = false;
           readyWaiters.current.forEach((finish) => finish(error));
           const coordinators = Object.values(directMedia);
-          coordinators.forEach((coordinator) => coordinator.close());
+          coordinators.forEach((coordinator) =>
+            coordinator.close({ restoreRelay: true })
+          );
           logVoiceError('direct media: subscription failed', error);
         }
       }

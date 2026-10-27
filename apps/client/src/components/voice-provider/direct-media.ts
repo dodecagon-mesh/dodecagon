@@ -1,3 +1,13 @@
+import {
+  beginP2PDiagnostic,
+  finishP2PDiagnostic,
+  markP2PPhase,
+  reportP2PDiagnostic,
+  setP2PSession,
+  type TP2PKind,
+  type TP2POutcome,
+  type TP2PReason
+} from '@/helpers/p2p-diagnostics';
 import type {
   TDirectMediaKind,
   TProducibleStreamKind
@@ -27,6 +37,44 @@ export type TDirectMediaConnection = {
 type TDirectMediaStatus =
   'idle' | 'connecting' | 'direct' | 'relayed' | 'failed';
 type TTimerHandle = number | NodeJS.Timeout;
+type TReceivedScreenStream = Readonly<{
+  receiver: RTCRtpReceiver;
+  stream: MediaStream;
+}>;
+const directScreenDelivery = Symbol('directScreenDelivery');
+type TDirectScreenDeliveryEvidence = Readonly<{
+  screen: TReceivedScreenStream;
+  screenAudio?: TReceivedScreenStream;
+}>;
+export type TDirectScreenBundle = Readonly<{
+  screen: MediaStream;
+  screenAudio?: MediaStream;
+  [directScreenDelivery]: TDirectScreenDeliveryEvidence;
+}>;
+export type TDirectScreenRetirement = Readonly<{
+  restoreRelay: boolean;
+}>;
+const getRetirementSignal = (
+  retirement: TDirectScreenRetirement
+): TDirectMediaSignal =>
+  retirement.restoreRelay ? { type: 'fallback' } : { type: 'stop' };
+
+// Fixed messages from this file and the native bridge contract. No free text
+// reaches the tracker: an unrecognized failure is reported as unknown.
+const classifyDirectMediaError = (error: unknown): TP2PReason => {
+  const message = error instanceof Error ? error.message : '';
+  if (/native media endpoint|native media bridge/i.test(message))
+    return 'native_create_failed';
+  if (
+    /media session|media document|invalid media peer|media is only available/i.test(
+      message
+    )
+  )
+    return 'native_create_failed';
+  if (/holepunch connection ended/i.test(message)) return 'native_closed_early';
+  if (/sdp|direct media session kind/i.test(message)) return 'signal_rejected';
+  return 'unknown';
+};
 
 type TDirectMediaCallbacks = {
   kind: TDirectMediaKind;
@@ -43,6 +91,16 @@ type TDirectMediaCallbacks = {
     userId: number,
     kind: TScreenKind,
     stream: MediaStream
+  ) => void;
+  prepareScreenBundle: (
+    userId: number,
+    bundle: TDirectScreenBundle
+  ) => Promise<void>;
+  presentScreenBundle: (userId: number, bundle: TDirectScreenBundle) => boolean;
+  retireScreenBundle: (
+    userId: number,
+    bundle: TDirectScreenBundle,
+    retirement: TDirectScreenRetirement
   ) => void;
   onStatus: (status: TDirectMediaStatus) => void;
   onError: (error: unknown) => void;
@@ -63,6 +121,8 @@ type TOutgoingAttempt = {
   established: boolean;
   onFailure: (relayAllowed: boolean, peerId: number) => Promise<void>;
   peerId: number;
+  retirement: TDirectScreenRetirement;
+  diagnosticRef: string;
   sessionId?: string;
   peer?: TDirectPeer;
 };
@@ -79,11 +139,23 @@ type TDirectPeer = {
   ready: boolean;
   readySending: boolean;
   streams: Map<TScreenKind, MediaStream>;
+  screenReceivers: Map<
+    StreamKind.SCREEN | StreamKind.SCREEN_AUDIO,
+    TReceivedScreenStream
+  >;
+  screenAudioExpected: boolean;
+  screenBundle?: TDirectScreenBundle;
+  screenBundlePresented: boolean;
+  deliveryChecking: boolean;
+  deliveryTimer?: TTimerHandle;
   timer?: TTimerHandle;
   outgoing?: TOutgoingAttempt;
   nativeMedia?: THolepunchMedia;
   nativeEndpoint?: { publicKey: string; port: number };
   unsubscribeNative?: () => void;
+  diagnosticRef: string;
+  diagnosticOutcome?: TP2POutcome;
+  diagnosticReason?: TP2PReason;
 };
 
 export class DirectMedia {
@@ -102,6 +174,13 @@ export class DirectMedia {
     this.callbacks.kind === StreamKind.AUDIO
       ? DIRECT_MEDIA_AUDIO_CONNECT_TIMEOUT_MS
       : DIRECT_MEDIA_CONNECT_TIMEOUT_MS;
+
+  private getDiagnosticKind = (): TP2PKind =>
+    this.callbacks.kind === StreamKind.AUDIO
+      ? 'audio'
+      : this.callbacks.kind === StreamKind.VIDEO
+        ? 'video'
+        : 'screen';
 
   getConnections = (): TDirectMediaConnection[] => {
     const peers = Array.from(this.peers.values());
@@ -134,29 +213,55 @@ export class DirectMedia {
     stream: MediaStream,
     options: TDirectMediaOptions
   ): Promise<TDirectMediaResult> => {
-    return new Promise<TDirectMediaResult>((resolve) => {
-      if (!getHolepunchMedia()) {
-        this.callbacks.onStatus('relayed');
-        resolve('relay');
-        return;
-      }
-      const attempt: TOutgoingAttempt = {
-        controller: new AbortController(),
-        timer: setTimeout(() => {
-          this.failOutgoing(attempt);
-        }, this.getConnectTimeout()),
-        resolve,
-        settled: false,
-        established: false,
-        onFailure: options.onFailure,
-        peerId
-      };
-      this.outgoing.set(peerId, attempt);
-      this.callbacks.onStatus('connecting');
-      this.prepareOutgoing(attempt, stream, options).catch((error: unknown) => {
-        if (this.isCurrentAttempt(attempt)) this.failOutgoing(attempt, error);
-      });
+    const { promise, resolve } = Promise.withResolvers<TDirectMediaResult>();
+    const diagnosticRef = beginP2PDiagnostic({
+      kind: this.getDiagnosticKind(),
+      role: 'sender'
     });
+    markP2PPhase(diagnosticRef, 'attempt');
+    if (!getHolepunchMedia()) {
+      reportP2PDiagnostic(
+        finishP2PDiagnostic(diagnosticRef, {
+          outcome: 'relay',
+          reason: 'bridge_absent'
+        })
+      );
+      this.callbacks.onStatus('relayed');
+      resolve('relay');
+      return promise;
+    }
+    const attempt: TOutgoingAttempt = {
+      controller: new AbortController(),
+      timer: setTimeout(() => {
+        this.failOutgoing(
+          attempt,
+          undefined,
+          true,
+          true,
+          'negotiation_timeout'
+        );
+      }, this.getConnectTimeout()),
+      resolve,
+      settled: false,
+      established: false,
+      onFailure: options.onFailure,
+      peerId,
+      retirement: { restoreRelay: false },
+      diagnosticRef
+    };
+    this.outgoing.set(peerId, attempt);
+    this.callbacks.onStatus('connecting');
+    this.prepareOutgoing(attempt, stream, options).catch((error: unknown) => {
+      if (this.isCurrentAttempt(attempt))
+        this.failOutgoing(
+          attempt,
+          error,
+          true,
+          true,
+          classifyDirectMediaError(error)
+        );
+    });
+    return promise;
   };
 
   handleSignal = async (event: TDirectMediaEvent): Promise<void> => {
@@ -202,7 +307,19 @@ export class DirectMedia {
     const { signal } = event;
     if (signal.type === 'fallback' || signal.type === 'stop') {
       this.pinIdentity(peer, event);
-      this.failPeer(peer, undefined, false, event.relayAllowed);
+      this.failPeer(
+        peer,
+        undefined,
+        false,
+        event.relayAllowed,
+        {
+          restoreRelay:
+            event.relayAllowed &&
+            signal.type === 'fallback' &&
+            signal.reason !== 'unwatch'
+        },
+        signal.type === 'fallback' ? 'remote_fallback' : 'remote_stop'
+      );
       if (signal.type === 'stop' && peer.direction === 'incoming') {
         this.callbacks.onStopped?.(peer.peerId);
       }
@@ -212,6 +329,7 @@ export class DirectMedia {
 
     if (signal.type === 'answer' && peer.phase === 'offered') {
       this.pinIdentity(peer, event);
+      markP2PPhase(peer.diagnosticRef, 'answer_received');
       peer.phase = 'answering';
       try {
         const endpoint = peer.nativeEndpoint;
@@ -224,21 +342,32 @@ export class DirectMedia {
           initiator: true
         });
         if (!this.isActivePeer(peer)) return;
+        markP2PPhase(peer.diagnosticRef, 'native_connect');
         await peer.connection.setRemoteDescription({
           type: 'answer',
           sdp: withHolepunchCandidate(signal.sdp, endpoint.port)
         });
         if (!this.isActivePeer(peer)) return;
+        markP2PPhase(peer.diagnosticRef, 'sdp_remote');
         peer.phase = 'answered';
         this.completeOutgoing(peer);
       } catch (error) {
-        if (this.isActivePeer(peer)) this.failPeer(peer, error);
+        if (this.isActivePeer(peer))
+          this.failPeer(
+            peer,
+            error,
+            true,
+            true,
+            undefined,
+            classifyDirectMediaError(error)
+          );
       }
     } else if (
       signal.type === 'ready' &&
       (peer.phase === 'answering' || peer.phase === 'answered')
     ) {
       this.pinIdentity(peer, event);
+      markP2PPhase(peer.diagnosticRef, 'ready_received');
       peer.ready = true;
       this.completeOutgoing(peer);
     }
@@ -257,24 +386,47 @@ export class DirectMedia {
     return false;
   };
 
-  stop = (): void => {
+  stop = (
+    retirement: TDirectScreenRetirement = { restoreRelay: false }
+  ): void => {
     for (const attempt of [...this.outgoing.values()]) {
-      this.stopAttempt(attempt.peerId);
+      this.stopAttempt(attempt.peerId, retirement);
     }
   };
 
-  private stopAttempt = (peerId: number): void => {
+  private stopAttempt = (
+    peerId: number,
+    retirement: TDirectScreenRetirement = { restoreRelay: false }
+  ): void => {
     const key = peerId;
     const attempt = this.outgoing.get(key);
     if (!attempt) return;
+    attempt.retirement = retirement;
     this.outgoing.delete(key);
     clearTimeout(attempt.timer);
     attempt.controller.abort();
     this.resolveAttempt(attempt, 'failed');
-    if (attempt.peer) this.retirePeer(attempt.peer);
+    if (attempt.peer) {
+      attempt.peer.diagnosticOutcome = attempt.peer.ready
+        ? 'direct'
+        : 'stopped';
+      attempt.peer.diagnosticReason = 'stopped';
+      this.retirePeer(attempt.peer, retirement);
+    } else {
+      reportP2PDiagnostic(
+        finishP2PDiagnostic(attempt.diagnosticRef, {
+          outcome: 'stopped',
+          reason: 'stopped'
+        })
+      );
+    }
     if (attempt.sessionId) {
-      this.retiredSessions.set(attempt.sessionId, false);
-      this.sendBestEffort(attempt.sessionId, { type: 'stop' }, attempt.peerId);
+      this.retiredSessions.set(attempt.sessionId, retirement.restoreRelay);
+      this.sendBestEffort(
+        attempt.sessionId,
+        getRetirementSignal(retirement),
+        attempt.peerId
+      );
     }
     if (!this.outgoing.size) this.callbacks.onStatus('idle');
   };
@@ -290,7 +442,9 @@ export class DirectMedia {
     }
     for (const peer of this.peers.values()) {
       if (peer.direction !== 'incoming' || peer.peerId !== userId) continue;
-      this.retirePeer(peer);
+      peer.diagnosticOutcome = 'stopped';
+      peer.diagnosticReason = 'unwatch';
+      this.retirePeer(peer, { restoreRelay: false });
       this.sendBestEffort(peer.sessionId, {
         type: 'fallback',
         reason: 'unwatch'
@@ -298,15 +452,19 @@ export class DirectMedia {
     }
   };
 
-  close = (): void => {
-    this.stop();
+  close = (
+    retirement: TDirectScreenRetirement = { restoreRelay: false }
+  ): void => {
+    this.stop(retirement);
     for (const pending of this.pendingOffers.values()) {
       this.retirePendingOffer(pending);
-      this.sendBestEffort(pending.sessionId, { type: 'stop' });
+      this.sendBestEffort(pending.sessionId, getRetirementSignal(retirement));
     }
     for (const peer of this.peers.values()) {
-      this.retirePeer(peer);
-      this.sendBestEffort(peer.sessionId, { type: 'stop' });
+      peer.diagnosticOutcome = peer.ready ? 'direct' : 'stopped';
+      peer.diagnosticReason = 'stopped';
+      this.retirePeer(peer, retirement);
+      this.sendBestEffort(peer.sessionId, getRetirementSignal(retirement));
     }
   };
 
@@ -337,7 +495,10 @@ export class DirectMedia {
       if (!this.isCurrentAttempt(attempt)) {
         if (session) {
           try {
-            await this.callbacks.send(session.sessionId, { type: 'stop' });
+            await this.callbacks.send(
+              session.sessionId,
+              getRetirementSignal(attempt.retirement)
+            );
           } catch (error) {
             this.callbacks.onError(error);
           }
@@ -363,15 +524,29 @@ export class DirectMedia {
       this.outgoing.delete(attempt.peerId);
       clearTimeout(attempt.timer);
       attempt.controller.abort();
+      reportP2PDiagnostic(
+        finishP2PDiagnostic(attempt.diagnosticRef, {
+          outcome: 'relay',
+          reason: 'session_declined'
+        })
+      );
       this.resolveAttempt(attempt, 'relay');
       this.callbacks.onStatus('relayed');
       return;
     }
+    setP2PSession(attempt.diagnosticRef, session.sessionId);
+    markP2PPhase(attempt.diagnosticRef, 'session');
     if (
       session.transport !== 'holepunch' ||
       session.kind !== this.callbacks.kind
     ) {
       this.sendBestEffort(session.sessionId, { type: 'stop' });
+      reportP2PDiagnostic(
+        finishP2PDiagnostic(attempt.diagnosticRef, {
+          outcome: 'failed',
+          reason: 'session_kind_mismatch'
+        })
+      );
       throw new Error('Direct media session kind does not match the capture');
     }
     if (this.retiredSessions.has(session.sessionId)) {
@@ -380,7 +555,8 @@ export class DirectMedia {
         attempt,
         undefined,
         false,
-        this.retiredSessions.get(session.sessionId) === true
+        this.retiredSessions.get(session.sessionId) === true,
+        'session_retired'
       );
       return;
     }
@@ -400,7 +576,12 @@ export class DirectMedia {
       ready: false,
       readySending: false,
       streams: new Map(),
-      outgoing: attempt
+      screenReceivers: new Map(),
+      screenAudioExpected: false,
+      screenBundlePresented: false,
+      deliveryChecking: false,
+      outgoing: attempt,
+      diagnosticRef: attempt.diagnosticRef
     };
     attempt.peer = peer;
     this.peers.set(peer.sessionId, peer);
@@ -447,6 +628,7 @@ export class DirectMedia {
       sdp,
       publicKey: peer.nativeEndpoint.publicKey
     });
+    markP2PPhase(peer.diagnosticRef, 'offer_sent');
   };
 
   private receiveOffer = async (event: TDirectMediaEvent): Promise<void> => {
@@ -467,6 +649,12 @@ export class DirectMedia {
       return;
     }
     let peer: TDirectPeer | undefined;
+    const diagnosticRef = beginP2PDiagnostic({
+      kind: this.getDiagnosticKind(),
+      role: 'receiver',
+      sessionId: event.sessionId
+    });
+    markP2PPhase(diagnosticRef, 'offer_received');
     try {
       const connection = new RTCPeerConnection({
         iceServers: [],
@@ -483,27 +671,41 @@ export class DirectMedia {
         phase: 'answering',
         ready: false,
         readySending: false,
-        streams: new Map()
+        streams: new Map(),
+        screenReceivers: new Map(),
+        screenAudioExpected:
+          this.callbacks.kind === StreamKind.SCREEN &&
+          /(?:^|\r?\n)m=audio\s+(?!0(?:\s|$))\d+/i.test(event.signal.sdp),
+        screenBundlePresented: false,
+        deliveryChecking: false,
+        diagnosticRef
       };
       for (const previous of this.peers.values()) {
         if (
           previous.direction === 'incoming' &&
           previous.peerId === peer.peerId
         ) {
-          this.retirePeer(previous);
+          this.retirePeer(previous, { restoreRelay: true });
           this.sendBestEffort(previous.sessionId, { type: 'stop' });
         }
       }
       this.peers.set(peer.sessionId, peer);
       const incoming = peer;
       peer.timer = setTimeout(() => {
-        this.failPeer(incoming);
+        this.failPeer(
+          incoming,
+          undefined,
+          true,
+          true,
+          undefined,
+          'negotiation_timeout'
+        );
       }, this.getConnectTimeout());
       this.listenForConnection(peer);
       connection.addEventListener(
         'track',
         (trackEvent) => {
-          this.receiveTrack(incoming, trackEvent.track);
+          this.receiveTrack(incoming, trackEvent.track, trackEvent.receiver);
         },
         { signal: peer.controller.signal }
       );
@@ -520,11 +722,13 @@ export class DirectMedia {
         initiator: false
       });
       if (!this.isActivePeer(peer)) return;
+      markP2PPhase(peer.diagnosticRef, 'native_connect');
       await connection.setRemoteDescription({
         type: 'offer',
         sdp: withHolepunchCandidate(event.signal.sdp, endpoint.port)
       });
       if (!this.isActivePeer(peer)) return;
+      markP2PPhase(peer.diagnosticRef, 'sdp_remote');
       const answer = await connection.createAnswer();
       if (!this.isActivePeer(peer)) return;
       await connection.setLocalDescription(answer);
@@ -537,14 +741,29 @@ export class DirectMedia {
         publicKey: endpoint.publicKey
       });
       if (!this.isActivePeer(peer)) return;
+      markP2PPhase(peer.diagnosticRef, 'answer_sent');
       peer.phase = 'answered';
       this.readyIncoming(peer);
     } catch (error) {
       if (peer) {
-        if (this.isActivePeer(peer)) this.failPeer(peer, error);
+        if (this.isActivePeer(peer))
+          this.failPeer(
+            peer,
+            error,
+            true,
+            true,
+            undefined,
+            classifyDirectMediaError(error)
+          );
       } else {
         this.retiredSessions.set(event.sessionId, false);
         this.callbacks.onError(error);
+        reportP2PDiagnostic(
+          finishP2PDiagnostic(diagnosticRef, {
+            outcome: 'failed',
+            reason: classifyDirectMediaError(error)
+          })
+        );
         this.sendBestEffort(event.sessionId, { type: 'fallback' });
       }
     }
@@ -587,7 +806,14 @@ export class DirectMedia {
     peer.nativeMedia = media;
     peer.unsubscribeNative = media.onClosed(({ sessionId }) => {
       if (sessionId !== peer.sessionId || !this.isActivePeer(peer)) return;
-      this.failPeer(peer, new Error('Holepunch connection ended'), true, true);
+      this.failPeer(
+        peer,
+        new Error('Holepunch connection ended'),
+        true,
+        true,
+        undefined,
+        peer.ready ? 'native_closed_established' : 'native_closed_early'
+      );
     });
     const endpoint = await media.create({ sessionId: peer.sessionId });
     if (!this.isActivePeer(peer)) {
@@ -595,6 +821,7 @@ export class DirectMedia {
       return;
     }
     peer.nativeEndpoint = endpoint;
+    markP2PPhase(peer.diagnosticRef, 'native_created');
   };
 
   private listenForConnection = (peer: TDirectPeer): void => {
@@ -604,13 +831,25 @@ export class DirectMedia {
         if (!this.isActivePeer(peer)) return;
         switch (peer.connection.connectionState) {
           case 'connected':
+            markP2PPhase(peer.diagnosticRef, 'peer_connected');
             if (peer.direction === 'outgoing') this.completeOutgoing(peer);
             else this.readyIncoming(peer);
             break;
           case 'disconnected':
           case 'failed':
           case 'closed':
-            this.failPeer(peer);
+            this.failPeer(
+              peer,
+              undefined,
+              true,
+              true,
+              undefined,
+              peer.connection.connectionState === 'disconnected'
+                ? 'peer_connection_disconnected'
+                : peer.connection.connectionState === 'failed'
+                  ? 'peer_connection_failed'
+                  : 'peer_connection_closed'
+            );
             break;
         }
       },
@@ -618,7 +857,11 @@ export class DirectMedia {
     );
   };
 
-  private receiveTrack = (peer: TDirectPeer, track: MediaStreamTrack): void => {
+  private receiveTrack = (
+    peer: TDirectPeer,
+    track: MediaStreamTrack,
+    receiver: RTCRtpReceiver
+  ): void => {
     if (!this.isActivePeer(peer)) return;
     let kind: TScreenKind;
     if (track.kind === 'video' && this.callbacks.kind !== StreamKind.AUDIO) {
@@ -639,7 +882,15 @@ export class DirectMedia {
     try {
       const stream = new MediaStream([track]);
       peer.streams.set(kind, stream);
-      this.callbacks.onStream(peer.peerId, stream, kind);
+      if (this.callbacks.kind === StreamKind.SCREEN) {
+        const screenKind = kind as StreamKind.SCREEN | StreamKind.SCREEN_AUDIO;
+        peer.screenReceivers.set(screenKind, { receiver, stream });
+        if (screenKind === StreamKind.SCREEN_AUDIO) {
+          peer.screenAudioExpected = true;
+        }
+      } else {
+        this.callbacks.onStream(peer.peerId, stream, kind);
+      }
       this.readyIncoming(peer);
     } catch (error) {
       this.failPeer(peer, error);
@@ -656,17 +907,163 @@ export class DirectMedia {
     ) {
       return;
     }
+    if (this.callbacks.kind === StreamKind.SCREEN) {
+      if (
+        peer.screenAudioExpected &&
+        !peer.screenReceivers.has(StreamKind.SCREEN_AUDIO)
+      ) {
+        return;
+      }
+      this.checkScreenDelivery(peer);
+      return;
+    }
     peer.readySending = true;
     this.callbacks
       .send(peer.sessionId, { type: 'ready' })
       .then(() => {
         if (!this.isActivePeer(peer)) return;
+        markP2PPhase(peer.diagnosticRef, 'ready_sent');
         peer.ready = true;
         clearTimeout(peer.timer);
         peer.timer = undefined;
       })
       .catch((error: unknown) => {
-        if (this.isActivePeer(peer)) this.failPeer(peer, error);
+        if (this.isActivePeer(peer))
+          this.failPeer(
+            peer,
+            error,
+            true,
+            true,
+            undefined,
+            classifyDirectMediaError(error)
+          );
+      });
+  };
+
+  private getScreenBundle = (
+    peer: TDirectPeer
+  ): TDirectScreenBundle | undefined => {
+    const screen = peer.screenReceivers.get(StreamKind.SCREEN);
+    if (!screen) return;
+    const screenAudio = peer.screenReceivers.get(StreamKind.SCREEN_AUDIO);
+    if (peer.screenAudioExpected && !screenAudio) return;
+    return Object.freeze({
+      screen: screen.stream,
+      ...(screenAudio ? { screenAudio: screenAudio.stream } : {}),
+      [directScreenDelivery]: Object.freeze({
+        screen,
+        ...(screenAudio ? { screenAudio } : {})
+      })
+    });
+  };
+
+  private receiverDelivered = async (
+    receiver: RTCRtpReceiver,
+    kind: StreamKind.SCREEN | StreamKind.SCREEN_AUDIO
+  ): Promise<boolean> => {
+    const stats = await receiver.getStats();
+    const mediaKind =
+      kind === StreamKind.SCREEN ? ('video' as const) : ('audio' as const);
+    for (const report of stats.values()) {
+      const inbound = report as RTCStats & {
+        kind?: string;
+        mediaType?: string;
+        framesDecoded?: number;
+        packetsReceived?: number;
+      };
+      if (
+        inbound.type !== 'inbound-rtp' ||
+        (inbound.kind ?? inbound.mediaType) !== mediaKind
+      ) {
+        continue;
+      }
+      return mediaKind === 'video'
+        ? (inbound.framesDecoded ?? 0) > 0
+        : (inbound.packetsReceived ?? 0) > 0;
+    }
+    return false;
+  };
+
+  private checkScreenDelivery = (peer: TDirectPeer): void => {
+    if (peer.deliveryChecking || peer.readySending) return;
+    clearTimeout(peer.deliveryTimer);
+    peer.deliveryTimer = undefined;
+    peer.deliveryChecking = true;
+    const required: (StreamKind.SCREEN | StreamKind.SCREEN_AUDIO)[] = [
+      StreamKind.SCREEN
+    ];
+    if (peer.screenAudioExpected) required.push(StreamKind.SCREEN_AUDIO);
+    Promise.all(
+      required.map((kind) => {
+        const reception = peer.screenReceivers.get(kind);
+        return reception
+          ? this.receiverDelivered(reception.receiver, kind)
+          : Promise.resolve(false);
+      })
+    )
+      .then(async (delivered) => {
+        peer.deliveryChecking = false;
+        if (!this.isActivePeer(peer) || peer.readySending) return;
+        if (delivered.some((value) => !value)) {
+          peer.deliveryTimer = setTimeout(
+            () => this.checkScreenDelivery(peer),
+            50
+          );
+          return;
+        }
+        if (
+          peer.screenAudioExpected &&
+          !required.includes(StreamKind.SCREEN_AUDIO)
+        ) {
+          this.checkScreenDelivery(peer);
+          return;
+        }
+        const bundle = this.getScreenBundle(peer);
+        if (!bundle) return;
+        markP2PPhase(peer.diagnosticRef, 'media_delivered');
+        peer.readySending = true;
+        await this.callbacks.prepareScreenBundle(peer.peerId, bundle);
+        if (
+          !this.isActivePeer(peer) ||
+          this.getScreenBundle(peer)?.screen !== bundle.screen ||
+          this.getScreenBundle(peer)?.screenAudio !== bundle.screenAudio
+        ) {
+          return;
+        }
+        peer.screenBundle = bundle;
+        peer.screenBundlePresented = true;
+        if (!this.callbacks.presentScreenBundle(peer.peerId, bundle)) {
+          peer.screenBundle = undefined;
+          peer.screenBundlePresented = false;
+          this.failPeer(
+            peer,
+            undefined,
+            true,
+            true,
+            undefined,
+            'delivery_timeout'
+          );
+          return;
+        }
+        if (!this.isActivePeer(peer)) return;
+        await this.callbacks.send(peer.sessionId, { type: 'ready' });
+        if (!this.isActivePeer(peer)) return;
+        markP2PPhase(peer.diagnosticRef, 'ready_sent');
+        peer.ready = true;
+        clearTimeout(peer.timer);
+        peer.timer = undefined;
+      })
+      .catch((error: unknown) => {
+        peer.deliveryChecking = false;
+        if (this.isActivePeer(peer))
+          this.failPeer(
+            peer,
+            error,
+            true,
+            true,
+            undefined,
+            classifyDirectMediaError(error)
+          );
       });
   };
 
@@ -743,14 +1140,18 @@ export class DirectMedia {
     peer: TDirectPeer,
     error?: unknown,
     notify = true,
-    relayAllowed = true
+    relayAllowed = true,
+    retirement: TDirectScreenRetirement = { restoreRelay: relayAllowed },
+    reason: TP2PReason = 'unknown'
   ): void => {
     if (!this.isActivePeer(peer)) return;
     if (peer.outgoing) {
-      this.failOutgoing(peer.outgoing, error, notify, relayAllowed);
+      this.failOutgoing(peer.outgoing, error, notify, relayAllowed, reason);
       return;
     }
-    this.retirePeer(peer);
+    peer.diagnosticOutcome = relayAllowed ? 'relay' : 'failed';
+    peer.diagnosticReason = reason;
+    this.retirePeer(peer, retirement);
     if (error !== undefined) this.callbacks.onError(error);
     if (notify) this.sendBestEffort(peer.sessionId, { type: 'fallback' });
   };
@@ -759,13 +1160,25 @@ export class DirectMedia {
     attempt: TOutgoingAttempt,
     error?: unknown,
     notify = true,
-    relayAllowed = true
+    relayAllowed = true,
+    reason: TP2PReason = 'unknown'
   ): void => {
     if (!this.isCurrentAttempt(attempt)) return;
     this.outgoing.delete(attempt.peerId);
     clearTimeout(attempt.timer);
     attempt.controller.abort();
-    if (attempt.peer) this.retirePeer(attempt.peer);
+    if (attempt.peer) {
+      attempt.peer.diagnosticOutcome = relayAllowed ? 'relay' : 'failed';
+      attempt.peer.diagnosticReason = reason;
+      this.retirePeer(attempt.peer, { restoreRelay: false });
+    } else {
+      reportP2PDiagnostic(
+        finishP2PDiagnostic(attempt.diagnosticRef, {
+          outcome: relayAllowed ? 'relay' : 'failed',
+          reason
+        })
+      );
+    }
     if (attempt.sessionId) {
       this.retiredSessions.set(attempt.sessionId, false);
       if (notify)
@@ -793,12 +1206,24 @@ export class DirectMedia {
     this.retiredSessions.set(event.sessionId, false);
   };
 
-  private retirePeer = (peer: TDirectPeer): void => {
+  private retirePeer = (
+    peer: TDirectPeer,
+    retirement: TDirectScreenRetirement
+  ): void => {
     if (this.peers.get(peer.sessionId) !== peer) return;
     this.peers.delete(peer.sessionId);
     this.retiredSessions.set(peer.sessionId, false);
     clearTimeout(peer.timer);
+    clearTimeout(peer.deliveryTimer);
     peer.controller.abort();
+    if (peer.screenBundlePresented && peer.screenBundle) {
+      this.callbacks.retireScreenBundle(
+        peer.peerId,
+        peer.screenBundle,
+        retirement
+      );
+      peer.screenBundlePresented = false;
+    }
     peer.connection.close();
     peer.unsubscribeNative?.();
     if (peer.nativeMedia) {
@@ -810,9 +1235,25 @@ export class DirectMedia {
     }
     for (const [kind, stream] of peer.streams) {
       stream.getTracks().forEach((track) => track.stop());
-      this.callbacks.onRemoveStream(peer.peerId, kind, stream);
+      if (this.callbacks.kind !== StreamKind.SCREEN) {
+        this.callbacks.onRemoveStream(peer.peerId, kind, stream);
+      }
     }
     peer.streams.clear();
+    peer.screenReceivers.clear();
+    reportP2PDiagnostic(
+      finishP2PDiagnostic(peer.diagnosticRef, {
+        outcome:
+          peer.diagnosticOutcome ??
+          (peer.ready
+            ? 'direct'
+            : retirement.restoreRelay
+              ? 'relay'
+              : 'stopped'),
+        reason:
+          peer.diagnosticReason ?? (peer.ready ? 'media_delivered' : 'stopped')
+      })
+    );
   };
 
   private sendBestEffort = (

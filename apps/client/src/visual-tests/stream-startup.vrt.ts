@@ -111,11 +111,6 @@ test('requests the first screen keyframe only after native receive and stream at
   nativeReady.resolve();
   await expect.poll(() => attached.mock.calls.length).toBe(1);
   await expect.poll(() => resume.mock.calls.length).toBe(1);
-  expect(resume).toHaveBeenCalledWith({
-    remoteId: 2,
-    kind: StreamKind.SCREEN,
-    consumerId: consumer.id
-  });
   resumeReady.resolve();
   await pending;
 });

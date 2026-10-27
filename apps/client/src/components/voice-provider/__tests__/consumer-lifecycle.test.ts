@@ -559,14 +559,20 @@ test('a screen waiter cannot revive a closed producer after the old tail settles
   ).toEqual([0, 0, 0, 0]);
 });
 
-test('queued screen pause preserves running work and releases its token after the tail', async () => {
+test('queued screen pause keeps the client consumer live while the server holds standby', async () => {
   let viewing = true;
   hook.cleanupTransports();
   refs.length = 0;
-  hook = useTransports({ ...callbacks(), canConsumeScreen: () => viewing });
+  const lifecycle = callbacks();
+  hook = useTransports({ ...lifecycle, canConsumeScreen: () => viewing });
   hook.consumerTransport.current = makeTransport().transport;
   await hook.consume(42, StreamKind.SCREEN_AUDIO, {});
   const consumer = hook.getConsumer(42, StreamKind.SCREEN_AUDIO)!;
+  const relayStream = hook.consumerStreams.current.get(
+    `42-${StreamKind.SCREEN_AUDIO}`
+  );
+  expect(relayStream).toBeDefined();
+  lifecycle.addRemoteUserStream.mockClear();
   consumer.pause();
   const pending = deferred<void>();
   resumeRpc.mockImplementationOnce(() => pending.promise);
@@ -577,18 +583,98 @@ test('queued screen pause preserves running work and releases its token after th
   pending.resolve();
   await Promise.all([operation, pause]);
   expect(consumer.closed).toBe(false);
-  expect(consumer.paused).toBe(true);
+  expect(consumer.paused).toBe(false);
   expect(pauseRpc).toHaveBeenCalled();
   viewing = true;
   await hook.consume(42, StreamKind.SCREEN_AUDIO, {});
   expect(hook.getConsumer(42, StreamKind.SCREEN_AUDIO)).toBe(consumer);
   expect(consumer.paused).toBe(false);
+  expect(lifecycle.addRemoteUserStream).toHaveBeenCalledWith(
+    42,
+    relayStream,
+    StreamKind.SCREEN_AUDIO
+  );
   hook.closeConsumer(42, StreamKind.SCREEN_AUDIO);
   expect(
     refs
       .filter((ref) => ref.current instanceof Map)
       .every((ref) => (ref.current as Map<string, unknown>).size === 0)
   ).toBe(true);
+});
+
+test('rewatching during a queued screen pause resumes the same server consumer', async () => {
+  let viewing = true;
+  hook.cleanupTransports();
+  refs.length = 0;
+  const lifecycle = callbacks();
+  hook = useTransports({ ...lifecycle, canConsumeScreen: () => viewing });
+  hook.consumerTransport.current = makeTransport().transport;
+  await hook.consume(42, StreamKind.SCREEN_AUDIO, {});
+  const consumer = hook.getConsumer(42, StreamKind.SCREEN_AUDIO)!;
+  const relayStream = hook.consumerStreams.current.get(
+    `42-${StreamKind.SCREEN_AUDIO}`
+  );
+  expect(relayStream).toBeDefined();
+  lifecycle.addRemoteUserStream.mockClear();
+  const pending = deferred<void>();
+  pauseRpc.mockImplementationOnce(() => pending.promise);
+  viewing = false;
+  const pause = hook.pauseDemoConsumers(42);
+  await flush();
+  expect(pauseRpc).toHaveBeenCalledWith({
+    remoteId: 42,
+    kind: StreamKind.SCREEN_AUDIO
+  });
+  viewing = true;
+  const rewatch = hook.consume(42, StreamKind.SCREEN_AUDIO, {});
+  pending.resolve();
+  await Promise.all([pause, rewatch]);
+  expect(resumeRpc).toHaveBeenCalledWith({
+    remoteId: 42,
+    kind: StreamKind.SCREEN_AUDIO,
+    consumerId: consumer.id,
+    requestDirect: true
+  });
+  expect(hook.getConsumer(42, StreamKind.SCREEN_AUDIO)).toBe(consumer);
+  expect(lifecycle.addRemoteUserStream).toHaveBeenCalledWith(
+    42,
+    relayStream,
+    StreamKind.SCREEN_AUDIO
+  );
+});
+
+test('rewatching before a standby pause starts resumes and republishes the relay', async () => {
+  let viewing = true;
+  hook.cleanupTransports();
+  refs.length = 0;
+  const lifecycle = callbacks();
+  hook = useTransports({ ...lifecycle, canConsumeScreen: () => viewing });
+  hook.consumerTransport.current = makeTransport().transport;
+  await hook.consume(42, StreamKind.SCREEN_AUDIO, {});
+  const consumer = hook.getConsumer(42, StreamKind.SCREEN_AUDIO)!;
+  const relayStream = hook.consumerStreams.current.get(
+    `42-${StreamKind.SCREEN_AUDIO}`
+  );
+  expect(relayStream).toBeDefined();
+  lifecycle.addRemoteUserStream.mockClear();
+  viewing = false;
+  hook.markDemoConsumersPaused(42);
+  viewing = true;
+  await hook.pauseDemoConsumers(42);
+  await hook.consume(42, StreamKind.SCREEN_AUDIO, {});
+  expect(pauseRpc).not.toHaveBeenCalled();
+  expect(resumeRpc).toHaveBeenCalledWith({
+    remoteId: 42,
+    kind: StreamKind.SCREEN_AUDIO,
+    consumerId: consumer.id,
+    requestDirect: true
+  });
+  expect(hook.getConsumer(42, StreamKind.SCREEN_AUDIO)).toBe(consumer);
+  expect(lifecycle.addRemoteUserStream).toHaveBeenCalledWith(
+    42,
+    relayStream,
+    StreamKind.SCREEN_AUDIO
+  );
 });
 
 test('voice subscriptions release remote and external resources through context callbacks', async () => {
@@ -624,8 +710,22 @@ test('voice subscriptions release remote and external resources through context 
     expect(onScreenViewerStarted).not.toHaveBeenCalled();
     subscriptions.get('screen-consumer')!({ channelId: 7, peerId: 42 });
     expect(onScreenViewerStarted).toHaveBeenCalledWith(42);
+    await hook.consume(42, StreamKind.SCREEN, {});
     await hook.consume(42, StreamKind.SCREEN_AUDIO, {});
+    const staleScreen = hook.getConsumer(42, StreamKind.SCREEN)!;
     const screen = hook.getConsumer(42, StreamKind.SCREEN_AUDIO)!;
+    consumeRpc.mockClear();
+    subscriptions.get('new')!({
+      channelId: 7,
+      remoteId: 42,
+      kind: StreamKind.SCREEN,
+      replaceConsumerId: staleScreen.id
+    });
+    await flush();
+    expect(staleScreen.closed).toBe(true);
+    expect(hook.getConsumer(42, StreamKind.SCREEN)).not.toBe(staleScreen);
+    expect(hook.getConsumer(42, StreamKind.SCREEN_AUDIO)).toBe(screen);
+    expect(consumeRpc).toHaveBeenCalledTimes(1);
     subscriptions.get('closed')!({
       channelId: 99,
       remoteId: 42,

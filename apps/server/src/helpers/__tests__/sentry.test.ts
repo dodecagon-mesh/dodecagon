@@ -63,16 +63,37 @@ describe('sentry', () => {
       {
         event_id: 'kept',
         request: { url: 'https://discord.example.com/trpc', data: {} },
-        contexts: { response: { body: 'chat message text' } },
-        extra: { body: 'chat message text' }
+        user: { id: 1 },
+        contexts: {
+          p2p: { session_ref: 'abc123', reason: 'deadline' },
+          response: { body: 'chat message text' }
+        },
+        extra: { body: 'chat message text' },
+        tags: { area: 'voice', url: 'https://example.com/?token=secret' },
+        breadcrumbs: [
+          {
+            category: 'console',
+            level: 'error',
+            timestamp: 1,
+            message: 'token=secret',
+            data: { url: 'https://example.com/?token=secret' }
+          }
+        ]
       },
       {}
     ) as Record<string, unknown>;
 
     expect(scrubbed.event_id).toBe('kept');
     expect(scrubbed.request).toBeUndefined();
-    expect(scrubbed.contexts).toBeUndefined();
+    expect(scrubbed.contexts).toEqual({
+      p2p: { session_ref: 'abc123', reason: 'deadline' }
+    });
     expect(scrubbed.extra).toBeUndefined();
+    expect(scrubbed.user).toBeUndefined();
+    expect(scrubbed.tags).toEqual({ area: 'voice' });
+    expect(scrubbed.breadcrumbs).toEqual([
+      { category: 'console', level: 'error', timestamp: 1 }
+    ]);
   });
 
   test('reports unexpected failures and stays quiet about rejected input', () => {

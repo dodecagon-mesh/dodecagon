@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import * as React from 'react';
 import * as ActualI18n from 'react-i18next';
 import * as ActualSonner from 'sonner';
+import type { TDevicesProvider } from '../../devices-provider';
 
 let activeHarness: HookHarness | undefined;
 const contextValues = new Map<object, unknown>();
@@ -418,6 +419,8 @@ mock.module('../hooks/use-transports', () => ({
     consumerTransport,
     sessionGenerationRef: generation,
     consumers: { current: {} },
+    consumerStreams: { current: new Map() },
+    consumeOperationsInProgress: { current: new Map() },
     createProducerTransport: async () => {
       producerTransport.current = makeTransport();
     },
@@ -434,6 +437,7 @@ mock.module('../hooks/use-transports', () => ({
     },
     getConsumer() {},
     getConsumerCodec() {},
+    markDemoConsumersPaused() {},
     pauseDemoConsumers() {},
     closeConsumer() {},
     closeConsumers() {}
@@ -481,14 +485,13 @@ Object.assign(globalThis, {
 
 const { DevicesProvider, DevicesProviderContext } =
   await import('../../devices-provider');
-const { useDevices } = await import('../../devices-provider/hooks/use-devices');
 const { VoiceProvider } = await import('../index');
 const { useSelectChannel } = await import('@/hooks/use-select-channel');
 const { LocalStorageKey } = await import('@/helpers/storage');
 let devicesHarness = makeHarness();
 let voiceHarness = makeHarness();
 let channelSelectionHarness = makeHarness();
-let deviceContext: ReturnType<typeof useDevices>;
+let deviceContext: TDevicesProvider;
 let voice: import('../index').TVoiceProvider;
 const renderDevices = () => {
   const rendered = renderWithHooks(devicesHarness, () =>
@@ -500,7 +503,7 @@ const renderDevices = () => {
   );
   const value = (
     rendered.value as React.ReactElement<{
-      value: ReturnType<typeof useDevices>;
+      value: TDevicesProvider;
     }>
   ).props.value;
   contextValues.set(DevicesProviderContext, value);

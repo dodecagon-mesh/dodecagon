@@ -79,6 +79,10 @@ import {
   setVoiceControlsBridge
 } from './controls-bridge';
 import { DemoVisibilityProvider } from './demo-visibility-context';
+import type {
+  TDirectScreenBundle,
+  TDirectScreenRetirement
+} from './direct-media';
 import {
   getRemoteConsumerTypeKey,
   getScreenShareSimulcastEncodings,
@@ -98,7 +102,7 @@ import { useDirectMedia } from './hooks/use-direct-media';
 import { useLocalStreams } from './hooks/use-local-streams';
 import { useRemoteStreams } from './hooks/use-remote-streams';
 import { useTransportStats } from './hooks/use-transport-stats';
-import { useTransports } from './hooks/use-transports';
+import { useTransports, type TConsumeOptions } from './hooks/use-transports';
 import { useVoiceControls } from './hooks/use-voice-controls';
 import { RemoteWebcamVisibilityProvider } from './remote-webcam-visibility-context';
 import { VoiceSessionCancelledError } from './session-cancelled';
@@ -158,7 +162,7 @@ export type TVoiceProvider = {
         remoteId: number,
         kind: StreamKind,
         rtps: RtpCapabilities,
-        requestDirect?: boolean
+        options?: TConsumeOptions
       ) => Promise<void>)
     | null
   >;
@@ -507,6 +511,9 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
   const webcamGenerationRef = useRef(0);
 
   const directRemoteStreamsRef = useRef(new Map<string, MediaStream>());
+  const presentedDirectScreensRef = useRef(
+    new Map<number, TDirectScreenBundle>()
+  );
   const closeConsumerRef = useRef<(remoteId: number, kind: StreamKind) => void>(
     () => {}
   );
@@ -516,6 +523,12 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       stream: MediaStream,
       kind: Parameters<typeof addRemoteUserStream>[2]
     ) => {
+      if (
+        (kind === StreamKind.SCREEN || kind === StreamKind.SCREEN_AUDIO) &&
+        presentedDirectScreensRef.current.has(userId)
+      ) {
+        return;
+      }
       if (directRemoteStreamsRef.current.has(`${userId}-${kind}`)) {
         closeConsumerRef.current(userId, kind);
         stream.getTracks().forEach((track) => track.stop());
@@ -531,6 +544,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     consumerTransport,
     sessionGenerationRef,
     consumers,
+    consumerStreams,
     createProducerTransport,
     createConsumerTransport,
     consumeRef,
@@ -538,6 +552,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     cleanupTransports,
     getConsumer,
     getConsumerCodec,
+    markDemoConsumersPaused,
     pauseDemoConsumers,
     closeConsumer,
     closeConsumers
@@ -609,8 +624,6 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       kind: Parameters<typeof addRemoteUserStream>[2]
     ) => {
       directRemoteStreamsRef.current.set(`${userId}-${kind}`, stream);
-      // retire relay playback before publishing the direct track. The stream
-      // identity guard in useTransports prevents late cleanup removing it.
       closeConsumer(userId, kind);
       addRemoteUserStream(userId, stream, kind);
     },
@@ -627,10 +640,152 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       if (stream && directRemoteStreamsRef.current.get(key) !== stream) return;
       directRemoteStreamsRef.current.delete(key);
       removeRemoteUserStream(userId, kind, stream);
-      // the server restores relay visibility before its targeted producer
-      // event. Consuming here could race the still-ready native session.
     },
     [removeRemoteUserStream]
+  );
+  const prepareDirectScreenBundle = useCallback(
+    async (userId: number, bundle: TDirectScreenBundle) => {
+      const rtpCapabilities = deviceRtpCapabilities.current;
+      if (!rtpCapabilities) return;
+      const kinds: (StreamKind.SCREEN | StreamKind.SCREEN_AUDIO)[] = [
+        StreamKind.SCREEN
+      ];
+      if (bundle.screenAudio) kinds.push(StreamKind.SCREEN_AUDIO);
+      await Promise.all(
+        kinds.map((kind) =>
+          consumeRef.current?.(userId, kind, rtpCapabilities, {
+            requestDirect: false
+          })
+        )
+      );
+    },
+    [consumeRef]
+  );
+
+  const presentDirectScreenBundle = useCallback(
+    (userId: number, bundle: TDirectScreenBundle): boolean => {
+      if (
+        !canConsumeScreen(userId) ||
+        presentedDirectScreensRef.current.has(userId) ||
+        bundle.screen
+          .getTracks()
+          .some((track) => track.readyState !== 'live') ||
+        bundle.screenAudio
+          ?.getTracks()
+          .some((track) => track.readyState !== 'live')
+      ) {
+        return false;
+      }
+      const screenConsumer = consumers.current[userId]?.[StreamKind.SCREEN];
+      const screen = consumerStreams.current.get(
+        `${userId}-${StreamKind.SCREEN}`
+      );
+      const screenAudioConsumer =
+        consumers.current[userId]?.[StreamKind.SCREEN_AUDIO];
+      const screenAudio = consumerStreams.current.get(
+        `${userId}-${StreamKind.SCREEN_AUDIO}`
+      );
+      if (
+        !screenConsumer ||
+        screenConsumer.closed ||
+        screenConsumer.track.readyState !== 'live' ||
+        !screen ||
+        !screen.getTracks().includes(screenConsumer.track) ||
+        !!bundle.screenAudio !==
+          !!(
+            screenAudioConsumer &&
+            !screenAudioConsumer.closed &&
+            screenAudioConsumer.track.readyState === 'live' &&
+            screenAudio?.getTracks().includes(screenAudioConsumer.track)
+          )
+      ) {
+        return false;
+      }
+      presentedDirectScreensRef.current.set(userId, bundle);
+      addRemoteUserStream(userId, bundle.screen, StreamKind.SCREEN);
+      if (bundle.screenAudio) {
+        addRemoteUserStream(
+          userId,
+          bundle.screenAudio,
+          StreamKind.SCREEN_AUDIO
+        );
+      }
+      return true;
+    },
+    [addRemoteUserStream, canConsumeScreen, consumerStreams, consumers]
+  );
+
+  const retireDirectScreenBundle = useCallback(
+    (
+      userId: number,
+      bundle: TDirectScreenBundle,
+      retirement: TDirectScreenRetirement
+    ) => {
+      const presented = presentedDirectScreensRef.current.get(userId);
+      if (
+        presented?.screen !== bundle.screen ||
+        presented.screenAudio !== bundle.screenAudio
+      ) {
+        return;
+      }
+      if (!retirement.restoreRelay) markDemoConsumersPaused(userId);
+      presentedDirectScreensRef.current.delete(userId);
+      const screenConsumer = consumers.current[userId]?.[StreamKind.SCREEN];
+      const screenAudioConsumer =
+        consumers.current[userId]?.[StreamKind.SCREEN_AUDIO];
+      const relayScreen = consumerStreams.current.get(
+        `${userId}-${StreamKind.SCREEN}`
+      );
+      const relayScreenAudio = consumerStreams.current.get(
+        `${userId}-${StreamKind.SCREEN_AUDIO}`
+      );
+      const canRestoreScreen =
+        retirement.restoreRelay &&
+        canConsumeScreen(userId) &&
+        !!screenConsumer &&
+        !screenConsumer.closed &&
+        screenConsumer.track.readyState === 'live' &&
+        !!relayScreen?.getTracks().includes(screenConsumer.track);
+      const canRestoreScreenAudio =
+        canRestoreScreen &&
+        !!screenAudioConsumer &&
+        !screenAudioConsumer.closed &&
+        screenAudioConsumer.track.readyState === 'live' &&
+        !!relayScreenAudio?.getTracks().includes(screenAudioConsumer.track);
+      if (canRestoreScreen && relayScreen) {
+        addRemoteUserStream(userId, relayScreen, StreamKind.SCREEN);
+        if (canRestoreScreenAudio && relayScreenAudio) {
+          addRemoteUserStream(
+            userId,
+            relayScreenAudio,
+            StreamKind.SCREEN_AUDIO
+          );
+        } else if (bundle.screenAudio) {
+          removeRemoteUserStream(
+            userId,
+            StreamKind.SCREEN_AUDIO,
+            bundle.screenAudio
+          );
+        }
+        return;
+      }
+      removeRemoteUserStream(userId, StreamKind.SCREEN, bundle.screen);
+      if (bundle.screenAudio) {
+        removeRemoteUserStream(
+          userId,
+          StreamKind.SCREEN_AUDIO,
+          bundle.screenAudio
+        );
+      }
+    },
+    [
+      addRemoteUserStream,
+      canConsumeScreen,
+      consumerStreams,
+      consumers,
+      markDemoConsumersPaused,
+      removeRemoteUserStream
+    ]
   );
 
   const { directMedia } = useDirectMedia({
@@ -643,7 +798,10 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     canConsumeScreen,
     onRemoteDemoStoppedRef,
     addRemoteUserStream: addDirectRemoteUserStream,
-    removeRemoteUserStream: removeDirectRemoteUserStream
+    removeRemoteUserStream: removeDirectRemoteUserStream,
+    prepareDirectScreenBundle,
+    presentDirectScreenBundle,
+    retireDirectScreenBundle
   });
 
   const directScreenShare = directMedia[StreamKind.SCREEN];
@@ -2358,6 +2516,9 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
             consumer
           }))
       ),
+      directConnections: Object.values(directMedia).flatMap((coordinator) =>
+        coordinator.getConnections()
+      ),
       routerRtpCapabilities: routerRtpCapabilities.current,
       deviceRtpCapabilities: deviceRtpCapabilities.current
     }),
@@ -2365,6 +2526,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       producerTransport,
       consumerTransport,
       consumers,
+      directMedia,
       localAudioProducer,
       localVideoProducer,
       localScreenShareProducer,
