@@ -149,4 +149,60 @@ describe('env overrides are validated', () => {
 
     expect(defaultConfig.server.port).toBe(4991);
   });
+
+  test('should replace a release endpoint from the env', () => {
+    setEnv(
+      'DODECAGON_ENDPOINTS_UPDATE_RELEASE_API',
+      'https://mirror.example.test/releases/latest'
+    );
+
+    expect(applyOverrides().endpoints.updateReleaseApi).toBe(
+      'https://mirror.example.test/releases/latest'
+    );
+  });
+
+  test('should coerce a comma separated mirror list into an array', () => {
+    setEnv(
+      'DODECAGON_ENDPOINTS_MARKETPLACE_REGISTRY_URLS',
+      'https://a.example.test/plugins.json,https://b.example.test/plugins.json'
+    );
+
+    expect(applyOverrides().endpoints.marketplaceRegistryUrls).toEqual([
+      'https://a.example.test/plugins.json',
+      'https://b.example.test/plugins.json'
+    ]);
+  });
+
+  test('should reject a release endpoint that is not a url', () => {
+    setEnv('DODECAGON_ENDPOINTS_UPDATE_ASSET_ROOT', 'not-a-url');
+
+    expect(applyOverrides).toThrow();
+  });
+});
+
+// the defaults are what an untouched deployment keeps doing, so they have to stay
+// exactly the hosts the code used to hardcode
+describe('endpoints defaults', () => {
+  test('should keep the release host the auto-updater already uses', () => {
+    expect(defaultConfig.endpoints.updateReleaseApi).toBe(
+      'https://api.github.com/repos/dodecagon-mesh/dodecagon/releases/latest'
+    );
+    expect(defaultConfig.endpoints.updateAssetRoot).toBe(
+      'https://github.com/dodecagon-mesh/dodecagon/releases/download/'
+    );
+  });
+
+  test('should ask the same public ip providers in the same order', () => {
+    expect(defaultConfig.endpoints.publicIpEchoUrls).toEqual([
+      'https://ipv4.icanhazip.com',
+      'https://api.ipify.org?format=json',
+      'https://ifconfig.me/ip'
+    ]);
+  });
+
+  test('should keep the registry host the marketplace always read', () => {
+    expect(defaultConfig.endpoints.marketplaceRegistryUrls).toEqual([
+      'https://raw.githubusercontent.com/Sharkord/plugins/refs/heads/main/plugins.json?raw=true'
+    ]);
+  });
 });

@@ -27,11 +27,10 @@ import { sha256File } from '../utils/sha-256-file';
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const CONSECUTIVE_FAILURES_BEFORE_ALARM = 3;
-const RELEASE_API =
-  'https://api.github.com/repos/dodecagon-mesh/dodecagon/releases/latest';
-const RELEASE_ASSET_ROOT = new URL(
-  'https://github.com/dodecagon-mesh/dodecagon/releases/download/'
-);
+// both come from config, so a blocked release host is a config change. the manual
+// BunUpdater below still asks GitHub directly; multi-source is a follow-up
+const RELEASE_API = config.endpoints.updateReleaseApi;
+const RELEASE_ASSET_ROOT = new URL(config.endpoints.updateAssetRoot);
 const MAX_BINARY_BYTES = 512 * 1024 * 1024;
 const zGithubRelease = z.object({
   tag_name: z.string(),

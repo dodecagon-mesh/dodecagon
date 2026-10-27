@@ -119,6 +119,42 @@ const zConfig = z.object({
       ),
     turnTtl: z.coerce.number().int().positive().default(3600)
   }),
+  // every outbound URL the server or its clients depend on, so a blocked host is
+  // a config change instead of a rebuild
+  endpoints: z.object({
+    updateReleaseApi: z
+      .url()
+      .default(
+        'https://api.github.com/repos/dodecagon-mesh/dodecagon/releases/latest'
+      ),
+    updateAssetRoot: z
+      .url()
+      .default(
+        'https://github.com/dodecagon-mesh/dodecagon/releases/download/'
+      ),
+    publicIpEchoUrls: z
+      .preprocess((value) => {
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') return value.split(',');
+        return [value];
+      }, z.array(z.url()).min(1))
+      .default([
+        'https://ipv4.icanhazip.com',
+        'https://api.ipify.org?format=json',
+        'https://ifconfig.me/ip'
+      ]),
+    // the browser asks the server for the registry, so only the server needs to
+    // reach one of these
+    marketplaceRegistryUrls: z
+      .preprocess((value) => {
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') return value.split(',');
+        return [value];
+      }, z.array(z.url()).min(1))
+      .default([
+        'https://raw.githubusercontent.com/Sharkord/plugins/refs/heads/main/plugins.json?raw=true'
+      ])
+  }),
   rateLimiters: z.object({
     sendAndEditMessage: zRateLimiter,
     joinVoiceChannel: zRateLimiter,
@@ -184,6 +220,20 @@ const defaultConfig: TConfig = {
     turnUrls: [],
     turnSecret: '',
     turnTtl: 3600
+  },
+  endpoints: {
+    updateReleaseApi:
+      'https://api.github.com/repos/dodecagon-mesh/dodecagon/releases/latest',
+    updateAssetRoot:
+      'https://github.com/dodecagon-mesh/dodecagon/releases/download/',
+    publicIpEchoUrls: [
+      'https://ipv4.icanhazip.com',
+      'https://api.ipify.org?format=json',
+      'https://ifconfig.me/ip'
+    ],
+    marketplaceRegistryUrls: [
+      'https://raw.githubusercontent.com/Sharkord/plugins/refs/heads/main/plugins.json?raw=true'
+    ]
   },
   rateLimiters: {
     sendAndEditMessage: {
@@ -341,7 +391,12 @@ const envOverridesMap: Record<string, string> = {
   'webRtc.directScreenStunUrls': 'DODECAGON_WEBRTC_DIRECT_SCREEN_STUN_URLS',
   'webRtc.turnUrls': 'DODECAGON_WEBRTC_TURN_URLS',
   'webRtc.turnSecret': 'DODECAGON_WEBRTC_TURN_SECRET',
-  'webRtc.turnTtl': 'DODECAGON_WEBRTC_TURN_TTL'
+  'webRtc.turnTtl': 'DODECAGON_WEBRTC_TURN_TTL',
+  'endpoints.updateReleaseApi': 'DODECAGON_ENDPOINTS_UPDATE_RELEASE_API',
+  'endpoints.updateAssetRoot': 'DODECAGON_ENDPOINTS_UPDATE_ASSET_ROOT',
+  'endpoints.publicIpEchoUrls': 'DODECAGON_ENDPOINTS_PUBLIC_IP_ECHO_URLS',
+  'endpoints.marketplaceRegistryUrls':
+    'DODECAGON_ENDPOINTS_MARKETPLACE_REGISTRY_URLS'
 };
 
 // validated again after the overrides, otherwise an env var could put a value
@@ -355,7 +410,7 @@ const SERVER_PRIVATE_IP = await getPrivateIp();
 // one, so an explicit announcedAddress makes the third party lookup pointless
 const SERVER_PUBLIC_IP = config.webRtc.announcedAddress
   ? undefined
-  : await getPublicIp();
+  : await getPublicIp(config.endpoints.publicIpEchoUrls);
 
 export {
   config,

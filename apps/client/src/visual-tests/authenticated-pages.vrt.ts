@@ -35,11 +35,7 @@ import {
 import { store } from '@/features/store';
 import { clearVoiceDebugEvents } from '@/helpers/voice-debug';
 import * as trpc from '@/lib/trpc';
-import {
-  MARKETPLACE_REGISTRY_URL,
-  TestId,
-  type TFile
-} from '@dodecagon/shared';
+import { TestId, type TFile } from '@dodecagon/shared';
 import { toast } from 'sonner';
 import {
   afterAll,
@@ -193,7 +189,7 @@ const marketplaceEntries = [
 const nativeFetch = window.fetch.bind(window);
 const visualFetch = (input: RequestInfo | URL, init?: RequestInit) => {
   const url = input instanceof Request ? input.url : String(input);
-  if (url === MARKETPLACE_REGISTRY_URL) {
+  if (url.endsWith('/plugins/registry')) {
     return Promise.resolve(Response.json(marketplaceEntries));
   }
 
