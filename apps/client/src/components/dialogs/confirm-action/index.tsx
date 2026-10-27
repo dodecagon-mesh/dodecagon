@@ -10,7 +10,7 @@ import {
   AutoFocus,
   buttonVariants
 } from '@dodecagon/ui';
-import { memo } from 'react';
+import { memo, useCallback, type ComponentProps } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TDialogBaseProps } from '../types';
 
@@ -22,24 +22,39 @@ type TConfirmActionDialogProps = TDialogBaseProps & {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: 'danger' | 'info';
+  finalFocus?: React.RefObject<HTMLElement | null>;
 };
 
 const ConfirmActionDialog = memo(
   ({
     isOpen,
+    close,
     onCancel,
     onConfirm,
     title,
     message,
     confirmLabel,
     cancelLabel,
-    variant = 'info'
+    variant = 'info',
+    finalFocus
   }: TConfirmActionDialogProps) => {
     const { t } = useTranslation('dialogs');
+    const handleCancel = onCancel ?? close;
+    const onOpenChange = useCallback<
+      NonNullable<ComponentProps<typeof AlertDialog>['onOpenChange']>
+    >(
+      (open, eventDetails) => {
+        if (!open && eventDetails.reason === 'escape-key') handleCancel();
+      },
+      [handleCancel]
+    );
 
     return (
-      <AlertDialog open={isOpen}>
-        <AlertDialogContent className="flex flex-col gap-0 p-0">
+      <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
+        <AlertDialogContent
+          finalFocus={finalFocus}
+          className="flex flex-col gap-0 p-0"
+        >
           <AlertDialogHeader className="px-6 pt-6 pb-5">
             <AlertDialogTitle>
               {title ?? t('confirmActionTitle')}
@@ -52,7 +67,7 @@ const ConfirmActionDialog = memo(
 
           <AlertDialogFooter className="gap-2.5 bg-nav px-6 py-4">
             <AlertDialogCancel
-              onClick={onCancel}
+              onClick={handleCancel}
               className="border-0 bg-raised text-foreground hover:bg-raised/80"
             >
               {cancelLabel ?? t('cancel')}
