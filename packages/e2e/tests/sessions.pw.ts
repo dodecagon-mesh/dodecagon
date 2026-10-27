@@ -341,3 +341,36 @@ test('a new session keeps the identity and never the password', async ({
     await context.close().catch(() => {});
   }
 });
+
+// the app used to answer the root with the login screen and only then resume the
+// session, so a cold start showed the form before the app appeared
+test('a cold start of the root resumes the session without the login form', async ({
+  browser
+}) => {
+  const context = await browser.newContext();
+
+  try {
+    const page = await context.newPage();
+
+    await page.goto('/');
+    await page.getByTestId(TestId.CONNECT_IDENTITY_INPUT).fill('testuser');
+    await page.getByTestId(TestId.CONNECT_PASSWORD_INPUT).fill('password123');
+    await page.getByTestId(TestId.CONNECT_AUTO_LOGIN_SWITCH).click();
+    await page.getByTestId(TestId.CONNECT_BUTTON).click();
+    await page.getByTestId(TestId.SERVER_VIEW).waitFor();
+
+    // a fresh tab holds no session token, so it is the auto-login of the stored
+    // account that has to bring the app back
+    const cold = await context.newPage();
+    const response = await cold.goto('/');
+    const html = (await response?.text()) ?? '';
+
+    expect(new URL(response!.url()).pathname).toBe('/');
+    expect(html).not.toContain(TestId.CONNECT_IDENTITY_INPUT);
+
+    await cold.getByTestId(TestId.SERVER_VIEW).waitFor();
+    expect(new URL(cold.url()).pathname).toBe('/app');
+  } finally {
+    await context.close().catch(() => {});
+  }
+});
