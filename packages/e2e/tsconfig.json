@@ -24,6 +24,7 @@
   /* TODO: this doesn't look right but fuck it for now, it's working*/
   "include": [
     "tests",
+    "scripts",
     "playwright.config.ts",
     "../../apps/server/src/declarations.d.ts"
   ]

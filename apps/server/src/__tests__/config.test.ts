@@ -139,7 +139,28 @@ describe('env overrides are validated', () => {
   });
 
   test('should leave the config untouched when no variable is set', () => {
-    expect(applyOverrides()).toEqual(zConfig.parse(defaultConfig));
+    // an ambient override (a stored e2e slot sets DODECAGON_WEBRTC_PORT, for example)
+    // would make this compare an overridden config against the defaults, so the whole
+    // override map is cleared for the test and restored exactly afterwards
+    const savedOverrides = Object.values(envOverridesMap).map(
+      (envVar): [string, string | undefined] => [envVar, process.env[envVar]]
+    );
+
+    for (const [envVar] of savedOverrides) {
+      delete process.env[envVar];
+    }
+
+    try {
+      expect(applyOverrides()).toEqual(zConfig.parse(defaultConfig));
+    } finally {
+      for (const [envVar, value] of savedOverrides) {
+        if (value === undefined) {
+          delete process.env[envVar];
+        } else {
+          process.env[envVar] = value;
+        }
+      }
+    }
   });
 
   test('should not mutate defaultConfig', () => {
