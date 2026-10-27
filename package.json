@@ -20,6 +20,7 @@
     "verify": "bun run check:fast && bun run test && bun run --filter '@dodecagon/server' build && bun run --filter '@dodecagon/server' test:bundle",
     "signoff": "bunx bun@1.4.4 run signoff:local",
     "signoff:local": "bun install --frozen-lockfile && bun run verify && bun run --filter '@dodecagon/e2e' test:e2e:shards && gh signoff build e2e",
+    "probe": "bun run --filter '@dodecagon/scripts' probe",
     "magic": "bun run format && bun run check-types && bun run lint"
   },
   "devDependencies": {
