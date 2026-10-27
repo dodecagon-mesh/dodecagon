@@ -1,12 +1,6 @@
 import z from 'zod';
 import { zHttpUrl, zPluginId } from './primitives';
 
-// const MARKETPLACE_REGISTRY_URL =
-//   'https://cdn.jsdelivr.net/gh/Sharkord/plugins@latest/plugins.json';
-
-const MARKETPLACE_REGISTRY_URL =
-  'https://raw.githubusercontent.com/Sharkord/plugins/refs/heads/main/plugins.json?raw=true';
-
 const zMarketplacePlugin = z.object({
   id: zPluginId,
   name: z.string().min(1),
@@ -54,7 +48,6 @@ type TMarketplacePluginVersion = z.infer<typeof zMarketplacePluginVersion>;
 type TMarketplaceEntry = z.infer<typeof zMarketplaceEntry>;
 
 export {
-  MARKETPLACE_REGISTRY_URL,
   parseMarketplaceRegistry,
   zMarketplaceEntry,
   zMarketplacePlugin,

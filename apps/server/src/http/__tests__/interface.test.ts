@@ -433,7 +433,9 @@ describe('/interface', () => {
     expect(response.headers.get('Content-Security-Policy')).toBeNull();
     expect(policy).toContain("default-src 'self'");
     expect(policy).toContain("script-src 'self' blob:");
-    expect(policy).toContain('https://raw.githubusercontent.com');
+    // the marketplace registry is fetched from this server now, so the page needs
+    // no third party host to be reachable
+    expect(policy).not.toContain('raw.githubusercontent.com');
   });
 
   test('should send the framing and referrer headers on every response', async () => {

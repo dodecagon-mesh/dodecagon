@@ -1,5 +1,5 @@
+import { getUrlFromServer } from '@/helpers/get-file-url';
 import {
-  MARKETPLACE_REGISTRY_URL,
   parseMarketplaceRegistry,
   type TMarketplaceEntry
 } from '@dodecagon/shared';
@@ -21,7 +21,7 @@ const useMarketplaceData = (t: TFunction<'settings'>) => {
     setError(null);
 
     try {
-      const response = await fetch(MARKETPLACE_REGISTRY_URL);
+      const response = await fetch(`${getUrlFromServer()}/plugins/registry`);
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
