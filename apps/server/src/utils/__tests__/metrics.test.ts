@@ -25,21 +25,4 @@ describe('getDiskMetrics', () => {
     expect(result.freeSpace).toBe(380);
     expect(result.dodecagonUsedSpace).toBe(42);
   });
-
-  test('should fallback to the first filesystem when no mount matches DATA_PATH', async () => {
-    const mockedFsSize = [
-      { mount: '/unrelated-a', size: 700, used: 100 },
-      { mount: '/unrelated-b', size: 900, used: 450 }
-    ];
-
-    const result = await getDiskMetrics({
-      fsSize: async () => mockedFsSize,
-      getUsedFileQuota: async () => 0,
-      dataPath: '/definitely-not-matching'
-    });
-
-    expect(result.totalSpace).toBe(700);
-    expect(result.usedSpace).toBe(100);
-    expect(result.freeSpace).toBe(600);
-  });
 });

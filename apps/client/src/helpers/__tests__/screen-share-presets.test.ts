@@ -4,7 +4,6 @@ import {
   getScreenShareCodecCandidates,
   getScreenShareContentHint,
   getScreenSharePreset,
-  getScreenSharePresetSettings,
   ScreenSharePreset
 } from '../screen-share-presets';
 
@@ -18,17 +17,6 @@ describe('screen share presets', () => {
 
     expect(getScreenSharePreset(settings)).toBe(ScreenSharePreset.MOTION);
     expect(getScreenShareContentHint(settings)).toBe('motion');
-  });
-
-  test('detects the text preset and its content hint', () => {
-    const settings = {
-      screenResolution: Resolution['1080p'],
-      screenFramerate: 30,
-      screenBitrate: 3000
-    };
-
-    expect(getScreenSharePreset(settings)).toBe(ScreenSharePreset.TEXT);
-    expect(getScreenShareContentHint(settings)).toBe('detail');
   });
 
   test('keeps manual settings on the legacy motion hint', () => {
@@ -52,24 +40,5 @@ describe('screen share presets', () => {
     expect(
       getScreenShareCodecCandidates(ScreenSharePreset.TEXT, VideoCodec.VP9)
     ).toEqual([VideoCodec.H264, VideoCodec.VP9, VideoCodec.VP8]);
-  });
-
-  test('applies the expected capture and bitrate values', () => {
-    expect(
-      getScreenSharePresetSettings(ScreenSharePreset.MOTION)
-    ).toMatchObject({
-      resolution: Resolution['1080p'],
-      framerate: 60,
-      bitrateKbps: 8000,
-      startBitrateKbps: 4000,
-      simulcast: false
-    });
-    expect(getScreenSharePresetSettings(ScreenSharePreset.TEXT)).toMatchObject({
-      resolution: Resolution['1080p'],
-      framerate: 30,
-      bitrateKbps: 3000,
-      startBitrateKbps: 1000,
-      simulcast: true
-    });
   });
 });

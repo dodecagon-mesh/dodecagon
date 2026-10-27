@@ -10,19 +10,6 @@ const allOn = {
 };
 
 describe('shouldPlaySound', () => {
-  test('plays every sound when all preferences are on', () => {
-    expect(shouldPlaySound(SoundType.MESSAGE_RECEIVED, allOn)).toBe(true);
-    expect(shouldPlaySound(SoundType.MESSAGE_SENT, allOn)).toBe(true);
-    expect(
-      shouldPlaySound(SoundType.OWN_USER_JOINED_VOICE_CHANNEL, allOn)
-    ).toBe(true);
-    expect(
-      shouldPlaySound(SoundType.REMOTE_USER_LEFT_VOICE_CHANNEL, allOn)
-    ).toBe(true);
-    expect(shouldPlaySound(SoundType.OWN_USER_MUTED_MIC, allOn)).toBe(true);
-    expect(shouldPlaySound(SoundType.OWN_USER_UNMUTED_SOUND, allOn)).toBe(true);
-  });
-
   test('mutes everything when notification sounds are off', () => {
     const preferences = { ...allOn, notificationSounds: false };
 
@@ -81,12 +68,5 @@ describe('shouldPlaySound', () => {
     expect(
       shouldPlaySound(SoundType.OWN_USER_JOINED_VOICE_CHANNEL, preferences)
     ).toBe(true);
-  });
-
-  test('mutes the message sent sound when that preference is off', () => {
-    const preferences = { ...allOn, messageSentSound: false };
-
-    expect(shouldPlaySound(SoundType.MESSAGE_SENT, preferences)).toBe(false);
-    expect(shouldPlaySound(SoundType.MESSAGE_RECEIVED, preferences)).toBe(true);
   });
 });

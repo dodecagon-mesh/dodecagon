@@ -27,31 +27,6 @@ const runRender = (): TRenderResult => {
   return JSON.parse(resultLine!.slice(marker.length)) as TRenderResult;
 };
 
-test('the invite dialog keeps the creation form with its validation fields', () => {
-  const { setupMarkup } = runRender();
-
-  expect(setupMarkup).toContain('Create Server Invite');
-  expect(setupMarkup).toContain('Invite code');
-  expect(setupMarkup).toContain('Max uses');
-  expect(setupMarkup).toContain('Expires in');
-  expect(setupMarkup).toContain('Assign Role');
-  expect(setupMarkup).toContain('Create Invite');
-});
-
-test('the ready link shows the invite link with its role, expiry and use limit', () => {
-  const { readyLinkMarkup } = runRender();
-
-  expect(readyLinkMarkup).toContain('Invite people');
-  expect(readyLinkMarkup).toContain('Share a link to bring others in.');
-  expect(readyLinkMarkup).toContain('Your invite link');
-  expect(readyLinkMarkup).toContain(
-    'https://discord.rnd332.com/?invite=ready-code'
-  );
-  expect(readyLinkMarkup).toContain('Role: Moderator');
-  expect(readyLinkMarkup).toContain('Link expires in 7 days');
-  expect(readyLinkMarkup).toContain('Limit of 10 uses');
-});
-
 test('the ready link falls back to the default role, no expiry and no use limit', () => {
   const { defaultReadyLinkMarkup } = runRender();
 

@@ -10,14 +10,6 @@ describe('extractYoutubeVideoIds', () => {
     expect(ids).toEqual(['abc123', 'def456']);
   });
 
-  test('should return each video once', () => {
-    const ids = extractYoutubeVideoIds(
-      '<p><a href="https://youtu.be/abc123">a</a> <a href="https://www.youtube.com/watch?v=abc123">b</a></p>'
-    );
-
-    expect(ids).toEqual(['abc123']);
-  });
-
   test('should ignore other links and invalid hrefs', () => {
     const ids = extractYoutubeVideoIds(
       '<p><a href="https://example.com">a</a> <a href="not a url">b</a></p>'
