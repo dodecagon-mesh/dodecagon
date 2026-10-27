@@ -1,5 +1,5 @@
+import { ConfirmActionDialog } from '@/components/dialogs/confirm-action';
 import { useModViewOpen } from '@/features/app/hooks';
-import { requestConfirmation } from '@/features/overlays/actions';
 import { usePreventExit } from '@/hooks/use-prevent-exit';
 import { cn } from '@/lib/utils';
 import { IconButton } from '@dodecagon/ui';
@@ -53,6 +53,9 @@ const SettingsShell = memo(
       () => initialEntryId ?? entries[0]?.id ?? ''
     );
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+    const [isLeaveConfirmationOpen, setIsLeaveConfirmationOpen] =
+      useState(false);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
     const { isOpen: isModViewOpen } = useModViewOpen();
 
     const scrollRef = useRef<HTMLElement | null>(null);
@@ -86,20 +89,18 @@ const SettingsShell = memo(
       [register, unregister]
     );
 
-    const confirmLeave = useCallback(async () => {
-      if (!isDirty) return true;
+    const handleClose = useCallback(() => {
+      if (isDirty) {
+        setIsLeaveConfirmationOpen(true);
+        return;
+      }
 
-      return requestConfirmation({
-        title: t('discardChangesTitle'),
-        message: t('discardChangesMsg'),
-        confirmLabel: t('discardChangesBtn'),
-        variant: 'danger'
-      });
-    }, [isDirty, t]);
+      close();
+    }, [isDirty, close]);
 
-    const handleClose = useCallback(async () => {
-      if (await confirmLeave()) close();
-    }, [confirmLeave, close]);
+    const closeLeaveConfirmation = useCallback(() => {
+      setIsLeaveConfirmationOpen(false);
+    }, []);
 
     const sectionRefCallbacks = useMemo(() => {
       const callbacks: Record<string, (element: HTMLElement | null) => void> =
@@ -272,6 +273,7 @@ const SettingsShell = memo(
                       className="pointer-events-auto md:hidden"
                     />
                     <IconButton
+                      ref={closeButtonRef}
                       icon={XMarkIcon}
                       variant="ghost"
                       size="lg"
@@ -309,6 +311,19 @@ const SettingsShell = memo(
             </main>
           </div>
         </div>
+        {isLeaveConfirmationOpen && (
+          <ConfirmActionDialog
+            isOpen
+            close={closeLeaveConfirmation}
+            onCancel={closeLeaveConfirmation}
+            onConfirm={close}
+            finalFocus={closeButtonRef}
+            title={t('discardChangesTitle')}
+            message={t('discardChangesMsg')}
+            confirmLabel={t('discardChangesBtn')}
+            variant="danger"
+          />
+        )}
       </SettingsFormContext.Provider>
     );
   }

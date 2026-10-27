@@ -9,6 +9,28 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, expect, test } from 'vitest';
 import { cdp, page, userEvent } from 'vitest/browser';
 
+const clickBackdrop = async () => {
+  const session = cdp();
+  const point = { x: 8, y: 8 };
+
+  await session.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    ...point,
+    button: 'left',
+    buttons: 1,
+    clickCount: 1,
+    pointerType: 'mouse'
+  });
+  await session.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    ...point,
+    button: 'left',
+    buttons: 0,
+    clickCount: 1,
+    pointerType: 'mouse'
+  });
+};
+
 let root: Root;
 
 beforeAll(async () => {
@@ -342,6 +364,128 @@ test('mobile settings controls stay reachable while server settings scroll', asy
   await closeSettings.click();
   await expect.element(heading).not.toBeInTheDocument();
 });
+
+test.each(['confirm', 'Enter', 'cancel', 'Escape'])(
+  'the name editor preserves the profile draft on %s',
+  async (action) => {
+    openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
+
+    const preview = page.getByRole('group', { name: 'Profile', exact: true });
+    await expect.element(preview).toBeVisible();
+    const previewElement = preview.element();
+    const bio = preview.getByRole('textbox', { name: 'Bio', exact: true });
+    await bio.fill('Unsaved bio before editing the name');
+    const name = preview.getByRole('button', { name: /Edit name/ });
+    await name.click();
+
+    const editor = page.getByRole('alertdialog', { name: 'Username' });
+    await expect.element(editor).toBeVisible();
+    const input = editor.getByRole('textbox', { name: 'Value', exact: true });
+    await expect.element(input).toHaveFocus();
+    await input.fill('Draft profile name');
+    await expect
+      .element(page.elementLocator(previewElement))
+      .toBeInTheDocument();
+    expect(previewElement.isConnected).toBe(true);
+    expect(previewElement.textContent).toContain(
+      'Unsaved bio before editing the name'
+    );
+    await clickBackdrop();
+    await expect.element(editor).toBeVisible();
+    await expect.element(input).toHaveValue('Draft profile name');
+    await input.click();
+
+    if (action === 'confirm') {
+      await editor
+        .getByRole('button', { name: 'Save Changes', exact: true })
+        .click();
+    } else if (action === 'Enter') {
+      await userEvent.keyboard('{Enter}');
+    } else if (action === 'cancel') {
+      await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+    } else {
+      await userEvent.keyboard('{Escape}');
+    }
+
+    await expect.element(editor).not.toBeInTheDocument();
+    await expect.element(preview).toBeVisible();
+    await expect
+      .element(bio)
+      .toHaveValue('Unsaved bio before editing the name');
+    const expectedName =
+      action === 'confirm' || action === 'Enter'
+        ? 'Draft profile name Edit name'
+        : 'rnd332 Edit name';
+    await expect.element(name).toHaveAccessibleName(expectedName);
+    await expect.element(name).toHaveFocus();
+    await expect
+      .element(page.getByRole('button', { name: 'Save Changes', exact: true }))
+      .toBeVisible();
+    await bio.fill('The retained bio is still editable');
+    await expect.element(bio).toHaveValue('The retained bio is still editable');
+
+    await name.click();
+    await expect
+      .element(editor.getByRole('textbox', { name: 'Value', exact: true }))
+      .toHaveValue('');
+    await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect.element(name).toHaveAccessibleName(expectedName);
+  }
+);
+
+test.each(['cancel', 'Escape'])(
+  'discard confirmation preserves the unsaved profile draft on %s',
+  async (action) => {
+    openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });
+
+    const preview = page.getByRole('group', { name: 'Profile', exact: true });
+    await expect.element(preview).toBeVisible();
+    const bio = preview.getByRole('textbox', { name: 'Bio', exact: true });
+    await bio.fill('Unsaved profile bio');
+    const name = preview.getByRole('button', { name: /Edit name/ });
+    await name.click();
+    const editor = page.getByRole('alertdialog', { name: 'Username' });
+    await editor
+      .getByRole('textbox', { name: 'Value', exact: true })
+      .fill('Unsaved name');
+    await editor
+      .getByRole('button', { name: 'Save Changes', exact: true })
+      .click();
+
+    const close = page.getByRole('button', { name: 'Close', exact: true });
+    await close.click();
+    const confirmation = page.getByRole('alertdialog', {
+      name: 'Discard unsaved changes?'
+    });
+    await expect.element(confirmation).toBeVisible();
+    await clickBackdrop();
+    await expect.element(confirmation).toBeVisible();
+
+    if (action === 'cancel') {
+      await confirmation
+        .getByRole('button', { name: 'Cancel', exact: true })
+        .click();
+    } else {
+      await userEvent.keyboard('{Escape}');
+    }
+
+    await expect.element(confirmation).not.toBeInTheDocument();
+    await expect.element(preview).toBeVisible();
+    await expect.element(name).toHaveAccessibleName('Unsaved name Edit name');
+    await expect.element(bio).toHaveValue('Unsaved profile bio');
+    await expect.element(close).toHaveFocus();
+    await expect
+      .element(page.getByRole('button', { name: 'Save Changes', exact: true }))
+      .toBeVisible();
+
+    await userEvent.keyboard('{Escape}');
+    await expect.element(confirmation).toBeVisible();
+    await confirmation
+      .getByRole('button', { name: 'Discard', exact: true })
+      .click();
+    await expect.element(preview).not.toBeInTheDocument();
+  }
+);
 
 test('Escape confirms before discarding unsaved profile changes', async () => {
   openOverlay({ kind: 'serverScreen', name: ServerScreen.USER_SETTINGS });

@@ -1,7 +1,7 @@
+import { TextInputDialog } from '@/components/dialogs/text-input';
 import { SettingsSection } from '@/components/server-screens/settings-shell/section';
 import { useSettingsForm } from '@/components/server-screens/settings-shell/use-settings-form';
 import { UserStatusBadge } from '@/components/user-status';
-import { requestTextInput } from '@/features/overlays/actions';
 import { useOwnPublicUser } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
@@ -19,7 +19,7 @@ import {
 } from '@dodecagon/ui';
 import { PaintBrushIcon } from '@heroicons/react/24/outline';
 import { format } from 'date-fns';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ColorPickerPopover } from './color-picker-popover';
 
@@ -44,6 +44,8 @@ const Profile = memo(() => {
   const pickImage = usePickImage();
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
   const [isBannerMenuOpen, setIsBannerMenuOpen] = useState(false);
+  const [isNameDialogOpen, setIsNameDialogOpen] = useState(false);
+  const nameButtonRef = useRef<HTMLButtonElement>(null);
 
   const onSave = useCallback(async (values: TProfileValues) => {
     const trpc = getTRPCClient();
@@ -89,17 +91,23 @@ const Profile = memo(() => {
     event.stopPropagation();
   }, []);
 
-  const handleEditName = useCallback(async () => {
-    const nextName = await requestTextInput({
-      title: t('usernameLabel'),
-      confirmLabel: t('saveChanges'),
-      allowEmpty: false
-    });
+  const handleEditName = useCallback(() => {
+    setIsNameDialogOpen(true);
+  }, []);
 
-    if (!nextName) return;
+  const handleCloseName = useCallback(() => {
+    setIsNameDialogOpen(false);
+  }, []);
 
-    onChange('name', nextName);
-  }, [onChange, t]);
+  const handleConfirmName = useCallback(
+    (nextName: string | undefined) => {
+      setIsNameDialogOpen(false);
+      if (!nextName) return;
+
+      onChange('name', nextName);
+    },
+    [onChange]
+  );
 
   const handleBioChange = useCallback(
     (event: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -256,6 +264,7 @@ const Profile = memo(() => {
 
           <button
             type="button"
+            ref={nameButtonRef}
             onClick={handleEditName}
             className="block max-w-full truncate text-lg font-semibold leading-6 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
@@ -288,6 +297,18 @@ const Profile = memo(() => {
           </div>
         </div>
       </div>
+      {isNameDialogOpen && (
+        <TextInputDialog
+          isOpen
+          isModalOpen
+          close={handleCloseName}
+          onConfirm={handleConfirmName}
+          finalFocus={nameButtonRef}
+          title={t('usernameLabel')}
+          confirmLabel={t('saveChanges')}
+          allowEmpty={false}
+        />
+      )}
     </SettingsSection>
   );
 });

@@ -1213,6 +1213,9 @@ test('profile settings edit a live preview that matches the user popover', async
     const previewBannerImage = banner.querySelector('img');
     expect(previewBannerImage).toBeNull();
 
+    const bioInput = preview.getByRole('textbox', { name: 'Bio' });
+    await bioInput.fill('A live preview');
+
     const nameButton = preview.getByRole('button', { name: /Edit name/ });
     await nameButton.click();
     const nameDialog = page.getByRole('alertdialog');
@@ -1227,10 +1230,13 @@ test('profile settings edit a live preview that matches the user popover', async
       .element(nameButton)
       .toHaveAccessibleName('Preview name Edit name');
 
-    // the bio is a plain field in the preview, it saves itself
-    const bioInput = preview.getByRole('textbox', { name: 'Bio' });
-    await bioInput.fill('A live preview');
     await expect.element(bioInput).toHaveValue('A live preview');
+    expect(banner.querySelector('img')).toBeNull();
+    expect(getComputedStyle(banner).backgroundColor).toBe('rgb(171, 205, 239)');
+    await bioInput.fill('The profile bio is still editable');
+    await expect
+      .element(bioInput)
+      .toHaveValue('The profile bio is still editable');
 
     closeOverlay();
     updateUser(ownUser.id, { banner: originalBanner });
@@ -1351,8 +1357,11 @@ test('saved profile edits stay synchronized with the user popover', async () => 
       exact: true
     });
     await saveNameButton.click();
+    await expect.element(preview).toBeVisible();
+    await expect
+      .element(nameButton)
+      .toHaveAccessibleName('Profile sync test Edit name');
 
-    // the bio is a plain field in the preview, it saves itself
     const bioInput = preview.getByRole('textbox', { name: 'Bio' });
     await bioInput.fill('Profile sync bio');
 
