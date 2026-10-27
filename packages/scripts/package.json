@@ -12,8 +12,11 @@
     "lint:fix": "eslint ./src/**/*.ts --ext ts --report-unused-disable-directives --fix",
     "check-types": "tsc --noEmit",
     "magic": "bun --bun run lint:fix && bun --bun run format && bun --bun run check-types",
+    "agent-slot": "bun ./src/agent-slot.ts",
+    "prune-worktrees": "bun ./src/prune-worktrees.ts",
     "probe": "bun ./src/reachability-probe.ts",
-    "synci18n": "bun ./src/sync-i18n.ts"
+    "synci18n": "bun ./src/sync-i18n.ts",
+    "test-changed": "bun ./src/test-changed.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

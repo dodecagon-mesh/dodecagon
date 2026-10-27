@@ -486,6 +486,41 @@ Every new behaviour needs tests and the whole suite must pass, see [Testing](#te
 
 ## Agent workflow for this fork
 
+### Agent workspace
+
+Every parallel checkout gets its own slot instead of the default ports. A slot owns an HTTP
+and Vite pair, a WebRTC media port, a Playwright MCP port, per-shard E2E ports, and a data
+directory under `~/.agents/dodecagon/slots/<slot>/`. Never add new code that uses 4991,
+5173 or 40000: a foreign dev server already holds them.
+
+```bash
+bun run agent:claim DOD-123-short-name   # claim the first free slot for this worktree
+eval "$(bun run agent:env)"              # load the slot exports into the shell
+bun run agent:dev                        # server + client on the slot ports
+bun run agent:check                      # fast loop: check:fast + changed tests
+bun run agent:signoff                    # merge gate, once per branch after the final push
+bun run agent:doctor                     # slot, ports, listeners, git state
+bun run agent:release                    # stop recorded pids and free the slot
+bun run agent:prune                      # dry-run the safe worktree prune
+```
+
+The host also runs `sharkord-worktree-prune.timer` daily. It removes only worktrees
+whose merged PR head still equals the local branch, whose tree is clean, that have no
+running process or slot claim, and that are older than three days. Use `agent:prune --
+--apply` only to run it by hand.
+
+`agent:dev`, `agent:check` and `agent:signoff` load the slot environment themselves.
+`agent:check` is the medium tier. For the small tier run `bun run test:changed` (or
+`--full`) after a change; it maps the changed files to the nearest tests and falls back to
+the package suite when it cannot narrow safely. The merge tier is `agent:signoff`; it takes
+the machine-wide `heavy.lock`, runs the full signoff with the slot ports and posts the live
+`gh signoff` statuses. Do not run the full signoff for a tiny change or more than once for
+the same pushed commit.
+
+One Playwright MCP server per slot: `bun run agent:mcp` prints a JSON `mcpServers` entry
+with the slot's profile directory and port (`9000 + slot`). Point the agent at the Vite URL
+from `agent:env` (`http://localhost:<VITE_PORT>`), not at a shared browser profile.
+
 - Work on a branch `agent/<task>` from `master`. Never push to `master` directly; open a PR
   into `master`.
 - `master` merges are gated by the `signoff` ruleset, not by GitHub Actions. Run

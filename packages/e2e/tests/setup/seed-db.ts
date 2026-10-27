@@ -2,8 +2,6 @@ import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import fs from 'fs/promises';
 import path from 'path';
-import { seedTestDb } from '../../../../apps/server/src/__tests__/seed';
-import { migrateDatabase } from '../../../../apps/server/src/db/migrate';
 import { e2eDataPath } from '../statics';
 
 // run by the `seed:e2e` script before playwright starts, not from a globalSetup hook:
@@ -11,6 +9,12 @@ import { e2eDataPath } from '../statics';
 // server had already booted on and production-seeded, and the server's open handle would keep
 // serving the old rows. seeding first means the server's seedDatabase() finds a settings row
 // and no-ops, which is what keeps the fixtures out of apps/server's boot path
+
+// config.ts derives the database, backup and log paths from DODECAGON_DATA_PATH while it is
+// imported, so the variable has to exist before the server modules are evaluated. static
+// imports are hoisted above this assignment (and the import organizer is free to reorder
+// them), so the two server modules are loaded only after the environment is in place
+process.env.DODECAGON_DATA_PATH = e2eDataPath;
 
 const MIGRATIONS_PATH = path.resolve(
   import.meta.dir,
@@ -21,6 +25,11 @@ const MIGRATIONS_PATH = path.resolve(
 // single-row settings index rather than fail with anything readable
 await fs.rm(e2eDataPath, { recursive: true, force: true });
 await fs.mkdir(e2eDataPath, { recursive: true });
+
+const { seedTestDb } =
+  await import('../../../../apps/server/src/__tests__/seed');
+const { migrateDatabase } =
+  await import('../../../../apps/server/src/db/migrate');
 
 const sqlite = new Database(path.join(e2eDataPath, 'db.sqlite'), {
   create: true,

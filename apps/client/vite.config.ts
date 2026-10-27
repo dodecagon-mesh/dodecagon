@@ -35,6 +35,11 @@ export default defineConfig(({ command, mode }) => {
       target: 'esnext',
       manifest: true
     },
+    // parallel e2e shards each run their own vite server, and a shared node_modules/.vite
+    // makes them rewrite the same optimized deps while the others read them
+    ...(process.env.DOD_VITE_CACHE_DIR
+      ? { cacheDir: path.resolve(process.env.DOD_VITE_CACHE_DIR) }
+      : {}),
     // the start server bundle travels inside the server binary and is imported
     // from the data directory, where node_modules cannot be resolved. every
     // dependency has to be bundled into it. the dev server keeps the packages
