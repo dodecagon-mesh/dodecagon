@@ -1,4 +1,9 @@
 import { useOwnVoiceUser } from '@/features/server/hooks';
+import {
+  canUseAudioContext,
+  createAudioContext,
+  subscribeToAudioPipelineLoss
+} from '@/helpers/audio-pipeline';
 import { useEffect, useRef, useState } from 'react';
 
 const ANALYZER_FFT_SIZE = 512;
@@ -25,16 +30,17 @@ let sharedAudioContext: AudioContext | null = null;
 let sharedAudioContextRefCount = 0;
 
 const getSharedAudioContext = (): AudioContext | null => {
-  if (!sharedAudioContext || sharedAudioContext.state === 'closed') {
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
+  if (!canUseAudioContext(sharedAudioContext)) {
+    const stale = sharedAudioContext;
 
-    if (!AudioContextClass) return null;
-
-    sharedAudioContext = new AudioContextClass();
+    sharedAudioContext = createAudioContext();
     sharedAudioContextRefCount = 0;
+
+    // the context of a dead device is past closing cleanly, but it still holds
+    // one of the per-page slots
+    stale?.close().catch(() => {});
+
+    if (!sharedAudioContext) return null;
   }
 
   sharedAudioContextRefCount += 1;
@@ -47,7 +53,7 @@ const releaseSharedAudioContext = () => {
 
   if (sharedAudioContextRefCount > 0) return;
 
-  sharedAudioContext?.close();
+  sharedAudioContext?.close().catch(() => {});
   sharedAudioContext = null;
   sharedAudioContextRefCount = 0;
 };
@@ -57,6 +63,17 @@ const useAudioLevel = (audioStream: MediaStream | undefined) => {
   const [intensity, setIntensity] = useState(0);
   const animationFrameRef = useRef<number | null>(null);
   const ownVoiceUser = useOwnVoiceUser();
+  const [pipelineGeneration, setPipelineGeneration] = useState(0);
+
+  // a lost device takes the analyser down with it, and only a fresh context with
+  // a fresh analyser brings the level back
+  useEffect(
+    () =>
+      subscribeToAudioPipelineLoss(() =>
+        setPipelineGeneration((generation) => generation + 1)
+      ),
+    []
+  );
 
   useEffect(() => {
     if (!audioStream || ownVoiceUser?.state.soundMuted) {
@@ -127,7 +144,7 @@ const useAudioLevel = (audioStream: MediaStream | undefined) => {
       setIsSpeaking(false);
       setIntensity(0);
     };
-  }, [audioStream, ownVoiceUser?.state.soundMuted]);
+  }, [audioStream, ownVoiceUser?.state.soundMuted, pipelineGeneration]);
 
   return { isSpeaking, intensity };
 };

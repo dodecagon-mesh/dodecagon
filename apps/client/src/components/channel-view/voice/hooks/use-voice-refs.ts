@@ -3,6 +3,10 @@ import { useVolumeControl } from '@/components/voice-provider/volume-control-con
 import { useIsOwnUser } from '@/features/server/users/hooks';
 import { useVoice } from '@/features/server/voice/hooks';
 import { applyAudioOutputDevice } from '@/helpers/audio-output';
+import {
+  resumeMediaPlayback,
+  subscribeToAudioPipelineLoss
+} from '@/helpers/audio-pipeline';
 import { StreamKind } from '@dodecagon/shared';
 import { useEffect, useMemo } from 'react';
 
@@ -197,6 +201,18 @@ const useVoiceRefs = (
     screenShareAudioStream,
     externalAudioStream
   ]);
+
+  // a killed audio service pauses every element that plays a stream, and
+  // chromium never resumes them on its own
+  useEffect(
+    () =>
+      subscribeToAudioPipelineLoss(() => {
+        void resumeMediaPlayback(audioRef.current);
+        void resumeMediaPlayback(screenShareAudioRef.current);
+        void resumeMediaPlayback(externalAudioRef.current);
+      }),
+    [audioRef, screenShareAudioRef, externalAudioRef]
+  );
 
   return {
     videoRef,

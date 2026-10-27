@@ -6,6 +6,7 @@ import {
 } from '@/features/app/selectors';
 import { SoundType } from '@/features/server/types';
 import { store } from '@/features/store';
+import { canUseAudioContext, createAudioContext } from './audio-pipeline';
 
 let audioCtx: AudioContext;
 let hasAudioContext = false;
@@ -30,21 +31,8 @@ const MUTE_DEAFEN_SOUND_TYPES = new Set<SoundType>([
   SoundType.OWN_USER_UNMUTED_SOUND
 ]);
 
-const createAudioContext = (): AudioContext | null => {
-  const AudioContextCtor =
-    window.AudioContext ||
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).webkitAudioContext;
-
-  if (!AudioContextCtor) {
-    return null;
-  }
-
-  return new AudioContextCtor();
-};
-
 const getAudioContext = (): AudioContext | null => {
-  if (hasAudioContext && audioCtx.state === 'closed') {
+  if (hasAudioContext && !canUseAudioContext(audioCtx)) {
     hasAudioContext = false;
   }
 
