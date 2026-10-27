@@ -56,8 +56,10 @@ const addRoot = (id: string) => {
   document.body.append(element);
 };
 
-const snapshot = (name: string) =>
-  expect(page).toMatchScreenshot(name, { timeout: 3_000 });
+const snapshot = async (name: string) => {
+  await document.fonts.ready;
+  await expect(page).toMatchScreenshot(name, { timeout: 3_000 });
+};
 
 const messageAuthor = (name: string) => {
   const container = document.querySelector('[data-messages-container]')!;
@@ -244,6 +246,12 @@ beforeEach(async () => {
 afterEach(async () => {
   closeOverlay();
   toast.dismiss();
+
+  const directChannels = document.querySelector<HTMLButtonElement>(
+    'button[aria-label="Direct Channels"][aria-expanded="true"]'
+  );
+  directChannels?.click();
+
   for (let attempt = 0; attempt < 20; attempt++) {
     await waitForRender();
     if (!document.querySelector('[data-sonner-toast]')) break;
@@ -1637,6 +1645,7 @@ test('theme settings keep the approved layout and remain usable on a narrow view
     .element(page.getByRole('button', { name: 'Preview Ryūko', exact: true }))
     .toBeVisible();
   await userEvent.unhover(document.body);
+  await document.fonts.ready;
   await expect(page.elementLocator(document.documentElement)).toMatchScreenshot(
     'theme-settings',
     { timeout: 3_000 }

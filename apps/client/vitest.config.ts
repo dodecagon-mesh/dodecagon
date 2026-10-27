@@ -52,6 +52,7 @@ export default defineConfig({
   test: {
     include: ['src/visual-tests/**/*.vrt.ts'],
     globalSetup: ['./src/visual-tests/global-setup.ts'],
+    setupFiles: ['./src/visual-tests/browser-setup.ts'],
     fileParallelism: false,
     testTimeout: 15_000,
     browser: {
