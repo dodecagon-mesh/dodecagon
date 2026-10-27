@@ -1,15 +1,16 @@
-import { getRequestContext } from '@/features/server/request-context';
+import { readRequestContext } from '@/features/server/request-context';
 import { getServerInfo } from '@/features/server/server-functions';
+import { retryingFetch } from '@/helpers/retrying-fetch';
 import { Connect } from '@/screens/connect';
 import { createFileRoute } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/connect')({
-  loader: async () => {
+  loader: async ({ location }) => {
+    const search = location.searchStr;
     const [info, requestContext] = await Promise.all([
-      getServerInfo(),
-      getRequestContext()
+      getServerInfo({ fetch: retryingFetch }),
+      readRequestContext()
     ]);
-    const search = requestContext.search;
 
     return {
       info,

@@ -4,7 +4,7 @@ import { getRequest } from '@tanstack/react-start/server';
 
 // the server has no local storage and no navigator, so the language and the
 // state of the connection come from the request of the browser
-const readRequestContext = async () => {
+const readServerRequestContext = async () => {
   const request = getRequest();
   const url = new URL(request.url);
 
@@ -20,4 +20,4 @@ const readRequestContext = async () => {
   };
 };
 
-export { readRequestContext };
+export { readServerRequestContext };

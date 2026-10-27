@@ -265,3 +265,17 @@ if (isSavedLanguageValid && !getLanguageCookie()) {
 }
 
 export const i18n = clientInstance;
+
+// the browser holds the choice of the user directly, the server has to read it
+// from the cookie of the request. both paths answer with the same language
+export const getBrowserLanguage = (): SupportedLanguage => {
+  const saved = getSavedLanguage();
+
+  if (saved) return saved;
+
+  const current = clientInstance.language;
+
+  return SUPPORTED_LANGUAGES.some((language) => language.code === current)
+    ? (current as SupportedLanguage)
+    : detectBrowserLanguage();
+};
