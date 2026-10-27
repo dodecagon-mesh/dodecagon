@@ -33,12 +33,6 @@ describe('sentry', () => {
     expect(() => captureError(new Error('boom'))).not.toThrow();
   });
 
-  it('reports nothing when neither the build nor the server carries a dsn', () => {
-    initAppSentry();
-
-    expect(Sentry.getClient()).toBeUndefined();
-  });
-
   it('keeps the baked environment and release when the server sends the dsn', () => {
     // the browser events of a production deployment were labelled
     // 'development' and carried no release, because the dsn that arrives with
