@@ -13,6 +13,7 @@ const seedEntry = path.join(
   'packages/e2e/tests/setup/seed-db.ts'
 );
 const visualSeedEntry = path.join(import.meta.dirname, 'seed.ts');
+const serverPreload = path.join(import.meta.dirname, 'server-preload.ts');
 const visualTestServerPort = process.env.DODECAGON_TEST_PORT || '4991';
 const serverUrl = `http://localhost:${visualTestServerPort}/info`;
 const serverLifetimeMs = 180_000;
@@ -135,7 +136,7 @@ const startSetup = async () => {
   await run('bun', [seedEntry]);
   await run('bun', [visualSeedEntry]);
 
-  const server = spawn('bun', [serverEntry], {
+  const server = spawn('bun', ['--preload', serverPreload, serverEntry], {
     cwd: serverRoot,
     env: {
       ...process.env,
