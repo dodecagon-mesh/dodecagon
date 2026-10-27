@@ -90,8 +90,10 @@ test('takes over the language of the user without a mismatch of the hydration', 
     .toBe('en');
 
   // the page asked for itself again, because the request that was already
-  // running could not carry the cookie
-  expect(documents.length).toBeGreaterThan(2);
+  // running could not carry the cookie. the root renders a waiting shell rather
+  // than redirecting to the form of the sign in, so the reload is one extra
+  // document on top of the first one, not two
+  expect(documents.length).toBeGreaterThan(1);
 
   expect(hydrationErrors).toEqual([]);
 });
