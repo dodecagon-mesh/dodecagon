@@ -30,8 +30,11 @@ declare global {
 
   const VITE_APP_VERSION: string;
   const VITE_SERVER_PORT: string;
-  const VITE_SENTRY_DSN: string;
-  const VITE_SENTRY_ENVIRONMENT: string;
+
+  // rendered into the html by the server: the dsn and the environment of this
+  // deployment, absent when the operator configured no tracker
+  const __DODECAGON_ERRORS__:
+    { dsn: string; environment: string | null } | undefined;
 }
 
 // this provides type definitions for i18n setup

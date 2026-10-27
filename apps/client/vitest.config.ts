@@ -45,7 +45,6 @@ export default defineConfig({
     // the connect screen footer shows the app version, so the screenshots use a
     // fixed one instead of the version of the current build
     VITE_APP_VERSION: JSON.stringify('0.0.0-test'),
-    VITE_SENTRY_DSN: JSON.stringify(''),
     VITE_SERVER_PORT: JSON.stringify(process.env.DODECAGON_TEST_PORT || '4991')
   },
   server: { fs: { allow: fsAllow } },

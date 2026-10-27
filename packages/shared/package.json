@@ -1,6 +1,6 @@
 {
   "name": "@dodecagon/shared",
-  "version": "0.0.82",
+  "version": "0.0.83",
   "type": "module",
   "sideEffects": false,
   "private": true,

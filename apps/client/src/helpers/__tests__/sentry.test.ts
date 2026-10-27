@@ -33,17 +33,20 @@ describe('sentry', () => {
     expect(() => captureError(new Error('boom'))).not.toThrow();
   });
 
-  it('keeps the baked environment and release when the server sends the dsn', () => {
+  it('reports with the dsn, environment and release of the deployment', () => {
     // the browser events of a production deployment were labelled
-    // 'development' and carried no release, because the dsn that arrives with
+    // 'development' and carried no release, because the dsn that arrived with
     // the public settings opened the client without them
     Object.assign(globalThis, {
-      VITE_SENTRY_ENVIRONMENT: 'production',
+      __DODECAGON_ERRORS__: {
+        dsn: 'https://client@errors.example.com/2',
+        environment: 'production'
+      },
       VITE_APP_VERSION: '1.2.3'
     });
 
     try {
-      initAppSentry('https://client@errors.example.com/2');
+      initAppSentry();
 
       const options = Sentry.getClient()?.getOptions();
 
@@ -51,7 +54,30 @@ describe('sentry', () => {
       expect(options?.environment).toBe('production');
       expect(options?.release).toBe('1.2.3');
     } finally {
-      Reflect.deleteProperty(globalThis, 'VITE_SENTRY_ENVIRONMENT');
+      Reflect.deleteProperty(globalThis, '__DODECAGON_ERRORS__');
+      Reflect.deleteProperty(globalThis, 'VITE_APP_VERSION');
+    }
+  });
+
+  it('keeps the environment of the deployment when the server sends its dsn', () => {
+    Object.assign(globalThis, {
+      __DODECAGON_ERRORS__: {
+        dsn: 'https://rendered@errors.example.com/2',
+        environment: 'production'
+      },
+      VITE_APP_VERSION: '1.2.3'
+    });
+
+    try {
+      initAppSentry('https://settings@errors.example.com/2');
+
+      const options = Sentry.getClient()?.getOptions();
+
+      expect(options?.dsn).toBe('https://settings@errors.example.com/2');
+      expect(options?.environment).toBe('production');
+      expect(options?.release).toBe('1.2.3');
+    } finally {
+      Reflect.deleteProperty(globalThis, '__DODECAGON_ERRORS__');
       Reflect.deleteProperty(globalThis, 'VITE_APP_VERSION');
     }
   });
