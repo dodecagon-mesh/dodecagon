@@ -1,8 +1,9 @@
 import { ServerEvents, StreamKind } from '@dodecagon/shared';
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import type { Consumer, Producer } from 'mediasoup/types';
 import { getTestVoiceConnection } from '../../__tests__/voice-connection';
 import { config } from '../../config';
+import { logger } from '../../logger';
 import { eventBus } from '../../plugins/event-bus';
 import { pubsub } from '../../utils/pubsub';
 import { EXTERNAL_STREAM_ID_BASE, VoiceRuntime } from '../voice';
@@ -923,6 +924,54 @@ describe('VoiceRuntime direct media fallback', () => {
       stateSubscription.unsubscribe();
       senderSignal.unsubscribe();
       peerSignal.unsubscribe();
+      config.webRtc.holepunchMediaEnabled = previous;
+      await runtime.destroy();
+    }
+  });
+
+  test('a failed attempt writes one structured diagnostic line without participant ids', async () => {
+    const runtime = createRuntime();
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
+    const previous = config.webRtc.holepunchMediaEnabled;
+    config.webRtc.holepunchMediaEnabled = true;
+    const info = spyOn(logger, 'info');
+    try {
+      runtime.registerDirectMediaSubscriber(1, true);
+      runtime.registerDirectMediaSubscriber(2, true);
+      const session = runtime.startDirectMedia(1, StreamKind.AUDIO, 2);
+      expect(session).not.toBeNull();
+
+      await runtime.signalDirectMedia(session!.sessionId, 1, {
+        type: 'fallback'
+      });
+      expect(runtime.startDirectMedia(1, StreamKind.AUDIO, 2)).toBeNull();
+
+      const lines = info.mock.calls
+        .map((call) => call.map(String).join(' '))
+        .filter((line) => line.includes('direct-media '));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('"outcome":"failed"');
+      expect(lines[0]).toContain('"reason":"fallback"');
+      expect(lines[0]).toContain('"ref":"');
+      expect(lines[0]).not.toContain('"senderId"');
+      expect(lines[0]).not.toContain('"peerId"');
+
+      const declined = info.mock.calls
+        .map((call) => call.map(String).join(' '))
+        .filter((line) => line.includes('direct-media-declined '));
+      expect(declined).toHaveLength(1);
+      expect(declined[0]).toContain('"reason":"latched"');
+    } finally {
+      info.mockRestore();
       config.webRtc.holepunchMediaEnabled = previous;
       await runtime.destroy();
     }

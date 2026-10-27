@@ -275,6 +275,10 @@ const OverviewTab = memo(
         <Pill label="transports" value={snapshot.transports.length} />
         <Pill label="producers" value={snapshot.producers.length} />
         <Pill label="consumers" value={snapshot.consumers.length} />
+        <Pill
+          label="direct connections"
+          value={snapshot.directConnections.length}
+        />
         <Pill label="router codecs" value={snapshot.routerCodecs.length} />
         <Pill label="device codecs" value={snapshot.deviceCodecs.length} />
       </div>
@@ -327,6 +331,44 @@ const OverviewTab = memo(
           rates={rates}
         />
       ))}
+      {snapshot.directConnections.map((direct) => (
+        <Section
+          key={`${direct.peerId}/${direct.kind}/${direct.direction}`}
+          title={`direct · user ${direct.peerId} · ${direct.kind} · ${direct.direction}`}
+        >
+          <div className="flex flex-wrap gap-1.5">
+            <Pill
+              label="connection"
+              value={direct.connectionState}
+              tone={getStateTone(direct.connectionState)}
+            />
+            <Pill
+              label="ICE"
+              value={direct.iceConnectionState}
+              tone={getStateTone(direct.iceConnectionState)}
+            />
+            <Pill label="stats" value={direct.stats.length} />
+          </div>
+        </Section>
+      ))}
+
+      {!!snapshot.p2pDiagnostics.length && (
+        <Section title="direct media attempts">
+          {snapshot.p2pDiagnostics
+            .slice(-8)
+            .reverse()
+            .map((record) => (
+              <p key={record.ref} className="break-all font-mono text-[11px]">
+                {record.kind} {record.role}: {record.outcome ?? 'active'}
+                {record.reason ? ` · ${record.reason}` : ''}
+                {record.durationMs !== undefined
+                  ? ` · ${record.durationMs}ms`
+                  : ''}
+                {record.sessionRef ? ` · ${record.sessionRef}` : ''}
+              </p>
+            ))}
+        </Section>
+      )}
 
       {snapshot.producers.map((producer) => (
         <ProducerOverview key={producer.id} producer={producer} rates={rates} />

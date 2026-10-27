@@ -27,7 +27,13 @@ import type {
   WebRtcTransport
 } from 'mediasoup/types';
 import { config } from '../config';
+import {
+  buildDirectMediaDiagnostic,
+  buildDirectMediaDiagnosticEvent,
+  shouldReportDirectMediaDiagnostic
+} from '../helpers/direct-media-diagnostics';
 import { getIceServers } from '../helpers/get-ice-servers';
+import { captureDiagnostic } from '../helpers/sentry';
 import { logger } from '../logger';
 import { eventBus } from '../plugins/event-bus';
 import { invariant } from '../utils/invariant';
@@ -179,6 +185,12 @@ type TDirectMediaRuntimeSession = {
     'pending' | 'offered' | 'answered' | 'activating' | 'ready' | 'retiring';
   producerId?: string;
   deadline?: NodeJS.Timeout;
+  startedAt: number;
+  offeredAt?: number;
+  answeredAt?: number;
+  readyAt?: number;
+  endReason?: 'deadline' | 'fallback' | 'stop' | 'unwatch';
+  diagnosticLogged?: boolean;
   relayConsumers?: readonly TRetainedDirectMediaConsumer[];
   relayConsumerIds?: ReadonlyMap<TRelayDemandEvent['kind'], string>;
   transition?: Promise<void>;
@@ -753,6 +765,7 @@ class VoiceRuntime {
       for (const session of this.directMediaSessions.values()) {
         if (session.senderId !== userId || session.kind !== StreamKind.SCREEN)
           continue;
+        session.endReason = 'stop';
         void this.endDirectMediaSession(session, {
           type: 'stop',
           restoreRelay: false
@@ -855,21 +868,35 @@ class VoiceRuntime {
   ): TDirectMediaSession | null => {
     if (!config.webRtc.holepunchMediaEnabled) return null;
     const peer = this.getUser(peerId);
-    if (!peer || !this.canStartDirectMediaPair(senderId, peer.userId, kind))
-      return null;
+    if (!peer) return null;
     const outgoingKey = this.getDirectMediaOutgoingKey(
       senderId,
       kind,
       peer.userId
     );
-    if (this.directMediaOutgoing.has(outgoingKey)) return null;
+    if (this.directMediaFailedPairs.has(outgoingKey)) {
+      logger.info(
+        'direct-media-declined %s',
+        JSON.stringify({ kind, reason: 'latched' })
+      );
+      return null;
+    }
+    if (!this.canStartDirectMediaPair(senderId, peer.userId, kind)) return null;
+    if (this.directMediaOutgoing.has(outgoingKey)) {
+      logger.info(
+        'direct-media-declined %s',
+        JSON.stringify({ kind, reason: 'in_flight' })
+      );
+      return null;
+    }
     const session: TDirectMediaRuntimeSession = {
       kind,
       id: crypto.randomUUID(),
       senderId,
       peerId: peer.userId,
       producerId: this.getProducer(kind, senderId)?.id,
-      phase: 'pending'
+      phase: 'pending',
+      startedAt: Date.now()
     };
     if (kind === StreamKind.SCREEN) {
       this.updateDirectMediaRelayConsumers(
@@ -883,6 +910,7 @@ class VoiceRuntime {
         : DIRECT_MEDIA_SERVER_CONNECT_TIMEOUT_MS;
     session.deadline = setTimeout(() => {
       if (this.directMediaSessions.get(session.id) !== session) return;
+      session.endReason = 'deadline';
       void this.endDirectMediaSession(session, {
         type: 'fallback',
         latchFailure: true,
@@ -933,6 +961,7 @@ class VoiceRuntime {
         signal.reason === 'unwatch' &&
         userId === retiring.peerId;
       if (unwatch) {
+        retiring.endReason = 'unwatch';
         await this.endDirectMediaSession(retiring, {
           type: 'fallback',
           reason: 'unwatch',
@@ -954,6 +983,11 @@ class VoiceRuntime {
         code: 'FORBIDDEN',
         message: 'Only the receiver can cancel watching'
       });
+      session.endReason = unwatch
+        ? 'unwatch'
+        : signal.type === 'stop'
+          ? 'stop'
+          : 'fallback';
       await this.endDirectMediaSession(session, {
         type: signal.type,
         latchFailure: signal.type === 'fallback' && !unwatch,
@@ -983,12 +1017,14 @@ class VoiceRuntime {
         message: 'Unexpected direct screen offer'
       });
       session.phase = 'offered';
+      session.offeredAt = Date.now();
     } else if (signal.type === 'answer') {
       invariant(userId === session.peerId && session.phase === 'offered', {
         code: 'BAD_REQUEST',
         message: 'Unexpected direct screen answer'
       });
       session.phase = 'answered';
+      session.answeredAt = Date.now();
     } else {
       invariant(userId === session.peerId && session.phase === 'answered', {
         code: 'BAD_REQUEST',
@@ -997,6 +1033,7 @@ class VoiceRuntime {
       await this.activateDirectMediaSession(session);
       const active = this.directMediaSessions.get(session.id);
       if (active !== session || active.phase !== 'ready') return;
+      session.readyAt = Date.now();
     }
     this.publishRelayDemand(session.senderId);
     if (signal.type === 'ready') this.publishScreenViewers();
@@ -1085,6 +1122,34 @@ class VoiceRuntime {
       ...options,
       ...(latchFailure ? { latchFailure: true } : {})
     };
+    if (!session.diagnosticLogged) {
+      session.diagnosticLogged = true;
+      const diagnostic = buildDirectMediaDiagnostic({
+        sessionId: session.id,
+        kind: session.kind,
+        startedAt: session.startedAt,
+        ...(session.offeredAt !== undefined
+          ? { offeredAt: session.offeredAt }
+          : {}),
+        ...(session.answeredAt !== undefined
+          ? { answeredAt: session.answeredAt }
+          : {}),
+        ...(session.readyAt !== undefined ? { readyAt: session.readyAt } : {}),
+        endedAt: Date.now(),
+        reason:
+          session.endReason ??
+          (options.reason === 'unwatch'
+            ? 'unwatch'
+            : options.type === 'stop'
+              ? 'stop'
+              : 'fallback'),
+        latched: latchFailure,
+        relayRestore: options.restoreRelay
+      });
+      logger.info('direct-media %s', JSON.stringify(diagnostic));
+      if (shouldReportDirectMediaDiagnostic(diagnostic))
+        captureDiagnostic(buildDirectMediaDiagnosticEvent(diagnostic));
+    }
     if (session.phase === 'retiring') {
       return session.transition ?? Promise.resolve();
     }
@@ -1257,6 +1322,7 @@ class VoiceRuntime {
     for (const session of this.directMediaSessions.values()) {
       if (nonVoiceOnly && session.kind === StreamKind.AUDIO) continue;
       if (session.senderId === userId || session.peerId === userId) {
+        session.endReason = 'stop';
         void this.endDirectMediaSession(session, {
           type: 'fallback',
           restoreRelay
@@ -1270,9 +1336,10 @@ class VoiceRuntime {
     restoreRelay: boolean
   ) =>
     Promise.all(
-      [...this.directMediaSessions.values()].map((session) =>
-        this.endDirectMediaSession(session, { type, restoreRelay })
-      )
+      [...this.directMediaSessions.values()].map((session) => {
+        session.endReason = 'stop';
+        return this.endDirectMediaSession(session, { type, restoreRelay });
+      })
     );
 
   private getDirectMediaRelayKinds = (

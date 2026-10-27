@@ -1,3 +1,13 @@
+import {
+  beginP2PDiagnostic,
+  finishP2PDiagnostic,
+  markP2PPhase,
+  reportP2PDiagnostic,
+  setP2PSession,
+  type TP2PKind,
+  type TP2POutcome,
+  type TP2PReason
+} from '@/helpers/p2p-diagnostics';
 import type {
   TDirectMediaKind,
   TProducibleStreamKind
@@ -49,6 +59,23 @@ const getRetirementSignal = (
 ): TDirectMediaSignal =>
   retirement.restoreRelay ? { type: 'fallback' } : { type: 'stop' };
 
+// Fixed messages from this file and the native bridge contract. No free text
+// reaches the tracker: an unrecognized failure is reported as unknown.
+const classifyDirectMediaError = (error: unknown): TP2PReason => {
+  const message = error instanceof Error ? error.message : '';
+  if (/native media endpoint|native media bridge/i.test(message))
+    return 'native_create_failed';
+  if (
+    /media session|media document|invalid media peer|media is only available/i.test(
+      message
+    )
+  )
+    return 'native_create_failed';
+  if (/holepunch connection ended/i.test(message)) return 'native_closed_early';
+  if (/sdp|direct media session kind/i.test(message)) return 'signal_rejected';
+  return 'unknown';
+};
+
 type TDirectMediaCallbacks = {
   kind: TDirectMediaKind;
   prepare: (
@@ -95,6 +122,7 @@ type TOutgoingAttempt = {
   onFailure: (relayAllowed: boolean, peerId: number) => Promise<void>;
   peerId: number;
   retirement: TDirectScreenRetirement;
+  diagnosticRef: string;
   sessionId?: string;
   peer?: TDirectPeer;
 };
@@ -125,6 +153,9 @@ type TDirectPeer = {
   nativeMedia?: THolepunchMedia;
   nativeEndpoint?: { publicKey: string; port: number };
   unsubscribeNative?: () => void;
+  diagnosticRef: string;
+  diagnosticOutcome?: TP2POutcome;
+  diagnosticReason?: TP2PReason;
 };
 
 export class DirectMedia {
@@ -143,6 +174,13 @@ export class DirectMedia {
     this.callbacks.kind === StreamKind.AUDIO
       ? DIRECT_MEDIA_AUDIO_CONNECT_TIMEOUT_MS
       : DIRECT_MEDIA_CONNECT_TIMEOUT_MS;
+
+  private getDiagnosticKind = (): TP2PKind =>
+    this.callbacks.kind === StreamKind.AUDIO
+      ? 'audio'
+      : this.callbacks.kind === StreamKind.VIDEO
+        ? 'video'
+        : 'screen';
 
   getConnections = (): TDirectMediaConnection[] => {
     const peers = Array.from(this.peers.values());
@@ -175,30 +213,55 @@ export class DirectMedia {
     stream: MediaStream,
     options: TDirectMediaOptions
   ): Promise<TDirectMediaResult> => {
-    return new Promise<TDirectMediaResult>((resolve) => {
-      if (!getHolepunchMedia()) {
-        this.callbacks.onStatus('relayed');
-        resolve('relay');
-        return;
-      }
-      const attempt: TOutgoingAttempt = {
-        controller: new AbortController(),
-        timer: setTimeout(() => {
-          this.failOutgoing(attempt);
-        }, this.getConnectTimeout()),
-        resolve,
-        settled: false,
-        established: false,
-        onFailure: options.onFailure,
-        peerId,
-        retirement: { restoreRelay: false }
-      };
-      this.outgoing.set(peerId, attempt);
-      this.callbacks.onStatus('connecting');
-      this.prepareOutgoing(attempt, stream, options).catch((error: unknown) => {
-        if (this.isCurrentAttempt(attempt)) this.failOutgoing(attempt, error);
-      });
+    const { promise, resolve } = Promise.withResolvers<TDirectMediaResult>();
+    const diagnosticRef = beginP2PDiagnostic({
+      kind: this.getDiagnosticKind(),
+      role: 'sender'
     });
+    markP2PPhase(diagnosticRef, 'attempt');
+    if (!getHolepunchMedia()) {
+      reportP2PDiagnostic(
+        finishP2PDiagnostic(diagnosticRef, {
+          outcome: 'relay',
+          reason: 'bridge_absent'
+        })
+      );
+      this.callbacks.onStatus('relayed');
+      resolve('relay');
+      return promise;
+    }
+    const attempt: TOutgoingAttempt = {
+      controller: new AbortController(),
+      timer: setTimeout(() => {
+        this.failOutgoing(
+          attempt,
+          undefined,
+          true,
+          true,
+          'negotiation_timeout'
+        );
+      }, this.getConnectTimeout()),
+      resolve,
+      settled: false,
+      established: false,
+      onFailure: options.onFailure,
+      peerId,
+      retirement: { restoreRelay: false },
+      diagnosticRef
+    };
+    this.outgoing.set(peerId, attempt);
+    this.callbacks.onStatus('connecting');
+    this.prepareOutgoing(attempt, stream, options).catch((error: unknown) => {
+      if (this.isCurrentAttempt(attempt))
+        this.failOutgoing(
+          attempt,
+          error,
+          true,
+          true,
+          classifyDirectMediaError(error)
+        );
+    });
+    return promise;
   };
 
   handleSignal = async (event: TDirectMediaEvent): Promise<void> => {
@@ -244,12 +307,19 @@ export class DirectMedia {
     const { signal } = event;
     if (signal.type === 'fallback' || signal.type === 'stop') {
       this.pinIdentity(peer, event);
-      this.failPeer(peer, undefined, false, event.relayAllowed, {
-        restoreRelay:
-          event.relayAllowed &&
-          signal.type === 'fallback' &&
-          signal.reason !== 'unwatch'
-      });
+      this.failPeer(
+        peer,
+        undefined,
+        false,
+        event.relayAllowed,
+        {
+          restoreRelay:
+            event.relayAllowed &&
+            signal.type === 'fallback' &&
+            signal.reason !== 'unwatch'
+        },
+        signal.type === 'fallback' ? 'remote_fallback' : 'remote_stop'
+      );
       if (signal.type === 'stop' && peer.direction === 'incoming') {
         this.callbacks.onStopped?.(peer.peerId);
       }
@@ -259,6 +329,7 @@ export class DirectMedia {
 
     if (signal.type === 'answer' && peer.phase === 'offered') {
       this.pinIdentity(peer, event);
+      markP2PPhase(peer.diagnosticRef, 'answer_received');
       peer.phase = 'answering';
       try {
         const endpoint = peer.nativeEndpoint;
@@ -271,21 +342,32 @@ export class DirectMedia {
           initiator: true
         });
         if (!this.isActivePeer(peer)) return;
+        markP2PPhase(peer.diagnosticRef, 'native_connect');
         await peer.connection.setRemoteDescription({
           type: 'answer',
           sdp: withHolepunchCandidate(signal.sdp, endpoint.port)
         });
         if (!this.isActivePeer(peer)) return;
+        markP2PPhase(peer.diagnosticRef, 'sdp_remote');
         peer.phase = 'answered';
         this.completeOutgoing(peer);
       } catch (error) {
-        if (this.isActivePeer(peer)) this.failPeer(peer, error);
+        if (this.isActivePeer(peer))
+          this.failPeer(
+            peer,
+            error,
+            true,
+            true,
+            undefined,
+            classifyDirectMediaError(error)
+          );
       }
     } else if (
       signal.type === 'ready' &&
       (peer.phase === 'answering' || peer.phase === 'answered')
     ) {
       this.pinIdentity(peer, event);
+      markP2PPhase(peer.diagnosticRef, 'ready_received');
       peer.ready = true;
       this.completeOutgoing(peer);
     }
@@ -324,7 +406,20 @@ export class DirectMedia {
     clearTimeout(attempt.timer);
     attempt.controller.abort();
     this.resolveAttempt(attempt, 'failed');
-    if (attempt.peer) this.retirePeer(attempt.peer, retirement);
+    if (attempt.peer) {
+      attempt.peer.diagnosticOutcome = attempt.peer.ready
+        ? 'direct'
+        : 'stopped';
+      attempt.peer.diagnosticReason = 'stopped';
+      this.retirePeer(attempt.peer, retirement);
+    } else {
+      reportP2PDiagnostic(
+        finishP2PDiagnostic(attempt.diagnosticRef, {
+          outcome: 'stopped',
+          reason: 'stopped'
+        })
+      );
+    }
     if (attempt.sessionId) {
       this.retiredSessions.set(attempt.sessionId, retirement.restoreRelay);
       this.sendBestEffort(
@@ -347,6 +442,8 @@ export class DirectMedia {
     }
     for (const peer of this.peers.values()) {
       if (peer.direction !== 'incoming' || peer.peerId !== userId) continue;
+      peer.diagnosticOutcome = 'stopped';
+      peer.diagnosticReason = 'unwatch';
       this.retirePeer(peer, { restoreRelay: false });
       this.sendBestEffort(peer.sessionId, {
         type: 'fallback',
@@ -364,6 +461,8 @@ export class DirectMedia {
       this.sendBestEffort(pending.sessionId, getRetirementSignal(retirement));
     }
     for (const peer of this.peers.values()) {
+      peer.diagnosticOutcome = peer.ready ? 'direct' : 'stopped';
+      peer.diagnosticReason = 'stopped';
       this.retirePeer(peer, retirement);
       this.sendBestEffort(peer.sessionId, getRetirementSignal(retirement));
     }
@@ -425,15 +524,29 @@ export class DirectMedia {
       this.outgoing.delete(attempt.peerId);
       clearTimeout(attempt.timer);
       attempt.controller.abort();
+      reportP2PDiagnostic(
+        finishP2PDiagnostic(attempt.diagnosticRef, {
+          outcome: 'relay',
+          reason: 'session_declined'
+        })
+      );
       this.resolveAttempt(attempt, 'relay');
       this.callbacks.onStatus('relayed');
       return;
     }
+    setP2PSession(attempt.diagnosticRef, session.sessionId);
+    markP2PPhase(attempt.diagnosticRef, 'session');
     if (
       session.transport !== 'holepunch' ||
       session.kind !== this.callbacks.kind
     ) {
       this.sendBestEffort(session.sessionId, { type: 'stop' });
+      reportP2PDiagnostic(
+        finishP2PDiagnostic(attempt.diagnosticRef, {
+          outcome: 'failed',
+          reason: 'session_kind_mismatch'
+        })
+      );
       throw new Error('Direct media session kind does not match the capture');
     }
     if (this.retiredSessions.has(session.sessionId)) {
@@ -442,7 +555,8 @@ export class DirectMedia {
         attempt,
         undefined,
         false,
-        this.retiredSessions.get(session.sessionId) === true
+        this.retiredSessions.get(session.sessionId) === true,
+        'session_retired'
       );
       return;
     }
@@ -466,7 +580,8 @@ export class DirectMedia {
       screenAudioExpected: false,
       screenBundlePresented: false,
       deliveryChecking: false,
-      outgoing: attempt
+      outgoing: attempt,
+      diagnosticRef: attempt.diagnosticRef
     };
     attempt.peer = peer;
     this.peers.set(peer.sessionId, peer);
@@ -513,6 +628,7 @@ export class DirectMedia {
       sdp,
       publicKey: peer.nativeEndpoint.publicKey
     });
+    markP2PPhase(peer.diagnosticRef, 'offer_sent');
   };
 
   private receiveOffer = async (event: TDirectMediaEvent): Promise<void> => {
@@ -533,6 +649,12 @@ export class DirectMedia {
       return;
     }
     let peer: TDirectPeer | undefined;
+    const diagnosticRef = beginP2PDiagnostic({
+      kind: this.getDiagnosticKind(),
+      role: 'receiver',
+      sessionId: event.sessionId
+    });
+    markP2PPhase(diagnosticRef, 'offer_received');
     try {
       const connection = new RTCPeerConnection({
         iceServers: [],
@@ -555,7 +677,8 @@ export class DirectMedia {
           this.callbacks.kind === StreamKind.SCREEN &&
           /(?:^|\r?\n)m=audio\s+(?!0(?:\s|$))\d+/i.test(event.signal.sdp),
         screenBundlePresented: false,
-        deliveryChecking: false
+        deliveryChecking: false,
+        diagnosticRef
       };
       for (const previous of this.peers.values()) {
         if (
@@ -569,7 +692,14 @@ export class DirectMedia {
       this.peers.set(peer.sessionId, peer);
       const incoming = peer;
       peer.timer = setTimeout(() => {
-        this.failPeer(incoming);
+        this.failPeer(
+          incoming,
+          undefined,
+          true,
+          true,
+          undefined,
+          'negotiation_timeout'
+        );
       }, this.getConnectTimeout());
       this.listenForConnection(peer);
       connection.addEventListener(
@@ -592,11 +722,13 @@ export class DirectMedia {
         initiator: false
       });
       if (!this.isActivePeer(peer)) return;
+      markP2PPhase(peer.diagnosticRef, 'native_connect');
       await connection.setRemoteDescription({
         type: 'offer',
         sdp: withHolepunchCandidate(event.signal.sdp, endpoint.port)
       });
       if (!this.isActivePeer(peer)) return;
+      markP2PPhase(peer.diagnosticRef, 'sdp_remote');
       const answer = await connection.createAnswer();
       if (!this.isActivePeer(peer)) return;
       await connection.setLocalDescription(answer);
@@ -609,14 +741,29 @@ export class DirectMedia {
         publicKey: endpoint.publicKey
       });
       if (!this.isActivePeer(peer)) return;
+      markP2PPhase(peer.diagnosticRef, 'answer_sent');
       peer.phase = 'answered';
       this.readyIncoming(peer);
     } catch (error) {
       if (peer) {
-        if (this.isActivePeer(peer)) this.failPeer(peer, error);
+        if (this.isActivePeer(peer))
+          this.failPeer(
+            peer,
+            error,
+            true,
+            true,
+            undefined,
+            classifyDirectMediaError(error)
+          );
       } else {
         this.retiredSessions.set(event.sessionId, false);
         this.callbacks.onError(error);
+        reportP2PDiagnostic(
+          finishP2PDiagnostic(diagnosticRef, {
+            outcome: 'failed',
+            reason: classifyDirectMediaError(error)
+          })
+        );
         this.sendBestEffort(event.sessionId, { type: 'fallback' });
       }
     }
@@ -659,7 +806,14 @@ export class DirectMedia {
     peer.nativeMedia = media;
     peer.unsubscribeNative = media.onClosed(({ sessionId }) => {
       if (sessionId !== peer.sessionId || !this.isActivePeer(peer)) return;
-      this.failPeer(peer, new Error('Holepunch connection ended'), true, true);
+      this.failPeer(
+        peer,
+        new Error('Holepunch connection ended'),
+        true,
+        true,
+        undefined,
+        peer.ready ? 'native_closed_established' : 'native_closed_early'
+      );
     });
     const endpoint = await media.create({ sessionId: peer.sessionId });
     if (!this.isActivePeer(peer)) {
@@ -667,6 +821,7 @@ export class DirectMedia {
       return;
     }
     peer.nativeEndpoint = endpoint;
+    markP2PPhase(peer.diagnosticRef, 'native_created');
   };
 
   private listenForConnection = (peer: TDirectPeer): void => {
@@ -676,13 +831,25 @@ export class DirectMedia {
         if (!this.isActivePeer(peer)) return;
         switch (peer.connection.connectionState) {
           case 'connected':
+            markP2PPhase(peer.diagnosticRef, 'peer_connected');
             if (peer.direction === 'outgoing') this.completeOutgoing(peer);
             else this.readyIncoming(peer);
             break;
           case 'disconnected':
           case 'failed':
           case 'closed':
-            this.failPeer(peer);
+            this.failPeer(
+              peer,
+              undefined,
+              true,
+              true,
+              undefined,
+              peer.connection.connectionState === 'disconnected'
+                ? 'peer_connection_disconnected'
+                : peer.connection.connectionState === 'failed'
+                  ? 'peer_connection_failed'
+                  : 'peer_connection_closed'
+            );
             break;
         }
       },
@@ -755,12 +922,21 @@ export class DirectMedia {
       .send(peer.sessionId, { type: 'ready' })
       .then(() => {
         if (!this.isActivePeer(peer)) return;
+        markP2PPhase(peer.diagnosticRef, 'ready_sent');
         peer.ready = true;
         clearTimeout(peer.timer);
         peer.timer = undefined;
       })
       .catch((error: unknown) => {
-        if (this.isActivePeer(peer)) this.failPeer(peer, error);
+        if (this.isActivePeer(peer))
+          this.failPeer(
+            peer,
+            error,
+            true,
+            true,
+            undefined,
+            classifyDirectMediaError(error)
+          );
       });
   };
 
@@ -844,6 +1020,7 @@ export class DirectMedia {
         }
         const bundle = this.getScreenBundle(peer);
         if (!bundle) return;
+        markP2PPhase(peer.diagnosticRef, 'media_delivered');
         peer.readySending = true;
         await this.callbacks.prepareScreenBundle(peer.peerId, bundle);
         if (
@@ -858,19 +1035,35 @@ export class DirectMedia {
         if (!this.callbacks.presentScreenBundle(peer.peerId, bundle)) {
           peer.screenBundle = undefined;
           peer.screenBundlePresented = false;
-          this.failPeer(peer);
+          this.failPeer(
+            peer,
+            undefined,
+            true,
+            true,
+            undefined,
+            'delivery_timeout'
+          );
           return;
         }
         if (!this.isActivePeer(peer)) return;
         await this.callbacks.send(peer.sessionId, { type: 'ready' });
         if (!this.isActivePeer(peer)) return;
+        markP2PPhase(peer.diagnosticRef, 'ready_sent');
         peer.ready = true;
         clearTimeout(peer.timer);
         peer.timer = undefined;
       })
       .catch((error: unknown) => {
         peer.deliveryChecking = false;
-        if (this.isActivePeer(peer)) this.failPeer(peer, error);
+        if (this.isActivePeer(peer))
+          this.failPeer(
+            peer,
+            error,
+            true,
+            true,
+            undefined,
+            classifyDirectMediaError(error)
+          );
       });
   };
 
@@ -948,13 +1141,16 @@ export class DirectMedia {
     error?: unknown,
     notify = true,
     relayAllowed = true,
-    retirement: TDirectScreenRetirement = { restoreRelay: relayAllowed }
+    retirement: TDirectScreenRetirement = { restoreRelay: relayAllowed },
+    reason: TP2PReason = 'unknown'
   ): void => {
     if (!this.isActivePeer(peer)) return;
     if (peer.outgoing) {
-      this.failOutgoing(peer.outgoing, error, notify, relayAllowed);
+      this.failOutgoing(peer.outgoing, error, notify, relayAllowed, reason);
       return;
     }
+    peer.diagnosticOutcome = relayAllowed ? 'relay' : 'failed';
+    peer.diagnosticReason = reason;
     this.retirePeer(peer, retirement);
     if (error !== undefined) this.callbacks.onError(error);
     if (notify) this.sendBestEffort(peer.sessionId, { type: 'fallback' });
@@ -964,13 +1160,25 @@ export class DirectMedia {
     attempt: TOutgoingAttempt,
     error?: unknown,
     notify = true,
-    relayAllowed = true
+    relayAllowed = true,
+    reason: TP2PReason = 'unknown'
   ): void => {
     if (!this.isCurrentAttempt(attempt)) return;
     this.outgoing.delete(attempt.peerId);
     clearTimeout(attempt.timer);
     attempt.controller.abort();
-    if (attempt.peer) this.retirePeer(attempt.peer, { restoreRelay: false });
+    if (attempt.peer) {
+      attempt.peer.diagnosticOutcome = relayAllowed ? 'relay' : 'failed';
+      attempt.peer.diagnosticReason = reason;
+      this.retirePeer(attempt.peer, { restoreRelay: false });
+    } else {
+      reportP2PDiagnostic(
+        finishP2PDiagnostic(attempt.diagnosticRef, {
+          outcome: relayAllowed ? 'relay' : 'failed',
+          reason
+        })
+      );
+    }
     if (attempt.sessionId) {
       this.retiredSessions.set(attempt.sessionId, false);
       if (notify)
@@ -1033,6 +1241,19 @@ export class DirectMedia {
     }
     peer.streams.clear();
     peer.screenReceivers.clear();
+    reportP2PDiagnostic(
+      finishP2PDiagnostic(peer.diagnosticRef, {
+        outcome:
+          peer.diagnosticOutcome ??
+          (peer.ready
+            ? 'direct'
+            : retirement.restoreRelay
+              ? 'relay'
+              : 'stopped'),
+        reason:
+          peer.diagnosticReason ?? (peer.ready ? 'media_delivered' : 'stopped')
+      })
+    );
   };
 
   private sendBestEffort = (

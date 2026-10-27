@@ -30,6 +30,20 @@ const getSettings = async (): Promise<TJoinedSettings> => {
   };
 };
 
+const readPublicSentryDsn = (): string | null => {
+  // the browser needs the client project, not the server project. a single
+  // project setup can omit the client DSN and reuse the server one.
+  const dsn =
+    process.env.SENTRY_CLIENT_DSN?.trim() || process.env.SENTRY_DSN?.trim();
+  if (!dsn) return null;
+  try {
+    const url = new URL(dsn);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? dsn : null;
+  } catch {
+    return null;
+  }
+};
+
 const getPublicSettings: () => Promise<TPublicServerSettings> = async () => {
   const settings = await getSettings();
 
@@ -54,7 +68,8 @@ const getPublicSettings: () => Promise<TPublicServerSettings> = async () => {
     webRtcMaxBitrate: config.webRtc.maxBitrate,
     enableSearch: settings.enableSearch,
     showWelcomeDialog: settings.showWelcomeDialog,
-    storageSignedUrlsEnabled: settings.storageSignedUrlsEnabled
+    storageSignedUrlsEnabled: settings.storageSignedUrlsEnabled,
+    sentryDsn: readPublicSentryDsn()
   };
 
   return publicSettings;

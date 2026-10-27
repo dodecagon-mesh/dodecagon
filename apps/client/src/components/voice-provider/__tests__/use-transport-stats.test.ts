@@ -200,6 +200,39 @@ test('peer ping uses the selected direct candidate pair and direct traffic is co
   });
 });
 
+test('screen quality reflects active direct media rather than paused relay standby', async () => {
+  const relay = new Map<string, unknown>(report());
+  (relay.get('out') as Record<string, unknown>).qualityLimitationReason =
+    'bandwidth';
+  const direct = new Map<string, unknown>(report());
+  (direct.get('out') as Record<string, unknown>).qualityLimitationReason =
+    'none';
+  const connection = {
+    connectionState: 'connected',
+    getStats: async () => direct
+  } as unknown as RTCPeerConnection;
+  const hook = useTransportStats([
+    {
+      getConnections: () => [
+        {
+          peerId: 2,
+          kind: StreamKind.SCREEN,
+          direction: 'outgoing' as const,
+          connection
+        }
+      ]
+    }
+  ]);
+  hook.subscribe();
+  hook.setScreenShareProducer({
+    ...screenProducer(async () => relay as unknown as RTCStatsReport),
+    paused: true
+  } as Producer<AppData>);
+  hook.startMonitoring(transport(async () => report()));
+  await flush();
+  expect(state.screenShare?.qualityLimitationReason).toBe('none');
+});
+
 test('a new session polls without waiting for the old session and ignores its late result', async () => {
   const pending = deferred<RTCStatsReport>();
   const hook = useTransportStats();

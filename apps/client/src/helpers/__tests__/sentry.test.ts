@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/react';
-import { afterEach, describe, expect, it } from 'bun:test';
-import { captureError, initSentry } from '../sentry';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { captureDiagnostic, captureError, initSentry } from '../sentry';
 
 describe('sentry', () => {
   afterEach(async () => {
@@ -28,6 +28,30 @@ describe('sentry', () => {
     expect(() => captureError(new Error('boom'))).not.toThrow();
   });
 
+  it('passes a P2P diagnostic to the tracker with its fingerprint', () => {
+    initSentry('https://public@errors.example.com/2');
+    const capture = spyOn(Sentry, 'captureEvent');
+
+    try {
+      captureDiagnostic({
+        level: 'warning',
+        message: 'voice.p2p',
+        tags: { area: 'voice', 'p2p.reason': 'native_closed_early' },
+        contexts: { p2p: { session_ref: 'abc123' } },
+        fingerprint: ['voice.p2p', 'audio', 'sender', 'relay']
+      });
+
+      expect(capture).toHaveBeenCalledTimes(1);
+      expect(capture.mock.calls[0]?.[0]).toMatchObject({
+        level: 'warning',
+        message: 'voice.p2p',
+        fingerprint: ['voice.p2p', 'audio', 'sender', 'relay']
+      });
+    } finally {
+      capture.mockRestore();
+    }
+  });
+
   it('keeps chat content out of reported events', () => {
     initSentry('https://public@errors.example.com/2');
 
@@ -41,17 +65,40 @@ describe('sentry', () => {
       {
         event_id: 'kept',
         request: { url: '/trpc', data: { message: 'chat text' } },
-        contexts: { response: { body: 'chat text' } },
+        user: { email: 'person@example.com' },
+        contexts: {
+          p2p: { session_ref: 'abc123', phases: [] },
+          browser: { name: 'Chrome', version: '1.0' },
+          os: { name: 'Linux', version: '6.0' },
+          response: { body: 'chat text' }
+        },
         extra: { message: 'chat text' },
-        tags: { area: 'voice' }
+        tags: { area: 'voice', url: 'https://example.com/?token=secret' },
+        breadcrumbs: [
+          {
+            category: 'console',
+            level: 'error',
+            timestamp: 1,
+            message: 'token=secret',
+            data: { url: 'https://example.com/?token=secret' }
+          }
+        ]
       },
       {}
     ) as Record<string, unknown>;
 
     expect(scrubbed.event_id).toBe('kept');
     expect(scrubbed.tags).toEqual({ area: 'voice' });
+    expect(scrubbed.contexts).toEqual({
+      browser: { name: 'Chrome', version: '1.0' },
+      os: { name: 'Linux', version: '6.0' },
+      p2p: { session_ref: 'abc123', phases: [] }
+    });
     expect(scrubbed.request).toBeUndefined();
-    expect(scrubbed.contexts).toBeUndefined();
     expect(scrubbed.extra).toBeUndefined();
+    expect(scrubbed.user).toBeUndefined();
+    expect(scrubbed.breadcrumbs).toEqual([
+      { category: 'console', level: 'error', timestamp: 1 }
+    ]);
   });
 });
