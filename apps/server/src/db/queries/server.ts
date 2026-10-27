@@ -1,4 +1,5 @@
 import type { TJoinedSettings, TPublicServerSettings } from '@dodecagon/shared';
+import { readPublicSentryDsn } from '@dodecagon/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '..';
 import { config } from '../../config';
@@ -30,20 +31,6 @@ const getSettings = async (): Promise<TJoinedSettings> => {
   };
 };
 
-const readPublicSentryDsn = (): string | null => {
-  // the browser needs the client project, not the server project. a single
-  // project setup can omit the client DSN and reuse the server one.
-  const dsn =
-    process.env.SENTRY_CLIENT_DSN?.trim() || process.env.SENTRY_DSN?.trim();
-  if (!dsn) return null;
-  try {
-    const url = new URL(dsn);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? dsn : null;
-  } catch {
-    return null;
-  }
-};
-
 const getPublicSettings: () => Promise<TPublicServerSettings> = async () => {
   const settings = await getSettings();
 
@@ -69,7 +56,7 @@ const getPublicSettings: () => Promise<TPublicServerSettings> = async () => {
     enableSearch: settings.enableSearch,
     showWelcomeDialog: settings.showWelcomeDialog,
     storageSignedUrlsEnabled: settings.storageSignedUrlsEnabled,
-    sentryDsn: readPublicSentryDsn()
+    sentryDsn: readPublicSentryDsn(process.env)
   };
 
   return publicSettings;

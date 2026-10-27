@@ -22,8 +22,6 @@ jobs:
 
       - name: Build project artifacts
         uses: ./.github/actions/build-dodecagon
-        with:
-          sentry_environment: development
 
       - name: Build and publish Docker image
         uses: ./.github/actions/docker-build-publish

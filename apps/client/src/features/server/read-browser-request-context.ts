@@ -5,7 +5,10 @@ import { getBrowserLanguage } from '@/i18n';
 const readBrowserRequestContext = () => ({
   language: getBrowserLanguage(),
   isSecure: window.isSecureContext,
-  now: Date.now()
+  now: Date.now(),
+  // the dsn of the deployment arrives in the html of the server, the browser
+  // never reads the environment of the server
+  sentry: null
 });
 
 export { readBrowserRequestContext };

@@ -44,6 +44,22 @@ export const Route = createRootRoute({
   // the loader is not stale for a minute, so the browser does not ask the server
   // again right after the hydration
   staleTime: 60_000,
+  // the errors of the page belong to the deployment, not to the build: the dsn
+  // of this server travels into the html so the browser reports before anyone
+  // signs in. the browser half of the loader carries no dsn, so a navigation
+  // never rewrites the tag
+  head: ({ loaderData }) => ({
+    scripts: loaderData?.sentry?.dsn
+      ? [
+          {
+            // the payload is an operator value, so it must never close the tag
+            children: `globalThis.__DODECAGON_ERRORS__=${JSON.stringify(
+              loaderData.sentry
+            ).replace(/</g, '\\u003c')}`
+          }
+        ]
+      : []
+  }),
   component: RootComponent,
   shellComponent: RootDocument
 });

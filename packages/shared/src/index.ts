@@ -4,6 +4,7 @@ export * from './helpers';
 export * from './http-errors';
 export * from './logs';
 export * from './plugins';
+export * from './sentry';
 export * from './server-bridge';
 export * from './statics';
 export * from './tables';

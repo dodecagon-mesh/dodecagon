@@ -52,13 +52,7 @@ export default defineConfig(({ command, mode }) => {
     },
     define: {
       VITE_APP_VERSION: JSON.stringify(pkg.version),
-      VITE_SERVER_PORT: JSON.stringify(env.SERVER_PORT || '4991'),
-      // the browser reports to the client project; a single-project deployment
-      // keeps the server dsn as the only one it has
-      VITE_SENTRY_DSN: JSON.stringify(
-        env.SENTRY_CLIENT_DSN || env.SENTRY_DSN || ''
-      ),
-      VITE_SENTRY_ENVIRONMENT: JSON.stringify(env.SENTRY_ENVIRONMENT || mode)
+      VITE_SERVER_PORT: JSON.stringify(env.SERVER_PORT || '4991')
     },
     server: {
       fs: { allow: fsAllow },
