@@ -1,4 +1,8 @@
 import {
+  getP2PDiagnosticsSnapshot,
+  resetP2PDiagnostics
+} from '@/helpers/p2p-diagnostics';
+import {
   StreamKind,
   type TDirectMediaEvent,
   type TDirectMediaSession,
@@ -314,6 +318,7 @@ const replaceGlobal = (key: string, value: unknown) => {
 
 beforeEach(() => {
   clock = new TestClock();
+  resetP2PDiagnostics();
   TestPeer.instances = [];
   TestPeer.plans = [];
   nativeClosed = new Set();
@@ -488,6 +493,33 @@ test('a client without the native media bridge falls back instead of attempting 
   await clock.advance(8000);
   expect(await started).toBe('relay');
   expect(subject.streams).toEqual([]);
+});
+
+test('a timed-out attempt keeps the phase timeline and the failure code', async () => {
+  const subject = fixture();
+  const started = subject.start();
+  await flush();
+  await clock.advance(8000);
+  expect(await started).toBe('relay');
+
+  const record = getP2PDiagnosticsSnapshot().find(
+    (entry) => entry.reason === 'negotiation_timeout'
+  );
+  expect(record).toMatchObject({
+    kind: 'screen',
+    role: 'sender',
+    outcome: 'relay',
+    reason: 'negotiation_timeout'
+  });
+  expect(record?.phases.map(({ phase }) => phase)).toEqual(
+    expect.arrayContaining([
+      'attempt',
+      'session',
+      'native_created',
+      'offer_sent'
+    ])
+  );
+  expect(record?.sessionRef).toBe('outgoing');
 });
 
 test('a lost native transport falls back once without stopping capture', async () => {

@@ -13,7 +13,7 @@ type TSnapshotTabProps = {
 
 const TransportsTab = memo(({ snapshot }: TSnapshotTabProps) => (
   <div className="space-y-3">
-    {!snapshot.transports.length && (
+    {!snapshot.transports.length && !snapshot.directConnections.length && (
       <p className="font-mono text-[11px] text-muted-foreground">
         no transports
       </p>
@@ -21,7 +21,7 @@ const TransportsTab = memo(({ snapshot }: TSnapshotTabProps) => (
     {snapshot.transports.map((transport) => (
       <Section
         key={transport.id}
-        title={`${transport.role} transport · ${transport.direction}`}
+        title={`SFU ${transport.role} transport · ${transport.direction}`}
         actions={<Pill label="stats" value={transport.stats.length} />}
       >
         <StatGroup
@@ -33,6 +33,22 @@ const TransportsTab = memo(({ snapshot }: TSnapshotTabProps) => (
           ]}
           emptyLabel="no ICE stats, the transport is closed"
         />
+      </Section>
+    ))}
+    {snapshot.directConnections.map((direct) => (
+      <Section
+        key={`${direct.peerId}/${direct.kind}/${direct.direction}`}
+        title={`direct · user ${direct.peerId} · ${direct.kind} · ${direct.direction}`}
+        actions={<Pill label="stats" value={direct.stats.length} />}
+      >
+        <Fields
+          data={{
+            connectionState: direct.connectionState,
+            iceConnectionState: direct.iceConnectionState,
+            signalingState: direct.signalingState
+          }}
+        />
+        <StatGroup stats={direct.stats} emptyLabel="no direct stats" />
       </Section>
     ))}
   </div>
@@ -48,7 +64,7 @@ const ProducersTab = memo(({ snapshot }: TSnapshotTabProps) => (
     {snapshot.producers.map((producer) => (
       <Section
         key={producer.id}
-        title={`producer · ${producer.kind} · ${producer.id}`}
+        title={`SFU producer · ${producer.kind} · ${producer.id}`}
         actions={<Pill label="encodings" value={producer.encodings.length} />}
       >
         <Fields
@@ -81,7 +97,7 @@ const ConsumersTab = memo(({ snapshot }: TSnapshotTabProps) => (
     {snapshot.consumers.map((consumer) => (
       <Section
         key={consumer.id}
-        title={`consumer · user ${consumer.remoteId} · ${consumer.kind}`}
+        title={`SFU consumer · user ${consumer.remoteId} · ${consumer.kind}`}
         actions={<Pill label="producer" value={consumer.producerId} />}
       >
         <Fields

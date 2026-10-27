@@ -154,6 +154,7 @@ const useTransportStats = (
     consumer: null
   });
   const previousScreenShareStatsRef = useRef<{
+    target: Producer<AppData> | RTCPeerConnection;
     bytesSent: number;
     layerBytesSent: Map<string, number>;
     timestamp: number;
@@ -458,7 +459,10 @@ const useTransportStats = (
         (peer) =>
           peer.kind === StreamKind.SCREEN && peer.direction === 'outgoing'
       );
-      const screenTarget = screenShareProducer ?? directScreen?.connection;
+      const screenTarget =
+        screenShareProducer && !screenShareProducer.paused
+          ? screenShareProducer
+          : directScreen?.connection;
       const screenOpen =
         screenTarget &&
         ('closed' in screenTarget
@@ -479,7 +483,10 @@ const useTransportStats = (
 
           if (parsed) {
             let screenShareBitrate = 0;
-            const prev = previousScreenShareStatsRef.current;
+            const prev =
+              previousScreenShareStatsRef.current?.target === screenTarget
+                ? previousScreenShareStatsRef.current
+                : null;
 
             if (prev && parsed.bytesSent > prev.bytesSent) {
               const timeDelta = (parsed.timestamp - prev.timestamp) / 1000;
@@ -517,6 +524,7 @@ const useTransportStats = (
             });
 
             previousScreenShareStatsRef.current = {
+              target: screenTarget,
               bytesSent: parsed.bytesSent,
               layerBytesSent,
               timestamp: parsed.timestamp
@@ -530,7 +538,8 @@ const useTransportStats = (
           }
         } catch {
           if (!isCurrent()) return;
-          screenShareProducerRef.current = null;
+          if (screenTarget === screenShareProducer)
+            screenShareProducerRef.current = null;
           previousScreenShareStatsRef.current = null;
         }
       } else {

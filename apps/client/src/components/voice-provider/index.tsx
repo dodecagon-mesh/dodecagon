@@ -2516,6 +2516,9 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
             consumer
           }))
       ),
+      directConnections: Object.values(directMedia).flatMap((coordinator) =>
+        coordinator.getConnections()
+      ),
       routerRtpCapabilities: routerRtpCapabilities.current,
       deviceRtpCapabilities: deviceRtpCapabilities.current
     }),
@@ -2523,6 +2526,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       producerTransport,
       consumerTransport,
       consumers,
+      directMedia,
       localAudioProducer,
       localVideoProducer,
       localScreenShareProducer,

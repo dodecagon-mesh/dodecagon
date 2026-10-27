@@ -71,6 +71,9 @@ export type TPublicServerSettings = Pick<
 > & {
   webRtcMaxBitrate: number;
   logo: TFile | null;
+  // a Sentry-compatible DSN is public by design; each self-hosted server can
+  // point its clients at its own tracker without rebuilding the client
+  sentryDsn?: string | null;
 };
 
 export type TMessageMediaMetadata = {
