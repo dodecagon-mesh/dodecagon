@@ -139,6 +139,8 @@ type TDirectPeer = {
   ready: boolean;
   readySending: boolean;
   streams: Map<TScreenKind, MediaStream>;
+  streamReceivers: Map<TScreenKind, RTCRtpReceiver>;
+  presentedKinds: Set<TScreenKind>;
   screenReceivers: Map<
     StreamKind.SCREEN | StreamKind.SCREEN_AUDIO,
     TReceivedScreenStream
@@ -576,6 +578,8 @@ export class DirectMedia {
       ready: false,
       readySending: false,
       streams: new Map(),
+      streamReceivers: new Map(),
+      presentedKinds: new Set(),
       screenReceivers: new Map(),
       screenAudioExpected: false,
       screenBundlePresented: false,
@@ -672,6 +676,8 @@ export class DirectMedia {
         ready: false,
         readySending: false,
         streams: new Map(),
+        streamReceivers: new Map(),
+        presentedKinds: new Set(),
         screenReceivers: new Map(),
         screenAudioExpected:
           this.callbacks.kind === StreamKind.SCREEN &&
@@ -889,7 +895,7 @@ export class DirectMedia {
           peer.screenAudioExpected = true;
         }
       } else {
-        this.callbacks.onStream(peer.peerId, stream, kind);
+        peer.streamReceivers.set(kind, receiver);
       }
       this.readyIncoming(peer);
     } catch (error) {
@@ -917,6 +923,14 @@ export class DirectMedia {
       this.checkScreenDelivery(peer);
       return;
     }
+    if (!peer.presentedKinds.has(this.callbacks.kind)) {
+      this.checkStreamDelivery(peer);
+      return;
+    }
+    this.sendIncomingReady(peer);
+  };
+
+  private sendIncomingReady = (peer: TDirectPeer): void => {
     peer.readySending = true;
     this.callbacks
       .send(peer.sessionId, { type: 'ready' })
@@ -928,6 +942,60 @@ export class DirectMedia {
         peer.timer = undefined;
       })
       .catch((error: unknown) => {
+        if (this.isActivePeer(peer))
+          this.failPeer(
+            peer,
+            error,
+            true,
+            true,
+            undefined,
+            classifyDirectMediaError(error)
+          );
+      });
+  };
+
+  private checkStreamDelivery = (peer: TDirectPeer): void => {
+    if (peer.deliveryChecking || peer.readySending) return;
+    clearTimeout(peer.deliveryTimer);
+    peer.deliveryTimer = undefined;
+    const kind = this.callbacks.kind;
+    const receiver = peer.streamReceivers.get(kind);
+    const stream = peer.streams.get(kind);
+    if (!receiver || !stream) return;
+    if (
+      !this.isActivePeer(peer) ||
+      peer.phase !== 'answered' ||
+      peer.connection.connectionState !== 'connected'
+    ) {
+      // the connection state change re-runs readyIncoming.
+      return;
+    }
+    peer.deliveryChecking = true;
+    this.receiverDelivered(receiver, kind)
+      .then((delivered) => {
+        peer.deliveryChecking = false;
+        if (!this.isActivePeer(peer) || peer.readySending) return;
+        if (delivered && !peer.presentedKinds.has(kind)) {
+          markP2PPhase(peer.diagnosticRef, 'media_delivered');
+          try {
+            this.callbacks.onStream(peer.peerId, stream, kind);
+          } catch (error) {
+            this.failPeer(peer, error);
+            return;
+          }
+          peer.presentedKinds.add(kind);
+        }
+        if (delivered) {
+          this.sendIncomingReady(peer);
+          return;
+        }
+        peer.deliveryTimer = setTimeout(
+          () => this.checkStreamDelivery(peer),
+          50
+        );
+      })
+      .catch((error: unknown) => {
+        peer.deliveryChecking = false;
         if (this.isActivePeer(peer))
           this.failPeer(
             peer,
@@ -959,11 +1027,13 @@ export class DirectMedia {
 
   private receiverDelivered = async (
     receiver: RTCRtpReceiver,
-    kind: StreamKind.SCREEN | StreamKind.SCREEN_AUDIO
+    kind: TScreenKind
   ): Promise<boolean> => {
     const stats = await receiver.getStats();
     const mediaKind =
-      kind === StreamKind.SCREEN ? ('video' as const) : ('audio' as const);
+      kind === StreamKind.SCREEN || kind === StreamKind.VIDEO
+        ? ('video' as const)
+        : ('audio' as const);
     for (const report of stats.values()) {
       const inbound = report as RTCStats & {
         kind?: string;
@@ -1235,12 +1305,14 @@ export class DirectMedia {
     }
     for (const [kind, stream] of peer.streams) {
       stream.getTracks().forEach((track) => track.stop());
-      if (this.callbacks.kind !== StreamKind.SCREEN) {
+      if (peer.presentedKinds.has(kind)) {
         this.callbacks.onRemoveStream(peer.peerId, kind, stream);
       }
     }
     peer.streams.clear();
     peer.screenReceivers.clear();
+    peer.presentedKinds.clear();
+    peer.streamReceivers.clear();
     reportP2PDiagnostic(
       finishP2PDiagnostic(peer.diagnosticRef, {
         outcome:
