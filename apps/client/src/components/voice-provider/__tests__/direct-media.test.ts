@@ -5,6 +5,7 @@ import {
 import {
   StreamKind,
   type TDirectMediaEvent,
+  type TDirectMediaKind,
   type TDirectMediaSession,
   type TDirectMediaSignal
 } from '@dodecagon/shared';
@@ -278,9 +279,10 @@ const session = (sessionId = 'outgoing', peerId = 2): TDirectMediaSession => ({
 const event = (
   sessionId: string,
   signal: TDirectMediaSignal,
-  incoming = false
+  incoming = false,
+  kind: TDirectMediaKind = StreamKind.SCREEN
 ): TDirectMediaEvent => ({
-  kind: StreamKind.SCREEN,
+  kind,
   transport: 'holepunch',
   relayAllowed: false,
   sessionId,
@@ -392,7 +394,8 @@ const fixture = (
   canReceive?: (userId: number) => boolean,
   onStopped?: (userId: number) => void,
   canDefer?: () => boolean,
-  observer?: TDirectMediaObserver
+  observer?: TDirectMediaObserver,
+  kind: TDirectMediaKind = StreamKind.SCREEN
 ): TDirectMediaFixture => {
   const sent: { sessionId: string; signal: TDirectMediaSignal }[] = [];
   const statuses: string[] = [];
@@ -401,7 +404,7 @@ const fixture = (
   const removed: TObservedScreenStream[] = [];
   let failures = 0;
   const subject = new DirectMedia({
-    kind: StreamKind.SCREEN,
+    kind,
     prepare,
     canReceive,
     canDefer,
@@ -412,8 +415,12 @@ const fixture = (
     },
     onStatus: (status) => statuses.push(status),
     onError: (error) => errors.push(error),
-    onStream: () => {},
-    onRemoveStream: () => {},
+    onStream: (userId, stream, streamKind) => {
+      streams.push({ userId, stream, kind: streamKind });
+    },
+    onRemoveStream: (userId, kind, stream) => {
+      removed.push({ userId, kind, stream });
+    },
     prepareScreenBundle: async () => {},
     presentScreenBundle: (userId, bundle) => {
       const received: [StreamKind, MediaStream][] = [
@@ -1382,6 +1389,81 @@ describe('DirectMedia incoming lifecycle', () => {
       expect(subject.streams).toHaveLength(0);
     }
   );
+
+  test('incoming microphone media waits for delivered RTP before it is presented and reported ready', async () => {
+    const delivery = deferred<RTCStatsReport>();
+    const subject = fixture(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      StreamKind.AUDIO
+    );
+    await subject.subject.handleSignal(
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true,
+        StreamKind.AUDIO
+      )
+    );
+    await flush();
+    const peer = TestPeer.instances[0]!;
+    peer.connect();
+    peer.receive(
+      new TestTrack('audio') as unknown as MediaStreamTrack,
+      delivery.promise
+    );
+    await flush();
+
+    expect(subject.streams).toEqual([]);
+    expect(subject.sent.some(({ signal }) => signal.type === 'ready')).toBe(
+      false
+    );
+
+    delivery.resolve(deliveredStats('audio'));
+    await flush();
+    await clock.advance(60);
+
+    expect(subject.streams).toHaveLength(1);
+    expect(subject.streams[0]!.kind).toBe(StreamKind.AUDIO);
+    expect(subject.sent.at(-1)?.signal).toEqual({ type: 'ready' });
+  });
+
+  test('incoming microphone media that never delivers is never presented', async () => {
+    const delivery = deferred<RTCStatsReport>();
+    const subject = fixture(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      StreamKind.AUDIO
+    );
+    await subject.subject.handleSignal(
+      event(
+        'incoming',
+        { type: 'offer', sdp: OFFER, publicKey: 'a'.repeat(64) },
+        true,
+        StreamKind.AUDIO
+      )
+    );
+    await flush();
+    const peer = TestPeer.instances[0]!;
+    peer.connect();
+    peer.receive(
+      new TestTrack('audio') as unknown as MediaStreamTrack,
+      delivery.promise
+    );
+    await flush();
+    await clock.advance(5000);
+
+    expect(subject.streams).toEqual([]);
+    expect(subject.sent.at(-1)?.signal).toEqual({ type: 'fallback' });
+  });
 
   test('revoked demo permission denies late incoming tracks', async () => {
     let watching = true;
