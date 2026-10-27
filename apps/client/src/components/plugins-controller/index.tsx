@@ -4,12 +4,13 @@ import {
   setPluginComponents
 } from '@/features/server/plugins/actions';
 import { getPluginComponentIds } from '@/features/server/server-functions';
+import { retryingFetch } from '@/helpers/retrying-fetch';
 import { memo, useCallback, useEffect } from 'react';
 
 const PluginsController = memo(() => {
   const fetchPlugins = useCallback(async () => {
     try {
-      const pluginIds = await getPluginComponentIds();
+      const pluginIds = await getPluginComponentIds({ fetch: retryingFetch });
       const components = await processPluginComponents(pluginIds);
 
       setPluginComponents(components);

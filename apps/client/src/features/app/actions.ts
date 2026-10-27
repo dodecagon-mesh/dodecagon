@@ -8,6 +8,7 @@ import {
 } from '@/components/hotkeys-controller/shortcuts';
 import { assertNotificationsPermission } from '@/helpers/assert-notifications-permission';
 import { getFileUrl, getUrlFromServer } from '@/helpers/get-file-url';
+import { retryingFetch } from '@/helpers/retrying-fetch';
 import {
   LocalStorageKey,
   setLocalStorageItem,
@@ -97,7 +98,7 @@ const applyServerBranding = (info: TServerInfo) => {
 
 export const fetchServerInfo = async (): Promise<TServerInfo | undefined> => {
   try {
-    return await getServerInfo();
+    return await getServerInfo({ fetch: retryingFetch });
   } catch (error) {
     console.error('Error fetching server info:', error);
   }

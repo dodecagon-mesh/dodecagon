@@ -1,7 +1,7 @@
 import { DevicesProvider } from '@/components/devices-provider';
 import { Routing } from '@/components/routing';
 import { hydrateAppFromStorage } from '@/features/app/slice';
-import { getRequestContext } from '@/features/server/request-context';
+import { readRequestContext } from '@/features/server/request-context';
 import { hydrateServerFromStorage } from '@/features/server/slice';
 import { createStore, store } from '@/features/store';
 import { StoreProvider } from '@/features/store-context';
@@ -32,7 +32,7 @@ const ClientShell = lazy(() =>
 
 export const Route = createRootRoute({
   loader: async () => {
-    const requestContext = await getRequestContext();
+    const requestContext = await readRequestContext();
     const instance = createI18n(requestContext.language);
 
     await whenI18nReady(instance);
