@@ -1,6 +1,11 @@
 import * as Sentry from '@sentry/react';
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
-import { captureDiagnostic, captureError, initSentry } from '../sentry';
+import {
+  captureDiagnostic,
+  captureError,
+  initAppSentry,
+  initSentry
+} from '../sentry';
 
 describe('sentry', () => {
   afterEach(async () => {
@@ -26,6 +31,35 @@ describe('sentry', () => {
     expect(client?.getOptions().environment).toBe('production');
     expect(client?.getOptions().release).toBe('0.0.41');
     expect(() => captureError(new Error('boom'))).not.toThrow();
+  });
+
+  it('reports nothing when neither the build nor the server carries a dsn', () => {
+    initAppSentry();
+
+    expect(Sentry.getClient()).toBeUndefined();
+  });
+
+  it('keeps the baked environment and release when the server sends the dsn', () => {
+    // the browser events of a production deployment were labelled
+    // 'development' and carried no release, because the dsn that arrives with
+    // the public settings opened the client without them
+    Object.assign(globalThis, {
+      VITE_SENTRY_ENVIRONMENT: 'production',
+      VITE_APP_VERSION: '1.2.3'
+    });
+
+    try {
+      initAppSentry('https://client@errors.example.com/2');
+
+      const options = Sentry.getClient()?.getOptions();
+
+      expect(options?.dsn).toBe('https://client@errors.example.com/2');
+      expect(options?.environment).toBe('production');
+      expect(options?.release).toBe('1.2.3');
+    } finally {
+      Reflect.deleteProperty(globalThis, 'VITE_SENTRY_ENVIRONMENT');
+      Reflect.deleteProperty(globalThis, 'VITE_APP_VERSION');
+    }
   });
 
   it('passes a P2P diagnostic to the tracker with its fingerprint', () => {

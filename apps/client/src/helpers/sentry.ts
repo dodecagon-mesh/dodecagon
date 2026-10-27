@@ -63,6 +63,22 @@ const initSentry = (
   enabled = true;
 };
 
+// every path that can carry a dsn — the boot of the page, the public settings of
+// the server, a later reconnection — reports under the same environment and
+// release. a dsn that the server sends used to re-open the client with the sdk
+// default ('development') and without a release, which mislabels every browser
+// event of a production deployment. vite bakes the three constants at build
+// time; the typeof guards keep the client tests running where it defines none
+const initAppSentry = (dsn?: string | null) =>
+  initSentry(
+    dsn ||
+      (typeof VITE_SENTRY_DSN === 'undefined' ? undefined : VITE_SENTRY_DSN),
+    typeof VITE_SENTRY_ENVIRONMENT === 'undefined'
+      ? undefined
+      : VITE_SENTRY_ENVIRONMENT,
+    typeof VITE_APP_VERSION === 'undefined' ? undefined : VITE_APP_VERSION
+  );
+
 const captureError = (error: unknown, tags?: Record<string, string>) => {
   if (!enabled) return;
 
@@ -81,4 +97,4 @@ const captureDiagnostic = (event: TTrackerDiagnostic) => {
   });
 };
 
-export { captureDiagnostic, captureError, initSentry };
+export { captureDiagnostic, captureError, initAppSentry, initSentry };
