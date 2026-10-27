@@ -116,3 +116,37 @@ jobs:
             ```bash
             docker pull ${{ steps.get_image.outputs.name }}:v${{ steps.get_version.outputs.version }}
             ```
+
+      # action-gh-release warns and carries on when GitHub rejects one upload.
+      # v0.0.83 lost its linux-arm64 binary that way and the job stayed green,
+      # so the release counts as done only when every expected file is attached
+      - name: Verify the release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: v${{ steps.get_version.outputs.version }}
+        run: |
+          expected="dodecagon-linux-x64 dodecagon-linux-arm64 dodecagon-windows-x64.exe dodecagon-macos-arm64 release.json"
+
+          for attempt in 1 2 3; do
+            attached="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+            missing=""
+
+            for name in $expected; do
+              if ! printf '%s\n' "$attached" | grep -qx "$name"; then
+                missing="$missing apps/server/build/out/$name"
+              fi
+            done
+
+            if [ -z "$missing" ]; then
+              echo "release $TAG carries every expected asset"
+              exit 0
+            fi
+
+            echo "attempt $attempt is uploading:$missing"
+            # shellcheck disable=SC2086
+            gh release upload "$TAG" $missing --clobber || echo "upload attempt $attempt failed"
+          done
+
+          echo "release $TAG is missing:$missing after three attempts" >&2
+          exit 1
