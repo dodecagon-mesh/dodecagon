@@ -32,6 +32,7 @@ beforeAll(async () => {
 afterAll(() => root.unmount());
 
 const selectByDrag = async (element: Element) => {
+  window.getSelection()?.removeAllRanges();
   const bounds = element.getBoundingClientRect();
   const session: CDPSession = cdp();
   const y = bounds.top + bounds.height / 2;
@@ -69,13 +70,13 @@ const selectByDrag = async (element: Element) => {
   return selected;
 };
 
-test('the own username in the user control can be selected', async () => {
+test('the own username in the sidebar control cannot be selected', async () => {
   const sidebar = page.getByTestId(TestId.LEFT_SIDEBAR);
   const ownName = sidebar.getByText('rnd332', { exact: true }).first();
 
   await expect.element(ownName).toBeVisible();
 
-  expect(await selectByDrag(ownName.element())).toContain('rnd332');
+  expect(await selectByDrag(ownName.element())).toBe('');
 
   await userEvent.keyboard('{Escape}');
 });
@@ -94,4 +95,29 @@ test('a member name in the members sidebar can be selected', async () => {
   await expect.element(memberName).toBeVisible();
 
   expect(await selectByDrag(memberName.element())).toContain('rnd332');
+});
+
+test('a user message can be selected', async () => {
+  const message = page
+    .getByTestId(TestId.MESSAGE_ITEM)
+    .getByText(/^Welcome back/);
+
+  await expect.element(message).toBeVisible();
+
+  expect(await selectByDrag(message.element())).toContain('Welcome back');
+});
+
+test('text in the message box can be selected and replaced', async () => {
+  const editor = page.getByTestId(TestId.MESSAGE_COMPOSE_EDITOR);
+  const draft = 'Select this draft in the message box.';
+
+  await editor.fill(draft);
+  await userEvent.keyboard('{Control>}a{/Control}');
+
+  expect(window.getSelection()?.toString()).toBe(draft);
+
+  await userEvent.keyboard('Replacement draft');
+  await expect.element(editor).toHaveTextContent('Replacement draft');
+
+  await editor.fill('');
 });
