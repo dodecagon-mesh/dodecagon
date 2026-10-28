@@ -88,6 +88,21 @@ class FixedWindowRateLimiter {
     };
   };
 
+  // gives a slot back to a request that turned out to be legitimate. The window itself
+  // stays where it is: refunding past the reset would hand out a fresh allowance instead
+  // of undoing one attempt
+  public refund = (key: string): void => {
+    const existing = this.entries.get(key);
+
+    if (!existing || existing.resetAt <= Date.now()) {
+      return;
+    }
+
+    if (existing.count > 0) {
+      existing.count -= 1;
+    }
+  };
+
   public clear = () => {
     this.entries.clear();
   };

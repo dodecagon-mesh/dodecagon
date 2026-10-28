@@ -6,6 +6,7 @@ import {
   useIsConnected,
   useIsReconnecting
 } from '@/features/server/hooks';
+import { hasStoredSession } from '@/helpers/stored-session';
 import { DisconnectCode } from '@dodecagon/shared';
 import { useNavigate } from '@tanstack/react-router';
 import { memo, useEffect } from 'react';
@@ -46,6 +47,12 @@ const Routing = memo(() => {
 
       return;
     }
+
+    // the browser resumes a stored session right after the hydration. until it does, the
+    // form of the sign in is the wrong screen, and on a slow link it is the screen the user
+    // sees after every refresh of a session that is valid. the tokens are gone once the
+    // resume fails, so a session that cannot come back still lands on the form
+    if (hasStoredSession()) return;
 
     void navigate({ to: '/connect' });
   }, [

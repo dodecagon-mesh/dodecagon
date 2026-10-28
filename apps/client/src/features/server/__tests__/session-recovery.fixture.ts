@@ -35,6 +35,7 @@ class RPCError extends Error {
   }
 }
 let online = true;
+let rateLimited = false;
 let authError: string | undefined;
 let joinBarrier: Promise<void> | undefined;
 let onJoin: (() => void) | undefined;
@@ -78,6 +79,7 @@ mock.module('@trpc/client', () => ({
     others: {
       handshake: {
         query: async () => {
+          if (rateLimited) throw new RPCError({ code: 'TOO_MANY_REQUESTS' });
           if (!online) throw new RPCError();
           lastToken = (await wsOptions.connectionParams()).token;
           return { hasPassword: passwordRequired, handshakeHash: 'handshake' };
@@ -85,6 +87,7 @@ mock.module('@trpc/client', () => ({
       },
       joinServer: {
         query: async () => {
+          if (rateLimited) throw new RPCError({ code: 'TOO_MANY_REQUESTS' });
           if (!online) throw new RPCError();
           onJoin?.();
           if (joinBarrier) await joinBarrier;
@@ -161,6 +164,7 @@ const tick = async () => {
 
 beforeEach(() => {
   online = true;
+  rateLimited = false;
   authError = undefined;
   passwordRequired = false;
   servedVersion = '0.0.65';
@@ -372,6 +376,72 @@ test('observed new served version refreshes the client once without losing the s
   await connect();
   expect(reloads).toBe(1);
   cancelReconnect();
+});
+
+test('a version the client already reloaded for is not reloaded again after the tab storage is gone', async () => {
+  await connect();
+  servedVersion = '0.0.66';
+  reconnectToServer(outage);
+  await tick();
+  expect(reloads).toBe(1);
+
+  // the document reload drops the storage of the tab, and a browser can refuse it outright.
+  // the record of the last reload has to outlive both, or the same version reloads forever
+  session.clear();
+  await connect();
+  expect(reloads).toBe(1);
+  cancelReconnect();
+});
+
+test('a version published while the last reload is fresh waits for the next minute', async () => {
+  await connect();
+  servedVersion = '0.0.66';
+  reconnectToServer(outage);
+  await tick();
+  expect(reloads).toBe(1);
+
+  servedVersion = '0.0.67';
+  await connect();
+  expect(reloads).toBe(1);
+  cancelReconnect();
+});
+
+test('a rate-limited reconnection waits out the window instead of climbing the ladder', async () => {
+  await connect();
+  rateLimited = true;
+  reconnectToServer(outage);
+
+  await tick();
+  expect(elapsed).toBe(1_000);
+  expect(store.getState().server.reconnect).not.toBeNull();
+
+  // the recovery ladder would ask again in two seconds and keep the count of the server
+  // spent, so the refused attempt waits the length of the window instead
+  await tick();
+  expect(elapsed).toBe(31_000);
+
+  await tick();
+  expect(elapsed).toBe(61_000);
+
+  rateLimited = false;
+  await tick();
+  expect(store.getState().server.connected).toBe(true);
+  expect(session.getItem(S.TOKEN)).toBe('same-tab-token');
+});
+
+test('a rate-limited first attempt after a reload waits for the window', async () => {
+  rateLimited = true;
+  await resumeSession();
+
+  expect(store.getState().server.reconnect).not.toBeNull();
+
+  // the retry is scheduled for the length of the window rather than for the first step of
+  // the ladder, so one wait is enough for the server to accept the session again
+  rateLimited = false;
+  await tick();
+  expect(elapsed).toBe(30_000);
+  expect(store.getState().server.connected).toBe(true);
+  expect(session.getItem(S.TOKEN)).toBe('same-tab-token');
 });
 
 const voiceState = {

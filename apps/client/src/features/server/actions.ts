@@ -1,5 +1,6 @@
 import { Dialog } from '@/components/dialogs/dialogs';
 import { logDebug } from '@/helpers/browser-logger';
+import { reloadForServerVersion } from '@/helpers/client-reload';
 import { getHostFromServer } from '@/helpers/get-file-url';
 import { initAppSentry } from '@/helpers/sentry';
 import { playSound } from '@/helpers/sounds';
@@ -169,15 +170,9 @@ export const joinServer = async (handshakeHash: string, password?: string) => {
   if (
     data.serverVersion &&
     typeof VITE_APP_VERSION !== 'undefined' &&
-    data.serverVersion !== VITE_APP_VERSION &&
-    getSessionStorageItem(SessionStorageKey.CLIENT_RELOAD_VERSION) !==
-      data.serverVersion
+    data.serverVersion !== VITE_APP_VERSION
   ) {
-    setSessionStorageItem(
-      SessionStorageKey.CLIENT_RELOAD_VERSION,
-      data.serverVersion
-    );
-    window.location.reload();
+    reloadForServerVersion(data.serverVersion);
   }
 
   return {
@@ -191,6 +186,11 @@ export const disconnectFromServer = () => {
 };
 
 const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000];
+
+// the limits the server answers a handshake or a join with are counts per minute, so a
+// retry every second or two only keeps the bucket full. Waiting the window out is the only
+// attempt that can succeed
+const RATE_LIMITED_DELAY_MS = 30_000;
 
 let reconnectAttempt = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -210,7 +210,13 @@ export const cancelReconnect = () => {
 // transport must handshake and join again before installing subscriptions.
 export const reconnectToServer = (
   info: TDisconnectInfo,
-  { transportClosed = false } = {}
+  {
+    transportClosed = false,
+    retryInMs
+  }: {
+    transportClosed?: boolean;
+    retryInMs?: number;
+  } = {}
 ) => {
   if (transportClosed) {
     // Invalidate every await on the dead socket, including plugin loading after
@@ -227,11 +233,13 @@ export const reconnectToServer = (
 
   setConnected(false);
   const generation = reconnectGeneration;
+  // a rate-limited attempt says nothing about the ladder, so it keeps its place
   const delay =
+    retryInMs ??
     RECONNECT_DELAYS_MS[
       Math.min(reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)
     ]!;
-  reconnectAttempt += 1;
+  if (retryInMs === undefined) reconnectAttempt += 1;
 
   pushVoiceDebugEvent('ws', 'reconnect scheduled', {
     attempt: reconnectAttempt,
@@ -274,6 +282,14 @@ export const reconnectToServer = (
         return;
       }
 
+      if (
+        error instanceof TRPCClientError &&
+        error.data?.code === 'TOO_MANY_REQUESTS'
+      ) {
+        reconnectToServer(info, { retryInMs: RATE_LIMITED_DELAY_MS });
+        return;
+      }
+
       // FORBIDDEN here means an invalid server password/handshake, not an
       // expired account token. Transient failures keep retrying at capped delay.
       reconnectToServer(info);
@@ -298,12 +314,18 @@ export const resumeSession = async () => {
     if (isAuthenticationFailure(error)) {
       cleanup();
     } else {
-      reconnectToServer({
-        code: 1006,
-        reason: '',
-        wasClean: false,
-        time: new Date()
-      });
+      reconnectToServer(
+        {
+          code: 1006,
+          reason: '',
+          wasClean: false,
+          time: new Date()
+        },
+        error instanceof TRPCClientError &&
+          error.data?.code === 'TOO_MANY_REQUESTS'
+          ? { retryInMs: RATE_LIMITED_DELAY_MS }
+          : {}
+      );
     }
   }
   return true;

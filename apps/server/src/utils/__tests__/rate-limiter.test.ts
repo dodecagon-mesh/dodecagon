@@ -168,4 +168,60 @@ describe('FixedWindowRateLimiter', () => {
 
     expect(limiter.size).toBeLessThanOrEqual(10);
   });
+
+  test('a refunded slot can be spent again within the same window', () => {
+    const limiter = new FixedWindowRateLimiter({
+      maxRequests: 2,
+      windowMs: 60_000
+    });
+
+    limiter.consume('user:2');
+    limiter.consume('user:2');
+    expect(limiter.consume('user:2').allowed).toBe(false);
+
+    limiter.refund('user:2');
+
+    // the window did not restart: the two slots are still the allowance
+    expect(limiter.consume('user:2')).toEqual({
+      allowed: true,
+      remaining: 0,
+      retryAfterMs: 0
+    });
+    expect(limiter.consume('user:2').allowed).toBe(false);
+  });
+
+  test('refunds without a spent slot do not hand out an allowance', () => {
+    const limiter = new FixedWindowRateLimiter({
+      maxRequests: 1,
+      windowMs: 60_000
+    });
+
+    limiter.refund('user:2');
+
+    expect(limiter.consume('user:2')).toEqual({
+      allowed: true,
+      remaining: 0,
+      retryAfterMs: 0
+    });
+    expect(limiter.consume('user:2').allowed).toBe(false);
+  });
+
+  test('a refund cannot restore an allowance whose window has passed', () => {
+    const limiter = new FixedWindowRateLimiter({
+      maxRequests: 1,
+      windowMs: 50
+    });
+
+    limiter.consume('user:2');
+    now += 60;
+    limiter.refund('user:2');
+
+    // the expired entry is not resurrected, and the next window starts from its own count
+    expect(limiter.consume('user:2')).toEqual({
+      allowed: true,
+      remaining: 0,
+      retryAfterMs: 0
+    });
+    expect(limiter.consume('user:2').allowed).toBe(false);
+  });
 });

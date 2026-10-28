@@ -1,10 +1,4 @@
-import {
-  getLocalStorageItem,
-  getLocalStorageItemBool,
-  getSessionStorageItem,
-  LocalStorageKey,
-  SessionStorageKey
-} from '@/helpers/storage';
+import { hasStoredSession } from '@/helpers/stored-session';
 import { LoadingApp } from '@/screens/loading-app';
 import { createFileRoute, redirect } from '@tanstack/react-router';
 
@@ -17,14 +11,9 @@ export const Route = createFileRoute('/')({
     // moment later
     if (typeof window === 'undefined') return;
 
-    const hasStoredSession =
-      !!getSessionStorageItem(SessionStorageKey.TOKEN) ||
-      (getLocalStorageItemBool(LocalStorageKey.AUTO_LOGIN) &&
-        !!getLocalStorageItem(LocalStorageKey.AUTO_LOGIN_TOKEN));
-
     // the address of the server is the screen of the sign in, the app itself
     // lives under its own path
-    throw redirect({ to: hasStoredSession ? '/app' : '/connect' });
+    throw redirect({ to: hasStoredSession() ? '/app' : '/connect' });
   },
   // the waiting shell renders the same way on both sides, so the page hydrates
   // without a mismatch while the browser decides where the session belongs

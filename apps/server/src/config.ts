@@ -161,6 +161,7 @@ const zConfig = z.object({
     moveMembers: zRateLimiter,
     login: zRateLimiter,
     joinServer: zRateLimiter,
+    joinServerBurst: zRateLimiter,
     upload: zRateLimiter,
     search: zRateLimiter,
     signalTyping: zRateLimiter,
@@ -256,6 +257,14 @@ const defaultConfig: TConfig = {
       maxRequests: 5,
       windowMs: 60_000
     },
+    joinServerBurst: {
+      // a document load and a reconnection join once, so the legitimate rate is on the order
+      // of reloads, while every join reads the whole initial state of the server. the budget
+      // stops a flood without measuring a session that comes back by the passwords it did
+      // not guess
+      maxRequests: 30,
+      windowMs: 60_000
+    },
     upload: {
       maxRequests: 30,
       windowMs: 60_000
@@ -289,7 +298,10 @@ const defaultConfig: TConfig = {
       windowMs: 60_000
     },
     handshake: {
-      maxRequests: 10,
+      // every document load and every reconnection attempt asks for a handshake, and the
+      // recovery ladder alone is up to 8 attempts a minute. A limit of 10 turned a few
+      // reloads into a client that could not connect until the window rolled over
+      maxRequests: 30,
       windowMs: 60_000
     },
     updatePassword: {

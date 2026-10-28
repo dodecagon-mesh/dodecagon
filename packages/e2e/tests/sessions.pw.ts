@@ -312,6 +312,38 @@ test('a refresh resumes an auto-login session without asking again', async ({
   }
 });
 
+// the resume of a stored session runs after the document loads, and that window used to be
+// spent on the screen of the sign in. the socket is held back so the window is wide enough to
+// see which screen the app picks for it
+test('a refresh of a stored session resumes behind the loading screen', async ({
+  browser
+}) => {
+  const context = await browser.newContext();
+
+  try {
+    const page = await context.newPage();
+
+    await loginAs(page, WATCHED.identity, WATCHED.password);
+
+    await page.routeWebSocket('**', async (route) => {
+      const held = Promise.withResolvers<void>();
+      setTimeout(held.resolve, 2_000);
+      await held.promise;
+      route.connectToServer();
+    });
+
+    await page.reload();
+
+    await expect(page.getByText('Logging in automatically')).toBeVisible();
+    await expect(page.getByTestId(TestId.CONNECT_BUTTON)).toHaveCount(0);
+    await expect(page.getByTestId(TestId.SERVER_VIEW)).toBeVisible({
+      timeout: 15_000
+    });
+  } finally {
+    await context.close().catch(() => {});
+  }
+});
+
 // the identity is written on a successful login and read back as the connect form's initial
 // value, so only a session that starts over can show whether it survives. the password is
 // deliberately never stored, and an empty field is the whole of that guarantee

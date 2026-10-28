@@ -99,6 +99,13 @@ type TRateLimitedProcedureOptions = {
   windowMs: number;
   logLabel: string;
   maxEntries?: number;
+  /**
+   * Spend a slot only when the call is rejected. Guessing a password or a handshake is the
+   * threat these limits answer, and a session that joins successfully is not one of the
+   * attempts: counting reloads and reconnections of a valid session locks the user out of
+   * their own client, which is the failure this option exists to prevent.
+   */
+  countFailuresOnly?: boolean;
   skip?: (rawInput: unknown) => boolean;
 };
 
@@ -143,7 +150,14 @@ const rateLimitedProcedure = (
         });
       }
 
-      return next();
+      const result = await next();
+
+      // a rejected call answers with ok: false instead of throwing
+      if (options.countFailuresOnly && result.ok) {
+        limiter.refund(key);
+      }
+
+      return result;
     }
   );
 

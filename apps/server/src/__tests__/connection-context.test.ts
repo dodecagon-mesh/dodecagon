@@ -129,11 +129,13 @@ describe('rate limiting subject', () => {
     headers?: Record<string, string>
   ) => {
     const { caller } = await getCaller(userId, { remoteAddress, headers });
-    const { handshakeHash } = await caller.others.handshake();
 
-    // joinServer allows 5 per minute
+    // joinServer spends a slot only on a rejected attempt, and allows 5 of them per minute.
+    // A wrong handshake is exactly the guess the limit answers
     for (let i = 0; i < 5; i++) {
-      await caller.others.joinServer({ handshakeHash });
+      await expect(
+        caller.others.joinServer({ handshakeHash: 'not-a-handshake' })
+      ).rejects.toThrow('Invalid handshake hash');
     }
 
     return caller;
