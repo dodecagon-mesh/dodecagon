@@ -1,5 +1,6 @@
 import { closeOverlay } from '@/features/overlays/actions';
 import { useOverlay } from '@/features/overlays/hooks';
+import { useIsConnected } from '@/features/server/hooks';
 import { memoizeImport, warmImportsWhenIdle } from '@/helpers/prefetch';
 import {
   createElement,
@@ -37,8 +38,11 @@ const ScreensMap = {
   [ServerScreen.CATEGORY_SETTINGS]: CategorySettings
 };
 
+let warmedScreens = false;
+
 const ServerScreensProvider = memo(() => {
   const overlay = useOverlay();
+  const isConnected = useIsConnected();
 
   // the portal root belongs to the document shell, so it is only known once the
   // tree is mounted
@@ -47,6 +51,21 @@ const ServerScreensProvider = memo(() => {
   useEffect(() => {
     setPortalRoot(document.getElementById('portal'));
   }, []);
+
+  useEffect(() => {
+    // settings screens are unreachable before the session exists, warming them
+    // from the sign in screen downloads the app on a link that has not asked for it
+    if (!isConnected || warmedScreens) return;
+
+    warmedScreens = true;
+
+    warmImportsWhenIdle([
+      loadServerSettings,
+      loadChannelSettings,
+      loadUserSettings,
+      loadCategorySettings
+    ]);
+  }, [isConnected]);
 
   if (!overlay || overlay.kind !== 'serverScreen') return null;
 
@@ -68,12 +87,5 @@ const ServerScreensProvider = memo(() => {
     portalRoot
   );
 });
-
-warmImportsWhenIdle([
-  loadServerSettings,
-  loadChannelSettings,
-  loadUserSettings,
-  loadCategorySettings
-]);
 
 export { ServerScreensProvider };

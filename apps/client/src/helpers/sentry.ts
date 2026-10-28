@@ -1,5 +1,7 @@
+import type * as SentryModule from '@sentry/react';
 import type { ErrorEvent } from '@sentry/react';
-import * as Sentry from '@sentry/react';
+
+type TSentryModule = typeof SentryModule;
 
 type TTrackerDiagnostic = {
   level: 'warning';
@@ -9,6 +11,8 @@ type TTrackerDiagnostic = {
   fingerprint: string[];
 };
 
+let sentry: TSentryModule | undefined;
+let sentryPromise: Promise<TSentryModule> | undefined;
 let enabled = false;
 let currentDsn: string | undefined;
 
@@ -16,16 +20,28 @@ let currentDsn: string | undefined;
 // URL, a token, a user label or a free-form message
 const SAFE_TAG = /^(?:area|p2p\.[a-z0-9_.-]+)$/i;
 
-const initSentry = (
+const initSentry = async (
   dsn: string | undefined,
   environment?: string,
   release?: string
 ) => {
   if (!dsn) return;
-  if (dsn === currentDsn && Sentry.getClient()) return;
+  if (dsn === currentDsn && sentry?.getClient()) return;
+
+  // the sdk is a third of the startup javascript, a deployment without a dsn
+  // must never download it. the first error before the chunk arrives is lost,
+  // which is the same window the old synchronous init had before it ran
+  sentryPromise ??= import('@sentry/react');
+
+  const module = await sentryPromise;
+
+  sentry = module;
+
+  if (dsn === currentDsn && module.getClient()) return;
+
   currentDsn = dsn;
 
-  Sentry.init({
+  module.init({
     dsn,
     environment: environment ?? 'development',
     ...(release ? { release } : {}),
@@ -78,7 +94,8 @@ const initAppSentry = (dsn?: string | null) => {
       ? undefined
       : __DODECAGON_ERRORS__;
 
-  initSentry(
+  // the sdk loads in its own chunk, a deployment without a dsn never pays for it
+  return initSentry(
     dsn || deployment?.dsn,
     deployment?.environment ?? undefined,
     typeof VITE_APP_VERSION === 'undefined' ? undefined : VITE_APP_VERSION
@@ -86,15 +103,15 @@ const initAppSentry = (dsn?: string | null) => {
 };
 
 const captureError = (error: unknown, tags?: Record<string, string>) => {
-  if (!enabled) return;
+  if (!enabled || !sentry) return;
 
-  Sentry.captureException(error, tags ? { tags } : undefined);
+  sentry.captureException(error, tags ? { tags } : undefined);
 };
 
 const captureDiagnostic = (event: TTrackerDiagnostic) => {
-  if (!enabled) return;
+  if (!enabled || !sentry) return;
 
-  Sentry.captureEvent({
+  sentry.captureEvent({
     level: event.level,
     message: event.message,
     tags: event.tags,

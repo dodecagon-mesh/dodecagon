@@ -9,6 +9,7 @@ import fs from 'fs';
 import fsPromises from 'fs/promises';
 import http from 'http';
 import path from 'path';
+import { pipeline } from 'stream';
 import { config } from '../config';
 import { isTrustedProxyAddress } from '../helpers/get-ws-info';
 import { logger } from '../logger';
@@ -17,6 +18,11 @@ import {
   getClientRateLimitKey,
   getRateLimitRetrySeconds
 } from '../utils/rate-limiters/rate-limiter';
+import {
+  COMPRESSIBLE_CONTENT_TYPE,
+  createCompressor,
+  getPreferredEncoding
+} from './compression';
 import { PayloadTooLargeError } from './errors';
 
 type HttpRouteHandler<TContext = undefined> = (
@@ -423,28 +429,27 @@ type TSendFileOptions = {
 const pipeFileStream = (
   filePath: string,
   res: http.ServerResponse,
-  streamOptions?: { start: number; end: number }
+  streamOptions?: { start: number; end: number },
+  encoding?: 'br' | 'gzip'
 ) => {
   const fileStream = fs.createReadStream(filePath, streamOptions);
 
-  fileStream.on('error', (err) => {
-    logger.error('Error serving file: %s', getErrorMessage(err));
+  const done = (error: NodeJS.ErrnoException | null) => {
+    if (!error) return;
+    // a client that navigated away is not a server error
+    if (res.destroyed || res.writableEnded) return;
 
-    // the status line is already out, dropping the socket is all that is left
-    if (res.headersSent) {
-      res.destroy();
+    logger.error('Error serving file: %s', getErrorMessage(error));
+    res.destroy();
+  };
 
-      return;
-    }
+  if (encoding) {
+    pipeline(fileStream, createCompressor(encoding), res, done);
 
-    sendJsonError(res, 500, 'Internal server error');
-  });
+    return;
+  }
 
-  res.on('close', () => {
-    fileStream.destroy();
-  });
-
-  fileStream.pipe(res);
+  pipeline(fileStream, res, done);
 };
 
 // single entry point for every route that streams a file off disk: async stat,
@@ -478,6 +483,15 @@ const sendFile = async (
   const lastModified = stats.mtime.toUTCString();
   const contentType = options.contentType || Bun.file(filePath).type;
   const rangeHeader = req.headers.range;
+  const canCompress =
+    !rangeHeader &&
+    req.method !== 'HEAD' &&
+    !!contentType &&
+    COMPRESSIBLE_CONTENT_TYPE.test(contentType) &&
+    stats.size >= 1024;
+  // the cache must keep the identity and the compressed variant apart even when
+  // this particular client asked for neither
+  const vary = canCompress ? 'Range, Accept-Encoding' : 'Range';
 
   if (
     !rangeHeader &&
@@ -486,7 +500,7 @@ const sendFile = async (
       lastModified,
       cacheControl,
       mtimeMs: stats.mtimeMs,
-      extraHeaders: { Vary: 'Range' }
+      extraHeaders: { Vary: vary }
     })
   ) {
     return;
@@ -498,19 +512,23 @@ const sendFile = async (
     ETag: etag,
     'Last-Modified': lastModified,
     'Cache-Control': cacheControl,
-    Vary: 'Range',
+    Vary: vary,
     ...(options.contentDisposition
       ? { 'Content-Disposition': options.contentDisposition }
       : {})
   };
 
   if (!rangeHeader) {
+    const encoding = canCompress ? getPreferredEncoding(req) : undefined;
+
     res.writeHead(200, {
       ...commonHeaders,
-      'Content-Length': stats.size
+      ...(encoding
+        ? { 'Content-Encoding': encoding }
+        : { 'Content-Length': stats.size })
     });
 
-    pipeFileStream(filePath, res);
+    pipeFileStream(filePath, res, undefined, encoding);
 
     return;
   }

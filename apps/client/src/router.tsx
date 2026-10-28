@@ -7,7 +7,10 @@ export function getRouter() {
   return createRouter({
     routeTree,
     scrollRestoration: true,
-    defaultPreload: 'render',
+    // render preloads every rendered link, which on a slow link downloads screens
+    // the user never visits. intent keeps the head start on hover/touch without
+    // paying for the whole route tree
+    defaultPreload: 'intent',
     defaultPreloadDelay: 0,
     defaultPreloadStaleTime: 30_000,
     defaultPreloadGcTime: 10 * 60_000,

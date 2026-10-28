@@ -12,15 +12,19 @@ describe('sentry', () => {
     await Sentry.close(0);
   });
 
-  it('stays out of the way when no dsn is configured', () => {
-    initSentry(undefined);
+  it('stays out of the way when no dsn is configured', async () => {
+    await initSentry(undefined);
 
     expect(Sentry.getClient()).toBeUndefined();
     expect(() => captureError(new Error('boom'))).not.toThrow();
   });
 
-  it('opens a client that reports errors once a dsn is configured', () => {
-    initSentry('https://public@errors.example.com/2', 'production', '0.0.41');
+  it('opens a client that reports errors once a dsn is configured', async () => {
+    await initSentry(
+      'https://public@errors.example.com/2',
+      'production',
+      '0.0.41'
+    );
 
     const client = Sentry.getClient();
 
@@ -33,7 +37,7 @@ describe('sentry', () => {
     expect(() => captureError(new Error('boom'))).not.toThrow();
   });
 
-  it('reports with the dsn, environment and release of the deployment', () => {
+  it('reports with the dsn, environment and release of the deployment', async () => {
     // the browser events of a production deployment were labelled
     // 'development' and carried no release, because the dsn that arrived with
     // the public settings opened the client without them
@@ -46,7 +50,7 @@ describe('sentry', () => {
     });
 
     try {
-      initAppSentry();
+      await initAppSentry();
 
       const options = Sentry.getClient()?.getOptions();
 
@@ -59,7 +63,7 @@ describe('sentry', () => {
     }
   });
 
-  it('keeps the environment of the deployment when the server sends its dsn', () => {
+  it('keeps the environment of the deployment when the server sends its dsn', async () => {
     Object.assign(globalThis, {
       __DODECAGON_ERRORS__: {
         dsn: 'https://rendered@errors.example.com/2',
@@ -69,7 +73,7 @@ describe('sentry', () => {
     });
 
     try {
-      initAppSentry('https://settings@errors.example.com/2');
+      await initAppSentry('https://settings@errors.example.com/2');
 
       const options = Sentry.getClient()?.getOptions();
 
@@ -82,8 +86,8 @@ describe('sentry', () => {
     }
   });
 
-  it('passes a P2P diagnostic to the tracker with its fingerprint', () => {
-    initSentry('https://public@errors.example.com/2');
+  it('passes a P2P diagnostic to the tracker with its fingerprint', async () => {
+    await initSentry('https://public@errors.example.com/2');
     const capture = spyOn(Sentry, 'captureEvent');
 
     try {
@@ -106,8 +110,8 @@ describe('sentry', () => {
     }
   });
 
-  it('keeps chat content out of reported events', () => {
-    initSentry('https://public@errors.example.com/2');
+  it('keeps chat content out of reported events', async () => {
+    await initSentry('https://public@errors.example.com/2');
 
     const beforeSend = Sentry.getClient()?.getOptions().beforeSend;
 
