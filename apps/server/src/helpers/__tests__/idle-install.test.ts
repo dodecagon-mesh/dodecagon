@@ -14,7 +14,7 @@ import { VoiceRuntime } from '../../runtimes/voice';
 import { SERVER_VERSION } from '../../utils/env';
 import * as media from '../../utils/mediasoup';
 import { pubsub } from '../../utils/pubsub';
-import { updater } from '../updater';
+import { UpdateRefusedError, updater } from '../updater';
 
 const releaseRoot =
   'https://github.com/dodecagon-mesh/dodecagon/releases/download/v0.0.35/';
@@ -617,22 +617,37 @@ test('failed explicit restart announces departures and rebuilds registered voice
   }
 });
 
-for (const version of [SERVER_VERSION, '0.0.0-0']) {
-  test(`explicit update will not replace current ${SERVER_VERSION} with ${version}`, async () => {
-    const fixture = await setup(version);
-    try {
-      await expect(updater.update()).resolves.toEqual({ updated: false });
-      expect(fixture.fetchSpy).toHaveBeenCalledTimes(2);
-      expect(fixture.execve).not.toHaveBeenCalled();
-      expect(fixture.closeWorker).not.toHaveBeenCalled();
-      expect(await fs.readFile(fixture.binary, 'utf8')).toBe(
-        'old-running-binary'
-      );
-    } finally {
-      await fixture.cleanup();
-    }
-  });
-}
+test(`explicit update will not replace current ${SERVER_VERSION} with the same release`, async () => {
+  const fixture = await setup(SERVER_VERSION);
+  try {
+    await expect(updater.update()).resolves.toEqual({ updated: false });
+    expect(fixture.fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fixture.execve).not.toHaveBeenCalled();
+    expect(fixture.closeWorker).not.toHaveBeenCalled();
+    expect(await fs.readFile(fixture.binary, 'utf8')).toBe(
+      'old-running-binary'
+    );
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test(`explicit update refuses an older release than ${SERVER_VERSION} without a confirmation`, async () => {
+  const fixture = await setup('0.0.0-0');
+  try {
+    const refusal = updater.update();
+
+    await expect(refusal).rejects.toBeInstanceOf(UpdateRefusedError);
+    await expect(refusal).rejects.toMatchObject({ reason: 'downgrade' });
+    expect(fixture.execve).not.toHaveBeenCalled();
+    expect(fixture.closeWorker).not.toHaveBeenCalled();
+    expect(await fs.readFile(fixture.binary, 'utf8')).toBe(
+      'old-running-binary'
+    );
+  } finally {
+    await fixture.cleanup();
+  }
+});
 
 test('explicit lifecycle exposes real install phases and the validated target to all subscribers', async () => {
   const fixture = await setup();

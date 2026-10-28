@@ -8,6 +8,10 @@ import { getStartHandler } from '../helpers/start-server';
 import { logger } from '../logger';
 import { pluginManager } from '../plugins';
 import { SERVER_VERSION } from '../utils/env';
+import {
+  adminUpdateRouteHandler,
+  adminUpdateStatusRouteHandler
+} from './admin-update';
 import { HttpValidationError, PayloadTooLargeError } from './errors';
 import { healthRouteHandler } from './healthz';
 import {
@@ -112,6 +116,7 @@ const routeHandlers: Partial<
       '/healthz': healthRouteHandler,
       '/info': infoRouteHandler,
       '/manifest.json': manifestRouteHandler,
+      '/admin/update': adminUpdateStatusRouteHandler,
       '/oidc/login': oidcLoginRouteHandler,
       '/oidc/callback': oidcCallbackRouteHandler,
       // exact match so it wins over the plugin route parser, which would read
@@ -128,6 +133,7 @@ const routeHandlers: Partial<
     exact: {
       '/upload': uploadFileRouteHandler,
       '/login': loginRouteHandler,
+      '/admin/update': adminUpdateRouteHandler,
       '/oidc/exchange': oidcExchangeRouteHandler,
       '/oidc/backchannel-logout': oidcBackchannelLogoutRouteHandler
     },

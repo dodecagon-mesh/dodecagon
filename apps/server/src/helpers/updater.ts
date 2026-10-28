@@ -32,6 +32,33 @@ const CONSECUTIVE_FAILURES_BEFORE_ALARM = 3;
 const RELEASE_API = config.endpoints.updateReleaseApi;
 const RELEASE_ASSET_ROOT = new URL(config.endpoints.updateAssetRoot);
 const MAX_BINARY_BYTES = 512 * 1024 * 1024;
+
+/**
+ * What a manual update asks for. The automatic tick always asks for the latest release
+ * and never downgrades, so every field is a decision the caller makes explicitly.
+ */
+type TUpdateRequest = {
+  /** A published version; the latest release when absent. */
+  targetVersion?: string;
+  /** An older release replaces a newer one only when the caller says so. */
+  allowDowngrade?: boolean;
+};
+
+/**
+ * A refusal the caller is expected to answer for: the update did not run, and the reason
+ * is part of the contract rather than a transport failure.
+ */
+class UpdateRefusedError extends Error {
+  public readonly reason:
+    'unsupported' | 'in-progress' | 'downgrade' | 'release' | 'installing';
+
+  constructor(reason: UpdateRefusedError['reason'], message: string) {
+    super(message);
+    this.name = 'UpdateRefusedError';
+    this.reason = reason;
+  }
+}
+
 const zGithubRelease = z.object({
   tag_name: z.string(),
   assets: z.array(
@@ -87,18 +114,29 @@ class Updater {
     typeof process.execve === 'function';
   public getLatestVersion = async () => this.bunUpdater.getLatestVersion();
   public hasUpdates = async () => this.bunUpdater.hasUpdates();
-  public update = async (): Promise<{ updated: boolean }> => ({
-    updated: await this.runUpdate(false)
+  public update = async (
+    request: TUpdateRequest = {}
+  ): Promise<{ updated: boolean }> => ({
+    updated: await this.runUpdate(false, request)
   });
 
-  private runUpdate = async (automatic: boolean): Promise<boolean> => {
+  private runUpdate = async (
+    automatic: boolean,
+    request: TUpdateRequest = {}
+  ): Promise<boolean> => {
     if (!this.canUpdate()) {
       if (automatic) return false;
-      throw new Error('Binary updates are not supported on this server.');
+      throw new UpdateRefusedError(
+        'unsupported',
+        'Binary updates are not supported on this server.'
+      );
     }
     if (this.isUpdating) {
       if (automatic) return false;
-      throw new Error('A server update is already in progress. Please wait.');
+      throw new UpdateRefusedError(
+        'in-progress',
+        'A server update is already in progress. Please wait.'
+      );
     }
     if (automatic && this.shouldDeferAutoUpdate()) return false;
     this.isUpdating = true;
@@ -108,7 +146,7 @@ class Updater {
     const previousState = this.updateState;
     if (!automatic) this.setUpdateState({ phase: 'checking' });
     try {
-      const updated = await this.installUpdate(automatic);
+      const updated = await this.installUpdate(automatic, request);
       if (!updated && this.updateState !== previousState)
         this.setUpdateState(null);
       this.consecutiveFailures = 0;
@@ -166,9 +204,35 @@ class Updater {
     return response;
   };
 
-  private installUpdate = async (automatic: boolean): Promise<boolean> => {
+  // the latest release and a named one live under the same api, only the last path
+  // segment differs. a target is validated before it reaches the url
+  private releaseApiUrl = (targetVersion?: string): string => {
+    if (!targetVersion) return RELEASE_API;
+
+    if (!semver.valid(targetVersion)) {
+      throw new UpdateRefusedError(
+        'release',
+        'The requested version is not a valid release version.'
+      );
+    }
+
+    const url = new URL(RELEASE_API);
+    url.pathname = url.pathname.replace(
+      /\/latest$/,
+      `/tags/v${semver.valid(targetVersion)}`
+    );
+
+    return url.toString();
+  };
+
+  private installUpdate = async (
+    automatic: boolean,
+    request: TUpdateRequest = {}
+  ): Promise<boolean> => {
     const release = zGithubRelease.parse(
-      await readJson(await this.fetchUpdate(RELEASE_API))
+      await readJson(
+        await this.fetchUpdate(this.releaseApiUrl(request.targetVersion))
+      )
     );
     const manifest = release.assets.find(({ name }) => name === 'release.json');
     if (!manifest) throw new Error('GitHub release is missing release.json');
@@ -183,10 +247,27 @@ class Updater {
       throw new Error('Release tag and metadata version do not match');
     }
     if (
-      !semver.gt(metadata.version, SERVER_VERSION) ||
-      (automatic && this.shouldDeferAutoUpdate())
-    )
-      return false;
+      request.targetVersion &&
+      !semver.eq(metadata.version, request.targetVersion)
+    ) {
+      throw new UpdateRefusedError(
+        'release',
+        'The release of the requested version answers with another version.'
+      );
+    }
+    if (semver.eq(metadata.version, SERVER_VERSION)) return false;
+    // an older release replaces the running one only when the caller asks for it: the
+    // automatic tick never goes back, and a manual call has to say what it means
+    if (semver.lt(metadata.version, SERVER_VERSION)) {
+      if (automatic) return false;
+      if (!request.allowDowngrade) {
+        throw new UpdateRefusedError(
+          'downgrade',
+          'Replacing the running version with an older one needs an explicit confirmation.'
+        );
+      }
+    }
+    if (automatic && this.shouldDeferAutoUpdate()) return false;
     if (automatic)
       this.setUpdateState({
         phase: 'checking',
@@ -245,7 +326,8 @@ class Updater {
       if (automatic && this.shouldDeferAutoUpdate()) return false;
       if (!VoiceRuntime.beginIdleUpdate(!automatic)) {
         if (automatic) return false;
-        throw new Error(
+        throw new UpdateRefusedError(
+          'installing',
           'The server is already installing an update. Please wait.'
         );
       }
@@ -338,4 +420,4 @@ class Updater {
 }
 
 const updater = new Updater();
-export { updater };
+export { updater, UpdateRefusedError, type TUpdateRequest };
