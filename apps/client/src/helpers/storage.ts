@@ -35,12 +35,14 @@ export enum LocalStorageKey {
   MESSAGE_SENT_SOUND = 'dodecagon-message-sent-sound',
   JOIN_LEAVE_SOUNDS = 'dodecagon-join-leave-sounds',
   MUTE_DEAFEN_SOUNDS = 'dodecagon-mute-deafen-sounds',
-  MUTED_CHANNEL_IDS = 'dodecagon-muted-channel-ids'
+  MUTED_CHANNEL_IDS = 'dodecagon-muted-channel-ids',
+  // survives the browser and the tab, so a reload loop cannot outlive the storage it needs
+  CLIENT_RELOAD = 'dodecagon-client-reload'
 }
 
 export enum SessionStorageKey {
   TOKEN = 'dodecagon-token',
-  CLIENT_RELOAD_VERSION = 'dodecagon-client-reload-version',
+  CLIENT_RELOAD = 'dodecagon-client-reload',
   OIDC_NO_AUTO_REDIRECT = 'dodecagon-oidc-no-auto-redirect'
 }
 

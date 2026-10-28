@@ -14,6 +14,7 @@ import {
 } from '../../__tests__/helpers';
 import { TEST_SECRET_TOKEN } from '../../__tests__/seed';
 import { tdb } from '../../__tests__/setup';
+import { config } from '../../config';
 import { getSettings } from '../../db/queries/server';
 import { activityLog, rolePermissions } from '../../db/schema';
 import { updater } from '../../helpers/updater';
@@ -97,6 +98,46 @@ describe('others router', () => {
     for (const user of result.users) {
       expect(user._identity).toBeUndefined();
     }
+  });
+
+  // a reload, a second window and every reconnection join again with a valid session: counting
+  // those against the limit of the password guess locked the account out of its own client
+  test('should spend the join limit on rejected attempts rather than on reloads', async () => {
+    const { caller } = await getCaller(1);
+    const { handshakeHash } = await caller.others.handshake();
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      expect(await caller.others.joinServer({ handshakeHash })).toBeDefined();
+    }
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await expect(
+        caller.others.joinServer({ handshakeHash: 'not-a-handshake' })
+      ).rejects.toThrow('Invalid handshake hash');
+    }
+
+    await expect(
+      caller.others.joinServer({ handshakeHash: 'not-a-handshake' })
+    ).rejects.toThrow('Too many requests. Please try again shortly.');
+  });
+
+  // the reloads are not guesses, so the guess limit no longer bounds a socket that joins
+  // again and again: the ceiling of the burst has to hold on its own
+  test('should cap a flood of joins that all succeed', async () => {
+    const { caller } = await getCaller(1);
+    const { handshakeHash } = await caller.others.handshake();
+
+    for (
+      let attempt = 0;
+      attempt < config.rateLimiters.joinServerBurst.maxRequests;
+      attempt++
+    ) {
+      expect(await caller.others.joinServer({ handshakeHash })).toBeDefined();
+    }
+
+    await expect(caller.others.joinServer({ handshakeHash })).rejects.toThrow(
+      'Too many requests. Please try again shortly.'
+    );
   });
 
   test('should ask for password if server has one set', async () => {

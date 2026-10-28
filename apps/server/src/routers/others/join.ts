@@ -32,11 +32,25 @@ import { SERVER_VERSION } from '../../utils/env';
 import { invariant } from '../../utils/invariant';
 import { publicProcedure, rateLimitedProcedure } from '../../utils/trpc';
 
-const joinServerRoute = rateLimitedProcedure(publicProcedure, {
-  maxRequests: config.rateLimiters.joinServer.maxRequests,
-  windowMs: config.rateLimiters.joinServer.windowMs,
-  logLabel: 'joinServer'
-})
+const joinServerRoute = rateLimitedProcedure(
+  rateLimitedProcedure(publicProcedure, {
+    maxRequests: config.rateLimiters.joinServer.maxRequests,
+    windowMs: config.rateLimiters.joinServer.windowMs,
+    logLabel: 'joinServer',
+    // the limit is the answer to guessing the server password. A join that succeeds is the
+    // session of an account with a valid token, and a reload or a reconnection of that
+    // session must not spend the budget an attacker is measured against
+    countFailuresOnly: true
+  }),
+  {
+    // the reloads are no longer counted as guesses, so an account that joins successfully
+    // needs a ceiling of its own: one socket can join as often as it likes, and every join
+    // reads the whole initial state of the server
+    maxRequests: config.rateLimiters.joinServerBurst.maxRequests,
+    windowMs: config.rateLimiters.joinServerBurst.windowMs,
+    logLabel: 'joinServerBurst'
+  }
+)
   .input(
     z.object({
       handshakeHash: z.string(),
