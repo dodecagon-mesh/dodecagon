@@ -15,28 +15,49 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # the version check runs on its own, without needs, so a merge that forgot to
-  # bump package.json fails in seconds instead of after the whole pipeline
-  version-check:
-    name: Version Check
+  # the next patch is computed from the tags, so a merge is the only manual
+  # step. a manual major/minor bump in package.json wins when it is ahead of
+  # the tags; the commit itself is not rewritten and no push is needed here
+  version:
+    name: Next Version
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      version: ${{ steps.next.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Get new version
-        id: get_version
-        run: echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
-
-      - name: Fail if version is already released
+      - name: Compute the next version
+        id: next
         run: |
-          TAG="v${{ steps.get_version.outputs.version }}"
+          set -euo pipefail
+
           git fetch --tags --force origin
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            echo "Tag $TAG already exists. Bump package.json version in the PR to release." >&2
-            exit 1
+
+          latest="$(git tag --list 'v*' --sort=-v:refname | head -n 1)"
+          pkg="$(jq -r .version package.json)"
+
+          if [ -n "$latest" ]; then
+            tag="${latest#v}"
+
+            # a manual major/minor bump is newer than the last release and must
+            # not be reduced to a patch of the tag
+            if [ "$pkg" != "$tag" ] && [ "$(printf '%s\n%s\n' "$pkg" "$tag" | sort -V | tail -n 1)" = "$pkg" ]; then
+              version="$pkg"
+            else
+              version="$(printf '%s' "$tag" | awk -F. -v OFS=. '{ $NF = $NF + 1; print }')"
+            fi
+          else
+            version="$(printf '%s' "$pkg" | awk -F. -v OFS=. '{ $NF = $NF + 1; print }')"
           fi
+
+          case "$version" in
+            *[!0-9.]*|.*|*.) echo "unexpected version '$version'" >&2; exit 1 ;;
+          esac
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version (latest tag: ${latest:-none}, package: $pkg)"
 
   # `ci` and `e2e` are reusable workflow calls; `timeout-minutes` is not a
   # supported keyword there. Their timeouts live in the called workflows
@@ -48,9 +69,13 @@ jobs:
     uses: ./.github/workflows/e2e.yml
 
   build-and-publish:
-    needs: [version-check, ci, e2e]
+    needs: [version, ci, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # the build is versioned from the computed value; package.json is not
+    # rewritten and the artifacts, tag, release and Docker image all agree
+    env:
+      DODECAGON_BUILD_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -62,7 +87,7 @@ jobs:
 
       - name: Get new version
         id: get_version
-        run: echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+        run: echo "version=${{ needs.version.outputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: Get container image name
         id: get_image

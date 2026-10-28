@@ -9,6 +9,9 @@ import { fsAllow } from './vite-fs-allow';
 // https://vite.dev/config/
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+  // the release workflow computes the next version from the tags and passes it
+  // here, so package.json does not have to be rewritten for every release
+  const buildVersion = process.env.DODECAGON_BUILD_VERSION || pkg.version;
 
   return {
     plugins: [
@@ -51,7 +54,7 @@ export default defineConfig(({ command, mode }) => {
       }
     },
     define: {
-      VITE_APP_VERSION: JSON.stringify(pkg.version),
+      VITE_APP_VERSION: JSON.stringify(buildVersion),
       VITE_SERVER_PORT: JSON.stringify(env.SERVER_PORT || '4991')
     },
     server: {

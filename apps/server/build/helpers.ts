@@ -172,6 +172,12 @@ const downloadMediasoupBinary = async (
 };
 
 const getCurrentVersion = async () => {
+  // the release workflow computes the next version from the tags and passes it
+  // to the build, so package.json is not rewritten for every release
+  if (process.env.DODECAGON_BUILD_VERSION) {
+    return process.env.DODECAGON_BUILD_VERSION;
+  }
+
   const pkg = JSON.parse(await fs.readFile(rootPckJson, 'utf8'));
 
   return pkg.version;
