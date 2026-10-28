@@ -1,7 +1,15 @@
 import { closeOverlay } from '@/features/overlays/actions';
 import { useOverlay } from '@/features/overlays/hooks';
+import { useIsConnected } from '@/features/server/hooks';
 import { memoizeImport, warmImportsWhenIdle } from '@/helpers/prefetch';
-import { createElement, lazy, memo, Suspense, type ComponentType } from 'react';
+import {
+  createElement,
+  lazy,
+  memo,
+  Suspense,
+  useEffect,
+  type ComponentType
+} from 'react';
 import { Dialog } from './dialogs';
 
 const loadConfirmAction = memoizeImport(() => import('./confirm-action'));
@@ -95,26 +103,38 @@ const DialogsMap = {
   [Dialog.KEYBOARD_SHORTCUTS]: KeyboardShortcutsDialog
 };
 
-warmImportsWhenIdle([
-  loadConfirmAction,
-  loadCreateChannel,
-  loadTextInput,
-  loadServerPassword,
-  loadSounds,
-  loadSoundSettings,
-  loadAssignRole,
-  loadCreateInvite,
-  loadCreateCategory,
-  loadPluginInstallConfirm,
-  loadDeleteUser,
-  loadSearch,
-  loadWelcomeProfileSetup,
-  loadVoiceDebug,
-  loadKeyboardShortcuts
-]);
+let warmedDialogs = false;
 
 const DialogsProvider = memo(() => {
   const overlay = useOverlay();
+  const isConnected = useIsConnected();
+
+  useEffect(() => {
+    // the sign in screen has no dialogs to open, and the chunks of the whole app
+    // must not compete with its own load on a slow connection
+    if (!isConnected || warmedDialogs) return;
+
+    warmedDialogs = true;
+
+    warmImportsWhenIdle([
+      loadConfirmAction,
+      loadCreateChannel,
+      loadTextInput,
+      loadServerPassword,
+      loadSounds,
+      loadSoundSettings,
+      loadAssignRole,
+      loadCreateInvite,
+      loadCreateCategory,
+      loadPluginInstallConfirm,
+      loadDeleteUser,
+      loadSearch,
+      loadWelcomeProfileSetup,
+      loadVoiceDebug,
+      loadKeyboardShortcuts
+    ]);
+  }, [isConnected]);
+
   if (!overlay || overlay.kind !== 'dialog') return null;
 
   const DialogComponent = DialogsMap[overlay.name];

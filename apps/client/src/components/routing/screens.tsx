@@ -30,7 +30,10 @@ const ServerView = lazy(() =>
   loadServerView().then(({ ServerView }) => ({ default: ServerView }))
 );
 
-warmImportsWhenIdle([loadConnect, loadDisconnected, loadServerView]);
+// the server view is the app route's own chunk, warming it from here downloads
+// the whole chat on the sign in screen, where the next screen may be the same
+// form again. only the two small screens that replace each other are warmed
+warmImportsWhenIdle([loadConnect, loadDisconnected]);
 
 // the screens live in the routes of the router now. this component renders them
 // without a router, the tests of the interface use it to look at one screen

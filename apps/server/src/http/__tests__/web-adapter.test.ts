@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
+import zlib from 'node:zlib';
 import { sendWebResponse, toWebRequest } from '../web-adapter';
 
 const createRequest = (url: string, method = 'GET', body?: string) => {
@@ -59,6 +60,60 @@ describe('the web adapter', () => {
     expect(res.statusCode).toBe(201);
     expect(res.getHeader('content-type')).toContain('application/json');
     expect(Buffer.concat(chunks).toString()).toBe('{"status":"ok"}');
+  });
+
+  test('compresses html and marks it for revalidation', async () => {
+    const req = createRequest('/');
+    req.headers['accept-encoding'] = 'br';
+
+    const res = new ServerResponse(req);
+    const chunks: Buffer[] = [];
+
+    res.write = ((chunk: Buffer) => {
+      chunks.push(Buffer.from(chunk));
+
+      return true;
+    }) as typeof res.write;
+
+    const html = '<!doctype html><p>hello</p>'.repeat(80);
+
+    await sendWebResponse(
+      res,
+      new Response(html, { headers: { 'content-type': 'text/html' } })
+    );
+
+    expect(res.getHeader('content-encoding')).toBe('br');
+    expect(res.getHeader('vary')).toContain('Accept-Encoding');
+    expect(res.getHeader('cache-control')).toBe('no-cache');
+    expect(zlib.brotliDecompressSync(Buffer.concat(chunks)).toString()).toBe(
+      html
+    );
+  });
+
+  test('leaves a response uncompressed when the client asks for identity', async () => {
+    const req = createRequest('/');
+    req.headers['accept-encoding'] = 'identity';
+
+    const res = new ServerResponse(req);
+    const chunks: Buffer[] = [];
+
+    res.write = ((chunk: Buffer) => {
+      chunks.push(Buffer.from(chunk));
+
+      return true;
+    }) as typeof res.write;
+
+    await sendWebResponse(
+      res,
+      new Response('<!doctype html><p>hello</p>', {
+        headers: { 'content-type': 'text/html' }
+      })
+    );
+
+    expect(res.getHeader('content-encoding')).toBeUndefined();
+    expect(Buffer.concat(chunks).toString()).toBe(
+      '<!doctype html><p>hello</p>'
+    );
   });
 
   test('keeps every cookie of the response apart', async () => {

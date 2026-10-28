@@ -255,7 +255,13 @@ const handleSocketClose = async (ws: WebSocket) => {
 
 const createWsServer = async (server: http.Server) => {
   return new Promise<WebSocketServer>((resolve) => {
-    wss = new WebSocketServer({ server });
+    // the initial join and the channel payloads are json and repeat their keys;
+    // a small frame is not worth the zlib call, the bigger ones are most of the
+    // bytes a slow client receives
+    wss = new WebSocketServer({
+      server,
+      perMessageDeflate: { threshold: 1024 }
+    });
 
     wss.on('connection', (ws) => {
       try {

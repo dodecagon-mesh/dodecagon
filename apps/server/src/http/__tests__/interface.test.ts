@@ -1,8 +1,29 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import fs from 'fs';
+import http from 'node:http';
+import zlib from 'node:zlib';
 import path from 'path';
 import { testsBaseUrl } from '../../__tests__/setup';
 import { INTERFACE_PATH } from '../../helpers/paths';
+
+// fetch decompresses transparently, so the raw bytes of a compressed asset can
+// only be checked through the http client
+const getRawResponse = (
+  url: string,
+  headers: Record<string, string>
+): Promise<{ body: Buffer; headers: http.IncomingHttpHeaders }> =>
+  new Promise((resolve, reject) => {
+    const request = http.get(new URL(url, testsBaseUrl), { headers }, (res) => {
+      const chunks: Buffer[] = [];
+
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () =>
+        resolve({ body: Buffer.concat(chunks), headers: res.headers })
+      );
+    });
+
+    request.on('error', reject);
+  });
 
 describe('/interface', () => {
   const testInterfacePath = INTERFACE_PATH;
@@ -35,6 +56,10 @@ describe('/interface', () => {
     if (!fs.existsSync(testCssPath)) {
       fs.writeFileSync(testCssPath, 'body { margin: 0; }');
     }
+
+    const compressiblePath = path.join(assetsDir, 'compressible-abcdef12.js');
+
+    fs.writeFileSync(compressiblePath, `console.log("${'x'.repeat(4096)}");`);
 
     const fileWithSpaces = path.join(
       testInterfacePath,
@@ -346,6 +371,26 @@ describe('/interface', () => {
     expect(response.headers.get('Cache-Control')).toBe(
       'public, max-age=31536000, immutable'
     );
+  });
+
+  test('should compress a large asset and keep the identity variant apart', async () => {
+    const compressed = await getRawResponse(
+      '/assets/compressible-abcdef12.js',
+      { 'Accept-Encoding': 'br' }
+    );
+
+    expect(compressed.headers['content-encoding']).toBe('br');
+    expect(compressed.headers.vary).toContain('Accept-Encoding');
+    expect(zlib.brotliDecompressSync(compressed.body).toString()).toContain(
+      'console.log'
+    );
+
+    const identity = await getRawResponse('/assets/compressible-abcdef12.js', {
+      'Accept-Encoding': 'identity'
+    });
+
+    expect(identity.headers['content-encoding']).toBeUndefined();
+    expect(identity.body.toString()).toContain('console.log');
   });
 
   test('should use no-cache policy for non-hashed asset files', async () => {
