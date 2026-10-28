@@ -5,6 +5,9 @@ import type { ChannelType } from './types';
 export enum ActivityLogType {
   SERVER_STARTED = 'SERVER_STARTED',
   EDIT_SERVER_SETTINGS = 'EDIT_SERVER_SETTINGS',
+  // a manual update replaces the code the server runs, so who asked for it is part of
+  // the record: the request is logged before the install, a failed one is logged too
+  SERVER_UPDATE_REQUESTED = 'SERVER_UPDATE_REQUESTED',
   // -------------------- USERS --------------------
   USER_CREATED = 'USER_CREATED',
   USER_JOINED = 'USER_JOINED',
@@ -56,6 +59,12 @@ export enum ActivityLogType {
 
 export type TActivityLogDetailsMap = {
   [ActivityLogType.SERVER_STARTED]: {};
+  [ActivityLogType.SERVER_UPDATE_REQUESTED]: {
+    // absent when the release was not resolved yet, for example on a transport failure
+    targetVersion?: string;
+    fromVersion: string;
+    allowDowngrade: boolean;
+  };
   [ActivityLogType.EDIT_SERVER_SETTINGS]: {
     values: Partial<{
       [K in keyof TSettings]: any;

@@ -173,6 +173,7 @@ const zConfig = z.object({
     handshake: zRateLimiter,
     updatePassword: zRateLimiter,
     adminCreate: zRateLimiter,
+    adminUpdate: zRateLimiter,
     voiceTransport: zRateLimiter,
     voiceStream: zRateLimiter,
     voiceReaction: zRateLimiter,
@@ -310,6 +311,12 @@ const defaultConfig: TConfig = {
     },
     adminCreate: {
       maxRequests: 60,
+      windowMs: 60_000
+    },
+    adminUpdate: {
+      // one call installs a binary: a retry is a new download, and a loop of them restarts
+      // the server over and over. the endpoint answers the caller long before this budget
+      maxRequests: 3,
       windowMs: 60_000
     },
     voiceTransport: {
