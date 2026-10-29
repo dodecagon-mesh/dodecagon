@@ -66,11 +66,15 @@ export type TVoiceProducerInfo = {
   paused: boolean;
 };
 
-// the client waits longer than the server so a server fallback always wins the race
-export const DIRECT_MEDIA_CONNECT_TIMEOUT_MS = 8000;
-export const DIRECT_MEDIA_AUDIO_CONNECT_TIMEOUT_MS = 5000;
-export const DIRECT_MEDIA_SERVER_CONNECT_TIMEOUT_MS = 7500;
-export const DIRECT_MEDIA_SERVER_AUDIO_CONNECT_TIMEOUT_MS = 4500;
+// the client waits longer than the server so a server fallback always wins the race.
+// negotiation covers offer/answer and the native announce; connection starts at the
+// answer, once both peers can actually begin the DHT handshake and ICE.
+export const DIRECT_MEDIA_CONNECT_TIMEOUT_MS = 15000;
+export const DIRECT_MEDIA_AUDIO_CONNECT_TIMEOUT_MS = 15000;
+export const DIRECT_MEDIA_NEGOTIATION_TIMEOUT_MS = 25000;
+export const DIRECT_MEDIA_SERVER_CONNECT_TIMEOUT_MS = 12000;
+export const DIRECT_MEDIA_SERVER_AUDIO_CONNECT_TIMEOUT_MS = 12000;
+export const DIRECT_MEDIA_SERVER_NEGOTIATION_TIMEOUT_MS = 20000;
 export const DIRECT_MEDIA_SDP_MAX_LENGTH = 65536;
 
 export const DIRECT_MEDIA_KINDS = [

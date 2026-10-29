@@ -167,6 +167,11 @@ const useDirectMedia = ({
     )
       return;
     const trpc = getTRPCClient();
+    void getHolepunchMedia()
+      ?.warm?.()
+      .catch((error: unknown) => {
+        logVoiceError('direct media: warm failed', error);
+      });
     let active = true;
     const waiters = readyWaiters.current;
     const subscription = trpc.voice.onDirectMediaSignal.subscribe(

@@ -1,6 +1,7 @@
 import {
   DIRECT_MEDIA_SERVER_AUDIO_CONNECT_TIMEOUT_MS,
   DIRECT_MEDIA_SERVER_CONNECT_TIMEOUT_MS,
+  DIRECT_MEDIA_SERVER_NEGOTIATION_TIMEOUT_MS,
   ServerEvents,
   StreamKind,
   type TChannelState,
@@ -861,6 +862,23 @@ class VoiceRuntime {
     peerId: number
   ) => `${senderId}-${kind}-${peerId}`;
 
+  private armDirectMediaDeadline = (
+    session: TDirectMediaRuntimeSession,
+    timeout: number
+  ): void => {
+    clearTimeout(session.deadline);
+    session.deadline = setTimeout(() => {
+      if (this.directMediaSessions.get(session.id) !== session) return;
+      session.endReason = 'deadline';
+      void this.endDirectMediaSession(session, {
+        type: 'fallback',
+        latchFailure: true,
+        restoreRelay: true
+      });
+    }, timeout);
+    session.deadline.unref();
+  };
+
   public startDirectMedia = (
     senderId: number,
     kind: TDirectMediaKind,
@@ -904,20 +922,10 @@ class VoiceRuntime {
         this.captureDirectMediaRelayConsumers(senderId, peer.userId, kind)
       );
     }
-    const timeout =
-      kind === StreamKind.AUDIO
-        ? DIRECT_MEDIA_SERVER_AUDIO_CONNECT_TIMEOUT_MS
-        : DIRECT_MEDIA_SERVER_CONNECT_TIMEOUT_MS;
-    session.deadline = setTimeout(() => {
-      if (this.directMediaSessions.get(session.id) !== session) return;
-      session.endReason = 'deadline';
-      void this.endDirectMediaSession(session, {
-        type: 'fallback',
-        latchFailure: true,
-        restoreRelay: true
-      });
-    }, timeout);
-    session.deadline.unref();
+    this.armDirectMediaDeadline(
+      session,
+      DIRECT_MEDIA_SERVER_NEGOTIATION_TIMEOUT_MS
+    );
     this.directMediaSessions.set(session.id, session);
     this.directMediaOutgoing.set(outgoingKey, session.id);
     return {
@@ -1025,6 +1033,12 @@ class VoiceRuntime {
       });
       session.phase = 'answered';
       session.answeredAt = Date.now();
+      this.armDirectMediaDeadline(
+        session,
+        session.kind === StreamKind.AUDIO
+          ? DIRECT_MEDIA_SERVER_AUDIO_CONNECT_TIMEOUT_MS
+          : DIRECT_MEDIA_SERVER_CONNECT_TIMEOUT_MS
+      );
     } else {
       invariant(userId === session.peerId && session.phase === 'answered', {
         code: 'BAD_REQUEST',

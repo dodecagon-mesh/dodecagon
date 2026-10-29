@@ -15,6 +15,7 @@ import type {
 import {
   DIRECT_MEDIA_AUDIO_CONNECT_TIMEOUT_MS,
   DIRECT_MEDIA_CONNECT_TIMEOUT_MS,
+  DIRECT_MEDIA_NEGOTIATION_TIMEOUT_MS,
   StreamKind,
   type TDirectMediaEvent,
   type TDirectMediaSession,
@@ -242,7 +243,7 @@ export class DirectMedia {
           true,
           'negotiation_timeout'
         );
-      }, this.getConnectTimeout()),
+      }, DIRECT_MEDIA_NEGOTIATION_TIMEOUT_MS),
       resolve,
       settled: false,
       established: false,
@@ -333,6 +334,19 @@ export class DirectMedia {
       this.pinIdentity(peer, event);
       markP2PPhase(peer.diagnosticRef, 'answer_received');
       peer.phase = 'answering';
+      const attempt = peer.outgoing;
+      if (attempt) {
+        clearTimeout(attempt.timer);
+        attempt.timer = setTimeout(() => {
+          this.failOutgoing(
+            attempt,
+            undefined,
+            true,
+            true,
+            'negotiation_timeout'
+          );
+        }, this.getConnectTimeout());
+      }
       try {
         const endpoint = peer.nativeEndpoint;
         const media = peer.nativeMedia;
@@ -706,7 +720,7 @@ export class DirectMedia {
           undefined,
           'negotiation_timeout'
         );
-      }, this.getConnectTimeout());
+      }, DIRECT_MEDIA_NEGOTIATION_TIMEOUT_MS);
       this.listenForConnection(peer);
       connection.addEventListener(
         'track',
@@ -748,6 +762,18 @@ export class DirectMedia {
       });
       if (!this.isActivePeer(peer)) return;
       markP2PPhase(peer.diagnosticRef, 'answer_sent');
+      const received = peer;
+      clearTimeout(received.timer);
+      received.timer = setTimeout(() => {
+        this.failPeer(
+          received,
+          undefined,
+          true,
+          true,
+          undefined,
+          'negotiation_timeout'
+        );
+      }, this.getConnectTimeout());
       peer.phase = 'answered';
       this.readyIncoming(peer);
     } catch (error) {
