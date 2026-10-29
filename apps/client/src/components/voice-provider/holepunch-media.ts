@@ -1,5 +1,6 @@
 export type THolepunchMedia = {
   version: 1;
+  warm?: () => Promise<void>;
   create: (options: { sessionId: string }) => Promise<{
     publicKey: string;
     port: number;

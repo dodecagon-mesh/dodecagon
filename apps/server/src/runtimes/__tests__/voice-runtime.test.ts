@@ -1,5 +1,5 @@
 import { ServerEvents, StreamKind } from '@dodecagon/shared';
-import { describe, expect, spyOn, test } from 'bun:test';
+import { describe, expect, spyOn, test, vi } from 'bun:test';
 import type { Consumer, Producer } from 'mediasoup/types';
 import { getTestVoiceConnection } from '../../__tests__/voice-connection';
 import { config } from '../../config';
@@ -1005,6 +1005,52 @@ describe('VoiceRuntime direct media fallback', () => {
       expect(runtime.startDirectMedia(1, StreamKind.AUDIO, 2)).toBeNull();
       expect(runtime.getRemoteIds(1).remoteAudioIds).toEqual([2]);
     } finally {
+      config.webRtc.holepunchMediaEnabled = previous;
+      await runtime.destroy();
+    }
+  });
+
+  test('a slow answer does not spend the connection budget', async () => {
+    const runtime = createRuntime();
+    runtime.addUser(
+      1,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(1)
+    );
+    runtime.addUser(
+      2,
+      { micMuted: false, soundMuted: false },
+      getTestVoiceConnection(2)
+    );
+    const previous = config.webRtc.holepunchMediaEnabled;
+    config.webRtc.holepunchMediaEnabled = true;
+    vi.useFakeTimers();
+    try {
+      runtime.registerDirectMediaSubscriber(1, true);
+      runtime.registerDirectMediaSubscriber(2, true);
+      const session = runtime.startDirectMedia(1, StreamKind.AUDIO, 2);
+      expect(session).not.toBeNull();
+      await runtime.signalDirectMedia(session!.sessionId, 1, {
+        type: 'offer',
+        sdp: 'v=0\r\n',
+        publicKey: 'a'.repeat(64)
+      });
+      // longer than the old audio deadline, still inside the negotiation budget
+      vi.advanceTimersByTime(5000);
+      expect(
+        runtime.getDirectMediaSession(session!.sessionId, 1)
+      ).toBeDefined();
+      await runtime.signalDirectMedia(session!.sessionId, 2, {
+        type: 'answer',
+        sdp: 'v=0\r\n',
+        publicKey: 'b'.repeat(64)
+      });
+      vi.advanceTimersByTime(5000);
+      expect(
+        runtime.getDirectMediaSession(session!.sessionId, 1)
+      ).toBeDefined();
+    } finally {
+      vi.useRealTimers();
       config.webRtc.holepunchMediaEnabled = previous;
       await runtime.destroy();
     }

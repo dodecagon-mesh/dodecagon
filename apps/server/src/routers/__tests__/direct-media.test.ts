@@ -1505,7 +1505,7 @@ describe('direct screen lifecycle', () => {
   test('expires a pending screen session and latches only that pair until rejoin', async () => {
     const time = clock();
     const { runtime, sender, sending, session } = await prepared();
-    time.advance(8200);
+    time.advance(20000);
     expect(sending.events.map((event) => event.signal.type)).toEqual([
       'fallback'
     ]);
@@ -1539,7 +1539,7 @@ describe('direct screen lifecycle', () => {
       sessionId: session.sessionId,
       signal: { type: 'ready' }
     });
-    time.advance(8200);
+    time.advance(20000);
     expect(sending.events.map((event) => event.signal.type)).toEqual([
       'answer',
       'ready'

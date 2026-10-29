@@ -506,7 +506,7 @@ test('a timed-out attempt keeps the phase timeline and the failure code', async 
   const subject = fixture();
   const started = subject.start();
   await flush();
-  await clock.advance(8000);
+  await clock.advance(25000);
   expect(await started).toBe('relay');
 
   const record = getP2PDiagnosticsSnapshot().find(
@@ -678,7 +678,7 @@ describe('DirectMedia outgoing lifecycle', () => {
       result = value;
       return value;
     });
-    await clock.advance(7_999);
+    await clock.advance(24_999);
     expect(result).toBeUndefined();
     await clock.advance(1);
     expect(await started).toBe('relay');
@@ -785,7 +785,7 @@ describe('DirectMedia outgoing lifecycle', () => {
     expect(subject.statuses.at(-1)).toBe('direct');
   });
 
-  test('a hanging send stays inside the original eight-second deadline', async () => {
+  test('a hanging send stays inside the negotiation deadline', async () => {
     const prepare = deferred<TDirectMediaSession | null>();
     const sending = deferred<void>();
     const subject = fixture(
@@ -793,7 +793,7 @@ describe('DirectMedia outgoing lifecycle', () => {
       () => sending.promise
     );
     const started = subject.start();
-    await clock.advance(7_000);
+    await clock.advance(24_000);
     prepare.resolve(session());
     await flush();
     await clock.advance(1_000);
@@ -1276,7 +1276,7 @@ describe('DirectMedia incoming lifecycle', () => {
     expect(TestPeer.instances).toHaveLength(1);
     expect(viewer.sent).toEqual([]);
     expect(viewer.streams).toEqual([]);
-    await clock.advance(8_000);
+    await clock.advance(25_000);
     expect(await started).toBe('relay');
     expect(presenter.statuses.at(-1)).toBe('relayed');
     watching = true;
@@ -1459,7 +1459,7 @@ describe('DirectMedia incoming lifecycle', () => {
       delivery.promise
     );
     await flush();
-    await clock.advance(5000);
+    await clock.advance(15000);
 
     expect(subject.streams).toEqual([]);
     expect(subject.sent.at(-1)?.signal).toEqual({ type: 'fallback' });
@@ -1756,7 +1756,7 @@ describe('DirectMedia incoming lifecycle', () => {
       )
     );
     const incoming = TestPeer.instances[1]!;
-    await clock.advance(8_000);
+    await clock.advance(15_000);
     expect(incoming.connectionState).toBe('closed');
     expect(outgoing.closeCount).toBe(0);
     expect(subject.failures).toBe(0);
