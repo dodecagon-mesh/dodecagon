@@ -111,6 +111,7 @@ mock.module('@trpc/client', () => ({
 mock.module('@/helpers/browser-logger', () => ({
   logDebug: () => undefined,
   logVoice: () => undefined,
+  logVoiceWarn: () => undefined,
   logVoiceError: () => undefined
 }));
 mock.module('@/helpers/sounds', () => ({ playSound: () => undefined }));

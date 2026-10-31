@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   captureDiagnostic,
   captureError,
+  captureNetworkDiagnostic,
   initAppSentry,
   initSentry
 } from '../sentry';
@@ -126,6 +127,7 @@ describe('sentry', () => {
         user: { email: 'person@example.com' },
         contexts: {
           p2p: { session_ref: 'abc123', phases: [] },
+          network: { reachability: 'symmetric', distinct_ports: 2 },
           browser: { name: 'Chrome', version: '1.0' },
           os: { name: 'Linux', version: '6.0' },
           response: { body: 'chat text' }
@@ -150,7 +152,8 @@ describe('sentry', () => {
     expect(scrubbed.contexts).toEqual({
       browser: { name: 'Chrome', version: '1.0' },
       os: { name: 'Linux', version: '6.0' },
-      p2p: { session_ref: 'abc123', phases: [] }
+      p2p: { session_ref: 'abc123', phases: [] },
+      network: { reachability: 'symmetric', distinct_ports: 2 }
     });
     expect(scrubbed.request).toBeUndefined();
     expect(scrubbed.extra).toBeUndefined();
@@ -158,5 +161,47 @@ describe('sentry', () => {
     expect(scrubbed.breadcrumbs).toEqual([
       { category: 'console', level: 'error', timestamp: 1 }
     ]);
+  });
+
+  it('reports the network verdict without the mapped address', async () => {
+    await initSentry('https://public@errors.example.com/2');
+
+    const capture = spyOn(Sentry, 'captureEvent');
+
+    try {
+      captureNetworkDiagnostic({
+        reachability: 'symmetric',
+        distinctPorts: 2,
+        answeredServers: 2,
+        servers: [
+          'stun:stun.l.google.com:19302',
+          'stuns:stun.example.org:5349'
+        ],
+        usedFallback: false,
+        gatherMs: 42
+      });
+
+      const event = capture.mock.calls[0]?.[0];
+
+      expect(event).toMatchObject({
+        level: 'info',
+        message: 'network.reachability',
+        tags: { area: 'network', 'network.reachability': 'symmetric' },
+        contexts: {
+          network: {
+            reachability: 'symmetric',
+            distinct_ports: 2,
+            answered_servers: 2,
+            // only the host of each stun url leaves the browser, never a path
+            servers: ['stun.l.google.com', 'stun.example.org'],
+            used_fallback: false,
+            gather_ms: 42
+          }
+        },
+        fingerprint: ['network.reachability', 'symmetric']
+      });
+    } finally {
+      capture.mockRestore();
+    }
   });
 });

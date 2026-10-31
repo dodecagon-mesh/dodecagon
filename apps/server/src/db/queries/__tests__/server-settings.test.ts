@@ -1,5 +1,26 @@
 import { expect, test } from 'bun:test';
+import { config } from '../../../config';
 import { getPublicSettings } from '../server';
+
+test('public settings carry the STUN list the media transports use', async () => {
+  const savedStun = config.webRtc.directScreenStunUrls;
+  const savedTurn = config.webRtc.turnUrls;
+
+  config.webRtc.directScreenStunUrls = ['stun:stun.example.org:3478'];
+  config.webRtc.turnUrls = ['turn:turn.example.org:3478'];
+
+  try {
+    const settings = await getPublicSettings();
+
+    expect(settings.webRtcStunUrls).toEqual(['stun:stun.example.org:3478']);
+    // TURN endpoints and the shared secret stay on the server
+    expect(settings).not.toHaveProperty('turnUrls');
+    expect(settings).not.toHaveProperty('turnSecret');
+  } finally {
+    config.webRtc.directScreenStunUrls = savedStun;
+    config.webRtc.turnUrls = savedTurn;
+  }
+});
 
 test('public branding includes the configured server name and explicit absent logo without exposing its token', async () => {
   const settings = await getPublicSettings();

@@ -6,6 +6,7 @@ import {
   BellIcon,
   CommandLineIcon,
   CubeIcon,
+  GlobeAltIcon,
   KeyIcon,
   PaintBrushIcon,
   UserIcon
@@ -17,6 +18,7 @@ import { SettingsShell } from '../settings-shell';
 import type { TSettingsEntry } from '../settings-shell/types';
 import { Devices } from './devices';
 import { Keybindings } from './keybindings';
+import { Network } from './network';
 import { Notifications } from './notifications';
 import { Others } from './others';
 import { Password } from './password';
@@ -42,6 +44,12 @@ const UserSettings = memo(({ close, initialEntryId }: TUserSettingsProps) => {
         label: t('devicesTab'),
         icon: HeadphonesIcon,
         content: <Devices />
+      },
+      {
+        id: 'network',
+        label: t('networkTab'),
+        icon: GlobeAltIcon,
+        content: <Network />
       },
       {
         id: 'password',

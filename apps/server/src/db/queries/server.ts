@@ -53,6 +53,7 @@ const getPublicSettings: () => Promise<TPublicServerSettings> = async () => {
     enablePlugins: settings.enablePlugins,
     webRtcSimulcastEnabled: settings.webRtcSimulcastEnabled,
     webRtcMaxBitrate: config.webRtc.maxBitrate,
+    webRtcStunUrls: [...config.webRtc.directScreenStunUrls],
     enableSearch: settings.enableSearch,
     showWelcomeDialog: settings.showWelcomeDialog,
     storageSignedUrlsEnabled: settings.storageSignedUrlsEnabled,

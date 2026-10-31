@@ -2,6 +2,7 @@ import { Dialog } from '@/components/dialogs/dialogs';
 import { logDebug } from '@/helpers/browser-logger';
 import { reloadForServerVersion } from '@/helpers/client-reload';
 import { getHostFromServer } from '@/helpers/get-file-url';
+import { reportNetworkStatusOnBoot } from '@/helpers/network-status';
 import { initAppSentry } from '@/helpers/sentry';
 import { playSound } from '@/helpers/sounds';
 import {
@@ -78,6 +79,9 @@ export const setPublicServerSettings = (
 ) => {
   store.dispatch(serverSliceActions.setPublicSettings(settings));
   initAppSentry(settings?.sentryDsn);
+  // the reachability of this device decides whether direct media can work at
+  // all, and the answer belongs in the log of every session that can report it
+  reportNetworkStatusOnBoot(settings?.webRtcStunUrls ?? []);
 };
 
 export const setInfo = (info: TServerInfo | undefined) => {

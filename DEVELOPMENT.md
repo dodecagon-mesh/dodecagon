@@ -120,6 +120,25 @@ Holepunch performs native peer discovery and hole punching, rather than using
 the browser direct-media STUN/TURN path. Existing SFU ICE and TURN configuration
 continues to apply to mediasoup connections.
 
+### Network status
+
+**User Settings > Network status** answers the question a failed direct
+connection always raises: does this network allow one? The check gathers server
+reflexive candidates from the STUN list the server publishes
+(`webRtc.directScreenStunUrls`, exposed to clients as `webRtcStunUrls`) and
+compares the public port every server reports for the same local socket. One
+stable port means an endpoint independent mapping, so peers can reach this
+device directly. A different port per destination means a symmetric mapping,
+where direct media cannot be established and everything falls back to the
+server relay. A server that publishes fewer than two STUN entries is topped up
+with public ones, and the page says so.
+
+The result is written to the renderer log as a `[VOICE] network status` line
+with the mapped addresses, so a user can hand over the file instead of
+reproducing a call. The same verdict is reported to the deployment's own
+Sentry-compatible tracker as `network.reachability`, with the counts and the
+server hosts but never the mapped address.
+
 ## Voice-only mode
 
 Enable **Voice-only mode** in **User Settings > Devices** to send and receive
