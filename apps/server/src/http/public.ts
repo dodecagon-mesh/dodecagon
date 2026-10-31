@@ -8,7 +8,7 @@ import { files } from '../db/schema';
 import { verifyFileToken } from '../helpers/files-crypto';
 import { PUBLIC_PATH } from '../helpers/paths';
 import { logger } from '../logger';
-import { sendFile, sendJsonError } from './helpers';
+import { IMMUTABLE_CACHE_CONTROL, sendFile, sendJsonError } from './helpers';
 
 const INLINE_ALLOW_LIST = [
   'image/png',
@@ -19,6 +19,8 @@ const INLINE_ALLOW_LIST = [
   'video/mp4',
   'audio/mpeg'
 ];
+
+const FALLBACK_CACHE_CONTROL = 'public, max-age=300';
 
 const publicRouteHandler = async (
   req: http.IncomingMessage,
@@ -62,6 +64,8 @@ const publicRouteHandler = async (
   const { storageSignedUrlsEnabled, logoId } = await getSettings();
   const isSignedUrlProtected = storageSignedUrlsEnabled && dbFile.id !== logoId;
 
+  let cacheControl = FALLBACK_CACHE_CONTROL;
+
   // server logo is the only exception to signed URLs
   if (isSignedUrlProtected) {
     const accessTokenParam = url.searchParams.get('accessToken');
@@ -92,6 +96,19 @@ const publicRouteHandler = async (
 
       return;
     }
+
+    // the token bounds the answer, so the browser cannot keep it past the expiry
+    const remainingSeconds = Math.max(
+      0,
+      Math.ceil((expiresAt - Date.now()) / 1000)
+    );
+
+    cacheControl = `private, max-age=${remainingSeconds}`;
+  } else if (url.searchParams.get('v') === dbFile.md5) {
+    // a deleted file frees its original name for the next upload, so the name
+    // alone says nothing about the bytes behind it. only a url that carries the
+    // md5 of the content can be kept forever
+    cacheControl = IMMUTABLE_CACHE_CONTROL;
   }
 
   const filePath = path.join(PUBLIC_PATH, dbFile.name);
@@ -112,7 +129,7 @@ const publicRouteHandler = async (
   );
 
   await sendFile(req, res, filePath, {
-    cacheControl: 'no-store',
+    cacheControl,
     md5: dbFile.md5,
     contentType: dbFile.mimeType,
     contentDisposition: `${contentDisposition}; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`,
