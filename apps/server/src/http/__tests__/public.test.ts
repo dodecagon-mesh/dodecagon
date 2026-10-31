@@ -703,7 +703,7 @@ describe('/public', () => {
     expect(response.headers.get('Accept-Ranges')).toBe('bytes');
   });
 
-  test('should include cache validators but prevent caching media responses', async () => {
+  test('should include cache validators and let media responses be cached', async () => {
     const file = filesToCreate[0];
     const dbFile = await getFileByMessageId(file!.messageId!);
 
@@ -714,8 +714,61 @@ describe('/public', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('ETag')).toBeDefined();
     expect(response.headers.get('Last-Modified')).toBeDefined();
-    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Cache-Control')).toBe('public, max-age=300');
     expect(response.headers.get('Vary')).toBe('Range');
+  });
+
+  test('should cache a content addressed media response forever', async () => {
+    const file = filesToCreate[0];
+    const dbFile = await getFileByMessageId(file!.messageId!);
+
+    const response = await fetch(
+      `${testsBaseUrl}/public/${encodeURIComponent(dbFile!.name)}?v=${dbFile!.md5}`
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe(
+      'public, max-age=31536000, immutable'
+    );
+  });
+
+  test('should fall back to the short policy when the hash does not match', async () => {
+    const file = filesToCreate[0];
+    const dbFile = await getFileByMessageId(file!.messageId!);
+
+    const response = await fetch(
+      `${testsBaseUrl}/public/${encodeURIComponent(dbFile!.name)}?v=not-the-hash`
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('public, max-age=300');
+  });
+
+  test('should repeat the cache policy of the media response on a 304', async () => {
+    const file = filesToCreate[0];
+    const dbFile = await getFileByMessageId(file!.messageId!);
+
+    const firstResponse = await fetch(
+      `${testsBaseUrl}/public/${encodeURIComponent(dbFile!.name)}?v=${dbFile!.md5}`
+    );
+    const etag = firstResponse.headers.get('ETag');
+
+    expect(firstResponse.status).toBe(200);
+    expect(etag).toBeDefined();
+
+    const secondResponse = await fetch(
+      `${testsBaseUrl}/public/${encodeURIComponent(dbFile!.name)}?v=${dbFile!.md5}`,
+      {
+        headers: {
+          'If-None-Match': etag!
+        }
+      }
+    );
+
+    expect(secondResponse.status).toBe(304);
+    expect(secondResponse.headers.get('Cache-Control')).toBe(
+      'public, max-age=31536000, immutable'
+    );
   });
 
   test('should return 304 when If-None-Match matches ETag', async () => {
@@ -1007,7 +1060,16 @@ describe('/public', () => {
 
     expect(response.status).toBe(200);
 
-    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    const cacheControl = response.headers.get('Cache-Control');
+
+    expect(cacheControl).toStartWith('private, max-age=');
+
+    const remainingSeconds = Number(
+      cacheControl!.replace('private, max-age=', '')
+    );
+
+    expect(remainingSeconds).toBeGreaterThanOrEqual(1);
+    expect(remainingSeconds).toBeLessThanOrEqual(3600);
 
     const responseText = await response.text();
 

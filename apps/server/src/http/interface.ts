@@ -4,9 +4,8 @@ import path from 'path';
 import { isPathInside } from '../helpers/is-path-inside';
 import { INTERFACE_PATH } from '../helpers/paths';
 import { IS_DEVELOPMENT, IS_TEST } from '../utils/env';
-import { sendFile, sendJsonError } from './helpers';
+import { IMMUTABLE_CACHE_CONTROL, sendFile, sendJsonError } from './helpers';
 
-const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 let manifestAssetCache:
   { interfacePath: string; assets: Set<string> } | undefined;
 

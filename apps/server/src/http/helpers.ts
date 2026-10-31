@@ -31,6 +31,8 @@ type HttpRouteHandler<TContext = undefined> = (
   ctx: TContext
 ) => Promise<unknown> | unknown;
 
+const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
 const supportedHttpMethods = [
   'GET',
   'POST',
@@ -566,6 +568,7 @@ export {
   getRequestUrl,
   getTextBody,
   hasPrefixPathSegment,
+  IMMUTABLE_CACHE_CONTROL,
   isSecureRequest,
   isSupportedHttpMethod,
   parseByteRange,

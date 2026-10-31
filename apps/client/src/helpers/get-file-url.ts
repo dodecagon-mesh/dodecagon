@@ -37,18 +37,29 @@ const getFileUrl = (file: TFile | undefined | null) => {
   if (!file) return '';
 
   const url = getUrlFromServer();
+  const params: string[] = [];
 
-  let baseUrl = `${url}/public/${encodeURIComponent(file.name)}`;
+  // the hash lets the server and the browser keep the bytes forever, the name
+  // alone is reused after a delete
+  if (file.md5) {
+    params.push(`v=${encodeURIComponent(file.md5)}`);
+  }
 
   if (file._accessToken) {
-    baseUrl += `?accessToken=${file._accessToken}`;
+    params.push(`accessToken=${file._accessToken}`);
 
     if (file._accessTokenExpiresAt) {
-      baseUrl += `&expires=${file._accessTokenExpiresAt}`;
+      params.push(`expires=${file._accessTokenExpiresAt}`);
     }
   }
 
-  return baseUrl;
+  const baseUrl = `${url}/public/${encodeURIComponent(file.name)}`;
+
+  if (params.length === 0) {
+    return baseUrl;
+  }
+
+  return `${baseUrl}?${params.join('&')}`;
 };
 
 export { getFileUrl, getHostFromServer, getUrlFromServer };
