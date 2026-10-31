@@ -1,18 +1,29 @@
 import { getErrorMessage } from '@dodecagon/shared';
 import { isDebug } from './is-debug';
+import { toLogText } from './log-value';
 import { captureError } from './sentry';
 import { pushVoiceDebugEvent } from './voice-debug';
 
 const logVoice = (message: string, data?: object) => {
   pushVoiceDebugEvent('voice', message, data);
 
-  console.log('%c[VOICE]', 'color: salmon; font-weight: bold;', message, data);
+  console.log(
+    '%c[VOICE]',
+    'color: salmon; font-weight: bold;',
+    message,
+    ...(data === undefined ? [] : [toLogText(data)])
+  );
 };
 
 const logVoiceWarn = (message: string, data?: object) => {
   pushVoiceDebugEvent('warn', message, data);
 
-  console.warn('%c[VOICE]', 'color: orange; font-weight: bold;', message, data);
+  console.warn(
+    '%c[VOICE]',
+    'color: orange; font-weight: bold;',
+    message,
+    ...(data === undefined ? [] : [toLogText(data)])
+  );
 };
 
 const getErrorCode = (error: unknown): string | undefined => {
@@ -32,17 +43,23 @@ const logVoiceError = (message: string, error: unknown, data?: object) => {
 
   captureError(error, { area: 'voice' });
 
+  // the error itself, not its text: a name, a message and a code survive a
+  // transport that flattens objects to "[object Object]"
   console.error(
     '%c[VOICE]',
     'color: red; font-weight: bold;',
     message,
-    payload
+    toLogText({ ...payload, error })
   );
 };
 
 const logDebug = (...args: unknown[]) => {
   if (isDebug()) {
-    console.log('%c[DEBUG]', 'color: lightblue; font-weight: bold;', ...args);
+    console.log(
+      '%c[DEBUG]',
+      'color: lightblue; font-weight: bold;',
+      ...args.map((arg) => (typeof arg === 'string' ? arg : toLogText(arg)))
+    );
   }
 };
 
