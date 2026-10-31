@@ -1,6 +1,7 @@
 import { exposeServerDebugApi } from '@/features/server/actions';
 import { exposePluginStore } from '@/features/server/plugins/plugin-store';
 import { exposeLibs, exposeReact } from '@/helpers/exposes';
+import { registerMediaCacheWorker } from '@/helpers/media-cache';
 import { initAppSentry } from '@/helpers/sentry';
 import { migrateLegacyStorageKeys } from '@/helpers/storage';
 import { i18nReady, prepareLanguageCookie } from '@/i18n';
@@ -18,6 +19,7 @@ exposeReact();
 exposeLibs();
 exposePluginStore();
 exposeServerDebugApi();
+registerMediaCacheWorker();
 
 // the server renders every request in the language of the request, and the
 // choice of the user of the older versions lives in the storage of the browser
