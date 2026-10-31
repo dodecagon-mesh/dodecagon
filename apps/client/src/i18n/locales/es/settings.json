@@ -621,5 +621,15 @@
   "emojisNameColumn": "Nombre",
   "emojisSizeColumn": "Tamaño",
   "emojisActionsColumn": "Acciones",
-  "themesCount": "Temas · {{count}}"
+  "themesCount": "Temas · {{count}}",
+  "cacheTab": "Caché",
+  "cacheTitle": "Caché",
+  "cacheDesc": "Medios que este dispositivo guarda en el disco.",
+  "mediaCacheLabel": "Medios en caché",
+  "mediaCacheDesc": "Las imágenes, avatares y banners se guardan en este dispositivo para no descargarlos otra vez. Al borrarlos se libera el espacio y se descargan de nuevo cuando aparecen.",
+  "mediaCacheUsage": "{{size}} en disco",
+  "clearCache": "Borrar caché",
+  "cacheCleared": "Caché de medios borrada",
+  "cacheClearFailed": "No se pudo borrar la caché de medios",
+  "cacheUnavailable": "Este navegador no permite que el sitio guarde medios en este dispositivo, así que no se guarda nada en caché."
 }
