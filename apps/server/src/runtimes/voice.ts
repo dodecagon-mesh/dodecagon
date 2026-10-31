@@ -280,6 +280,13 @@ class VoiceRuntime {
     return undefined;
   };
 
+  // a runtime a test forgot to destroy still holds its members, and
+  // findRuntimeByUserId would answer with it for a user another test put in a
+  // fresh channel. the suite starts every test from an empty registry instead
+  public static clearRegistryForTests = (): void => {
+    voiceRuntimes.clear();
+  };
+
   public static getVoiceMap = (): TVoiceMap => {
     const map: TVoiceMap = {};
 
@@ -492,7 +499,9 @@ class VoiceRuntime {
       });
     });
 
-    voiceRuntimes.delete(this.id);
+    // a runtime that a channel replaced must not unregister its successor, or
+    // the channel would lose the runtime every later lookup resolves
+    if (voiceRuntimes.get(this.id) === this) voiceRuntimes.delete(this.id);
     this.publishScreenViewers();
 
     eventBus.emit('voice:runtime_closed', {
