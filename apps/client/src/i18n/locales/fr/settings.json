@@ -621,5 +621,15 @@
   "emojisNameColumn": "Nom",
   "emojisSizeColumn": "Taille",
   "emojisActionsColumn": "Actions",
-  "themesCount": "Thèmes · {{count}}"
+  "themesCount": "Thèmes · {{count}}",
+  "cacheTab": "Cache",
+  "cacheTitle": "Cache",
+  "cacheDesc": "Les médias que cet appareil conserve sur le disque.",
+  "mediaCacheLabel": "Médias en cache",
+  "mediaCacheDesc": "Les images, avatars et bannières sont conservés sur cet appareil pour ne pas être téléchargés de nouveau. Les effacer libère l'espace et ils seront téléchargés à nouveau lorsqu'ils s'affichent.",
+  "mediaCacheUsage": "{{size}} sur le disque",
+  "clearCache": "Vider le cache",
+  "cacheCleared": "Cache des médias vidé",
+  "cacheClearFailed": "Échec du vidage du cache des médias",
+  "cacheUnavailable": "Ce navigateur ne permet pas au site de conserver des médias sur cet appareil, donc rien n'est mis en cache."
 }

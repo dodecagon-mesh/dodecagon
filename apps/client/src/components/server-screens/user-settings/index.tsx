@@ -4,6 +4,7 @@ import { Permission, PluginSlot } from '@dodecagon/shared';
 import { HeadphonesIcon } from '@dodecagon/ui';
 import {
   BellIcon,
+  CircleStackIcon,
   CommandLineIcon,
   CubeIcon,
   GlobeAltIcon,
@@ -16,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import type { TServerScreenBaseProps } from '../screens';
 import { SettingsShell } from '../settings-shell';
 import type { TSettingsEntry } from '../settings-shell/types';
+import { Cache } from './cache';
 import { Devices } from './devices';
 import { Keybindings } from './keybindings';
 import { Network } from './network';
@@ -74,6 +76,12 @@ const UserSettings = memo(({ close, initialEntryId }: TUserSettingsProps) => {
         label: t('othersTab'),
         icon: PaintBrushIcon,
         content: <Others />
+      },
+      {
+        id: 'cache',
+        label: t('cacheTab'),
+        icon: CircleStackIcon,
+        content: <Cache />
       }
     ],
     [t]

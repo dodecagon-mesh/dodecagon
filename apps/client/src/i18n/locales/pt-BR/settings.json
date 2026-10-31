@@ -621,5 +621,15 @@
   "emojisIconColumn": "Ícone",
   "emojisNameColumn": "Nome",
   "emojisSizeColumn": "Tamanho",
-  "emojisActionsColumn": "Ações"
+  "emojisActionsColumn": "Ações",
+  "cacheTab": "Cache",
+  "cacheTitle": "Cache",
+  "cacheDesc": "Mídia que este dispositivo mantém no disco.",
+  "mediaCacheLabel": "Mídia em cache",
+  "mediaCacheDesc": "Imagens, avatares e banners ficam neste dispositivo para não serem baixados de novo. Limpá-los libera o espaço e eles são baixados novamente quando exibidos.",
+  "mediaCacheUsage": "{{size}} em disco",
+  "clearCache": "Limpar cache",
+  "cacheCleared": "Cache de mídia limpo",
+  "cacheClearFailed": "Falha ao limpar o cache de mídia",
+  "cacheUnavailable": "Este navegador não permite que o site armazene mídia neste dispositivo, então nada é armazenado em cache."
 }

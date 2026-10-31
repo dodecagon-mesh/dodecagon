@@ -620,5 +620,15 @@
   "emojisNameColumn": "Name",
   "emojisSizeColumn": "Size",
   "emojisActionsColumn": "Actions",
-  "themesCount": "Themes · {{count}}"
+  "themesCount": "Themes · {{count}}",
+  "cacheTab": "Cache",
+  "cacheTitle": "Cache",
+  "cacheDesc": "Media this device keeps on disk.",
+  "mediaCacheLabel": "Cached media",
+  "mediaCacheDesc": "Images, avatars and banners are kept on this device, so they are not downloaded again. Clearing them frees the space and they download again when shown.",
+  "mediaCacheUsage": "{{size}} on disk",
+  "clearCache": "Clear cache",
+  "cacheCleared": "Media cache cleared",
+  "cacheClearFailed": "Failed to clear the media cache",
+  "cacheUnavailable": "This browser does not let the site store media on this device, so nothing is cached."
 }

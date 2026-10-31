@@ -621,5 +621,15 @@
   "emojisIconColumn": "图标",
   "emojisNameColumn": "名称",
   "emojisSizeColumn": "大小",
-  "emojisActionsColumn": "操作"
+  "emojisActionsColumn": "操作",
+  "cacheTab": "缓存",
+  "cacheTitle": "缓存",
+  "cacheDesc": "此设备保存在磁盘上的媒体文件。",
+  "mediaCacheLabel": "已缓存媒体",
+  "mediaCacheDesc": "图片、头像和横幅会保存在此设备上，因此不会重复下载。清除它们可以释放空间，再次显示时会重新下载。",
+  "mediaCacheUsage": "磁盘占用 {{size}}",
+  "clearCache": "清除缓存",
+  "cacheCleared": "媒体缓存已清除",
+  "cacheClearFailed": "清除媒体缓存失败",
+  "cacheUnavailable": "此浏览器不允许网站在此设备上存储媒体文件，因此不会缓存任何内容。"
 }

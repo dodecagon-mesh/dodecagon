@@ -621,5 +621,15 @@
   "emojisNameColumn": "Název",
   "emojisSizeColumn": "Velikost",
   "emojisActionsColumn": "Akce",
-  "themesCount": "Motivy · {{count}}"
+  "themesCount": "Motivy · {{count}}",
+  "cacheTab": "Mezipaměť",
+  "cacheTitle": "Mezipaměť",
+  "cacheDesc": "Média, která toto zařízení uchovává na disku.",
+  "mediaCacheLabel": "Uložená média",
+  "mediaCacheDesc": "Obrázky, avatary a bannery se uchovávají na tomto zařízení, takže se znovu nestahují. Jejich vymazáním uvolníte místo a při zobrazení se stáhnou znovu.",
+  "mediaCacheUsage": "{{size}} na disku",
+  "clearCache": "Vymazat mezipaměť",
+  "cacheCleared": "Mezipaměť médií byla vymazána",
+  "cacheClearFailed": "Vymazání mezipaměti médií se nezdařilo",
+  "cacheUnavailable": "Tento prohlížeč nedovoluje ukládat média tohoto webu na tomto zařízení, takže se nic neukládá."
 }
