@@ -46,9 +46,8 @@ export const getTestVoiceConnection = (userId: number): TVoiceConnection => {
     connections.set(userId, connection);
   }
   if (connection.closed || connection.superseded) {
-    console.log(
-      `[stub] user ${userId} handed out closed=${connection.closed} superseded=${connection.superseded}`,
-      origin.get(connection)
+    process.stdout.write(
+      `[stub] user ${userId} handed out closed=${connection.closed} superseded=${connection.superseded}\n${origin.get(connection) ?? 'no origin'}\n`
     );
   }
   return connection;
