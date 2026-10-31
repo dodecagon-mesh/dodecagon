@@ -4,10 +4,13 @@ import type { ErrorEvent } from '@sentry/react';
 type TSentryModule = typeof SentryModule;
 
 type TTrackerDiagnostic = {
-  level: 'warning';
+  level: 'warning' | 'info';
   message: string;
   tags: Record<string, string>;
-  contexts: { p2p: Record<string, unknown> };
+  contexts: {
+    p2p?: Record<string, unknown>;
+    network?: Record<string, unknown>;
+  };
   fingerprint: string[];
 };
 
@@ -18,7 +21,7 @@ let currentDsn: string | undefined;
 
 // only our own namespaced tags are safe to attach; anything else may carry a
 // URL, a token, a user label or a free-form message
-const SAFE_TAG = /^(?:area|p2p\.[a-z0-9_.-]+)$/i;
+const SAFE_TAG = /^(?:area|p2p\.[a-z0-9_.-]+|network\.[a-z0-9_.-]+)$/i;
 
 const initSentry = async (
   dsn: string | undefined,
@@ -51,8 +54,8 @@ const initSentry = async (
       request: undefined,
       user: undefined,
       extra: undefined,
-      // keep only the contexts the tracker needs to interpret a P2P failure:
-      // our allowlisted timeline plus the browser and OS versions. Everything
+      // keep only the contexts the tracker needs to interpret a media failure:
+      // our allowlisted timelines plus the browser and OS versions. Everything
       // else can contain chat text, URLs or transport details.
       contexts: event.contexts
         ? {
@@ -60,7 +63,10 @@ const initSentry = async (
               ? { browser: event.contexts.browser }
               : {}),
             ...(event.contexts.os ? { os: event.contexts.os } : {}),
-            ...(event.contexts.p2p ? { p2p: event.contexts.p2p } : {})
+            ...(event.contexts.p2p ? { p2p: event.contexts.p2p } : {}),
+            ...(event.contexts.network
+              ? { network: event.contexts.network }
+              : {})
           }
         : undefined,
       tags: Object.fromEntries(
@@ -120,4 +126,56 @@ const captureDiagnostic = (event: TTrackerDiagnostic) => {
   });
 };
 
-export { captureDiagnostic, captureError, initAppSentry, initSentry };
+type TNetworkDiagnostic = {
+  reachability: string;
+  distinctPorts: number;
+  answeredServers: number;
+  servers: string[];
+  usedFallback: boolean;
+  gatherMs: number;
+};
+
+// a stun url is scheme:host:port, and an ipv6 host keeps its brackets
+const stunHost = (url: string): string => {
+  const withoutScheme = url.replace(/^stuns?:/i, '');
+  const bracket = withoutScheme.indexOf(']');
+
+  if (withoutScheme.startsWith('[') && bracket > 0) {
+    return withoutScheme.slice(0, bracket + 1);
+  }
+
+  return withoutScheme.split(':')[0] ?? '';
+};
+
+// the tracker gets the verdict and the shape of the measurement, never the
+// mapped addresses: an event that says the network is symmetric does not need
+// to carry the public ip the same user connected from
+const captureNetworkDiagnostic = (diagnostic: TNetworkDiagnostic): void => {
+  captureDiagnostic({
+    level: 'info',
+    message: 'network.reachability',
+    tags: {
+      area: 'network',
+      'network.reachability': diagnostic.reachability
+    },
+    contexts: {
+      network: {
+        reachability: diagnostic.reachability,
+        distinct_ports: diagnostic.distinctPorts,
+        answered_servers: diagnostic.answeredServers,
+        servers: diagnostic.servers.map(stunHost),
+        used_fallback: diagnostic.usedFallback,
+        gather_ms: diagnostic.gatherMs
+      }
+    },
+    fingerprint: ['network.reachability', diagnostic.reachability]
+  });
+};
+
+export {
+  captureDiagnostic,
+  captureError,
+  captureNetworkDiagnostic,
+  initAppSentry,
+  initSentry
+};

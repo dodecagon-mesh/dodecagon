@@ -70,6 +70,9 @@ export type TPublicServerSettings = Pick<
   | 'storageSignedUrlsEnabled'
 > & {
   webRtcMaxBitrate: number;
+  // the STUN list the media transports use, so a client can run the same
+  // reachability check the transports would without joining a call
+  webRtcStunUrls: string[];
   logo: TFile | null;
   // a Sentry-compatible DSN is public by design; each self-hosted server can
   // point its clients at its own tracker without rebuilding the client
