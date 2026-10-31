@@ -14,6 +14,7 @@ import { clearRateLimitersForTests } from '../utils/rate-limiters/rate-limiter';
 import { clearUserSocketsForTests } from '../utils/wss';
 import { setTestDb } from './mock-db';
 import { restoreTestDb } from './test-db-template';
+import { resetTestVoiceConnections } from './voice-connection';
 
 /**
  * Global test setup - creates a fresh isolated database before each test.
@@ -186,6 +187,7 @@ beforeEach(() => {
   clearRateLimitersForTests();
   clearVoiceMoveGrantsForTests();
   clearUserSocketsForTests();
+  resetTestVoiceConnections();
 
   if (sqlite) {
     try {
